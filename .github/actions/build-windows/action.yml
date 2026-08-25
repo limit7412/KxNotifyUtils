@@ -123,17 +123,36 @@ runs:
       run: |
         $dependents = dumpbin /nologo /dependents KxNotifyUtils.exe
         if ($LASTEXITCODE -ne 0) { throw "dumpbin が終了コード $LASTEXITCODE で失敗した" }
-        $dependents | Write-Host
 
-        # Crystal の Windows 配布物が持つ DLL。
-        # openvr_api.dll は実行時に LoadLibrary で解決するためインポートに出ない。
+        # 依存を 1 つも読み取れていないなら、確認そのものが成り立っていない。
+        # 何も出ていないのを「依存が無い」と読むと、この確認は素通りするだけになる。
+        $imports = $dependents |
+          Select-String -Pattern '^\s{4}(\S+\.dll)$' |
+          ForEach-Object { $_.Matches[0].Groups[1].Value }
+        if (-not $imports) {
+          $dependents | Write-Host
+          throw "dumpbin の出力から依存 DLL を読み取れなかった"
+        }
+
+        # 実行時に LoadLibrary で解決する openvr_api.dll はインポートに出ないため、
+        # ここに並ぶのは Windows が最初から持っている DLL だけになるはずである。
+        Write-Host "インポートしている DLL:"
+        $imports | Sort-Object | ForEach-Object { Write-Host "  $_" }
+
+        # Crystal の Windows 配布物が同梱する DLL。
         $bundled = @(
           "gc.dll", "pcre.dll", "pcre2-8.dll", "zlib1.dll", "iconv-2.dll",
           "libssl-3-x64.dll", "libcrypto-3-x64.dll",
           "libxml2.dll", "yaml.dll", "mpir.dll", "libffi.dll"
         )
-        $found = $bundled | Where-Object { $dependents -match ("(?i)\b" + [regex]::Escape($_)) }
+        $found = $imports | Where-Object { $bundled -contains $_.ToLowerInvariant() }
         if ($found) {
           throw "exe が同梱前提の DLL に依存している: $($found -join ', ')"
         }
+
+        # 実行ページから見えるようにジョブの要約へも残す。
+        $summary = @("### exe がインポートしている DLL", "") +
+          ($imports | Sort-Object | ForEach-Object { "- ``$_``" })
+        $summary -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
         Write-Host "同梱前提の DLL への依存は無い"
