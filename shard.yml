@@ -1,0 +1,15 @@
+name: kx_notify_utils
+version: 0.1.0
+description: |
+  監視対象（ソース）から通知を集め、通知先（シンク）へ中継する Windows 常駐アプリケーション。
+
+authors:
+  - limit7412
+
+targets:
+  kx_notify_utils:
+    main: src/main.cr
+
+crystal: ">= 1.10.0"
+
+license: MIT
