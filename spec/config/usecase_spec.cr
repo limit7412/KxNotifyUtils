@@ -11,6 +11,17 @@ private def usecase(stored : String? = nil, existing_files = [] of String, png_f
 end
 
 describe Config::Usecase do
+  # 例外で抜けると load が捕まえられず、既定値で起動するはずの経路がアプリ終了になる。
+  it "オブジェクトでない通知先セクションを、例外ではなく検証エラーにする" do
+    ["null", "[1, 2]", "3", %("text")].each do |raw|
+      target, _ = usecase(stored: %({"sinks": {"xsoverlay": #{raw}}}))
+
+      errors = target.load
+      errors.should_not be_empty
+      errors.map(&.message).any?(&.includes?("書式")).should be_true
+    end
+  end
+
   describe "読めなかった設定ファイルの扱い" do
     # 既定値で書き戻すと、利用者が直す前にルールごと内容を失う。
     it "読めていない間は自動の保存で書き出さず、反映だけを行う" do

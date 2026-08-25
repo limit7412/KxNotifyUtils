@@ -136,7 +136,13 @@ module Config
     # 将来用の未知のキーを数に入れると、実際には送信先が無い設定を通してしまうためである。
     private def validate_sinks(root : Root, errors : Array(ValidationError)) : Nil
       buildable = root.sinks.select { |id, _| @section_validators.has_key?("sinks.#{id}") }
-      enabled = buildable.count { |_, section| section["enabled"]?.try(&.as_bool?) != false }
+      # オブジェクトでないセクションは有効として数える。
+      # 書式そのものの誤りは各アダプタの検証がエラーにするので、
+      # ここで「有効な通知先が無い」と重ねて言う必要はない。
+      # なお as_h? を挟まず添字を引くと、null や配列を書かれたときに例外で落ちる。
+      enabled = buildable.count do |_, section|
+        section.as_h?.try(&.["enabled"]?).try(&.as_bool?) != false
+      end
       if enabled.zero?
         errors << ValidationError.new("通知先", "有効な通知先が 1 つも無い")
       end

@@ -30,6 +30,8 @@ module Runtime
 
     # メニューが選ばれたときに呼ぶフック。
     property on_command : Proc(Command, Nil) = ->(_command : Command) {}
+    # メニュー表示中に一定間隔で呼ぶフック。composition root が主ループ 1 拍分を登録する。
+    property on_idle : Proc(Nil) = -> { }
     # 中継の一時停止の状態。メニューのチェック表示に使う。
     property paused : Bool = false
     # SteamVR 連携が使えるか。使えないときは登録と解除を選べなくする。
@@ -37,6 +39,11 @@ module Runtime
     property steamvr_registered : Bool = false
 
     getter? quit_requested : Bool = false
+
+    # メニュー表示中に主ループを進めるためのタイマー。
+    # 間隔は主ループの 1 拍（10 ミリ秒）に合わせる。
+    IDLE_TIMER_ID          =  1_u64
+    IDLE_TIMER_INTERVAL_MS = 10_u32
 
     # ウィンドウプロシージャは C の関数ポインタとして渡すためクロージャを作れない。
     # 実体へ戻るための参照をクラス変数に置く。
@@ -50,6 +57,8 @@ module Runtime
       # Explorer が再起動するとシェル側のアイコンだけが消える。
       # このメッセージを受け取ったら登録し直す。
       @taskbar_created = 0_u32
+      # メニューを表示している間だけ真。入れ子で開かないための印である。
+      @menu_open = false
     end
 
     # メッセージ専用ウィンドウを作り、トレイアイコンを登録する。
@@ -160,9 +169,14 @@ module Runtime
     # 右クリックとダブルクリックでメニューを出す。
     # TPM_RETURNCMD を使い、選ばれた項目 ID をその場で受け取る。
     private def show_menu : Nil
+      # メニュー表示中の on_idle から間接的にメッセージが配られることがある。
+      # 入れ子で開くと、内側が閉じるまで外側が戻らない。
+      return if @menu_open
+
       menu = LibWin32.create_popup_menu
       return if menu.null?
 
+      @menu_open = true
       begin
         append(menu, Command::TogglePause, @paused ? "中継を再開" : "中継を一時停止", checked: @paused)
         append(menu, Command::SendTestMessage, "テスト通知を送信")
@@ -185,6 +199,11 @@ module Runtime
         # メニューを出す前に前面化しないと、メニュー外をクリックしても閉じない。
         LibWin32.set_foreground_window(@hwnd)
 
+        # TrackPopupMenu は選択かキャンセルまで戻らず、その間 pump も主ループも止まる。
+        # 通知のポーリングと WebSocket の接続維持まで止まってしまうため、
+        # タイマーを仕掛けておく。WM_TIMER はメニューのメッセージループが配ってくれる。
+        LibWin32.set_timer(@hwnd, IDLE_TIMER_ID, IDLE_TIMER_INTERVAL_MS, Pointer(Void).null)
+
         selected = LibWin32.track_popup_menu(
           menu,
           LibWin32::TPM_RIGHTBUTTON | LibWin32::TPM_NONOTIFY | LibWin32::TPM_RETURNCMD,
@@ -195,7 +214,9 @@ module Runtime
         command = Command.from_value?(selected)
         @on_command.call(command) if command
       ensure
+        LibWin32.kill_timer(@hwnd, IDLE_TIMER_ID)
         LibWin32.destroy_menu(menu)
+        @menu_open = false
       end
     end
 
@@ -219,6 +240,11 @@ module Runtime
       end
 
       case message
+      when LibWin32::WM_TIMER
+        return false unless w_param == IDLE_TIMER_ID
+        # メニューを閉じたあとに取り残されたタイマーで動かないよう、表示中だけ進める。
+        @on_idle.call if @menu_open
+        true
       when LibWin32::WM_TRAY_CALLBACK
         event = l_param.to_u32!
         show_menu if event == LibWin32::WM_RBUTTONUP || event == LibWin32::WM_LBUTTONDBLCLK

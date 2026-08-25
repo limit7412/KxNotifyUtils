@@ -14,6 +14,7 @@ module Runtime
     WM_QUERYENDSESSION = 0x0011_u32
     WM_ENDSESSION      = 0x0016_u32
     WM_QUIT            = 0x0012_u32
+    WM_TIMER           = 0x0113_u32
     WM_RBUTTONUP       = 0x0205_u32
     WM_LBUTTONDBLCLK   = 0x0203_u32
     WM_APP             = 0x8000_u32
@@ -134,6 +135,9 @@ module Runtime
       menu : Handle, flags : UInt32, x : Int32, y : Int32,
       reserved : Int32, hwnd : Handle, rect : Void*
     ) : Int32
+    fun set_timer = SetTimer(hwnd : Handle, id : UInt64, interval_ms : UInt32, callback : Void*) : UInt64
+    fun kill_timer = KillTimer(hwnd : Handle, id : UInt64) : Int32
+
     fun get_cursor_pos = GetCursorPos(point : Point*) : Int32
     fun set_foreground_window = SetForegroundWindow(hwnd : Handle) : Int32
 

@@ -377,18 +377,31 @@ module KxNotifyUtils
     # トレイのメッセージポンプ、libui-ng のステップ、ポーリングを 1 本のスレッドで回す。
     # sleep を挟むことで、WebSocket の接続維持など他のファイバへ実行が渡る。
     private def main_loop : Nil
+      # トレイメニューを開いている間、TrackPopupMenu は選択かキャンセルまで戻らない。
+      # その間もポーリングと WebSocket の接続維持を進めるため、
+      # トレイのタイマーからも 1 拍分を回す。
+      @tray.on_idle = -> { background_step }
+
       until @stopping
         @errors.guard("トレイのメッセージ処理") { @tray.pump }
         break if @tray.quit_requested?
 
-        step_ui
-        retry_source if @source_enabled && !@source_started
-        retry_steamvr if steamvr_retry_needed?
-        @scheduler.step
+        background_step
         break if @scheduler.quit_requested?
 
         sleep 10.milliseconds
       end
+    end
+
+    # 主ループ 1 拍のうち、トレイのメッセージ処理以外。
+    # 主ループからも、トレイメニュー表示中のタイマーからも呼ぶ。
+    private def background_step : Nil
+      step_ui
+      retry_source if @source_enabled && !@source_started
+      retry_steamvr if steamvr_retry_needed?
+      @scheduler.step
+      # 他のファイバへ実行を渡す。WebSocket の接続維持はここで進む。
+      Fiber.yield
     end
 
     # OpenVR につながっていないか、自動登録の決着がついていない間は試し直す。
