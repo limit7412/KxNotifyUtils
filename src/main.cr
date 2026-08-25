@@ -272,6 +272,12 @@ module KxNotifyUtils
     end
 
     private def sync_steamvr : Nil
+      # 印は呼ぶ前に立てる。
+      # 同期の途中で例外が出ると外側の guard が握り、この先の行に届かない。
+      # 印が下りたままだと、設定に残る過去の決着によって再試行の条件も外れ、
+      # 移動した実行ファイルのパスが次の起動まで直らない。
+      @steamvr_sync_pending = true
+
       result = @steamvr.sync(@config.current.steamvr)
       @steamvr_sync_pending = result.outcome.failed?
 
