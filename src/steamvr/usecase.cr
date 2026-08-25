@@ -18,6 +18,28 @@ module SteamVR
     Failed
   end
 
+  # 毎起動時の同期の結果。
+  #
+  # 「何もしなくてよかった」と「やり直す必要があったが失敗した」を分ける。
+  # 一緒にすると、呼び出し側は失敗を知れないまま再試行の機会を失う。
+  enum SyncOutcome
+    # 記録と実状態が合っており、何もしていない。
+    UpToDate
+    # 登録し直した。section を設定へ書き戻す。
+    Reregistered
+    # 登録し直す必要があったが失敗した。あとでやり直す。
+    Failed
+  end
+
+  struct SyncResult
+    getter outcome : SyncOutcome
+    # 設定へ書き戻す内容。Reregistered のときだけ持つ。
+    getter section : ::Config::SteamVRSection?
+
+    def initialize(@outcome : SyncOutcome, @section : ::Config::SteamVRSection? = nil)
+    end
+  end
+
   # スタートアップ登録と終了イベントの処理（仕様書 4.5 節）。
   class Usecase
     Log = ::Log.for("steamvr")
@@ -124,16 +146,15 @@ module SteamVR
     # 毎起動時の同期。
     # 登録済みの記録があり実行ファイルが移動していれば、SteamVR 側のキャッシュを確実に更新するため
     # マニフェストの書き換えだけで済ませず再登録まで行う。
-    # 戻り値は steamvr セクションに書き戻すべき内容であり、変更が不要なら nil を返す。
-    def sync(section : ::Config::SteamVRSection) : ::Config::SteamVRSection?
-      return nil unless @repository.opened?
-      return nil unless section.auto_launch_registered
+    def sync(section : ::Config::SteamVRSection) : SyncResult
+      return SyncResult.new(SyncOutcome::UpToDate) unless @repository.opened?
+      return SyncResult.new(SyncOutcome::UpToDate) unless section.auto_launch_registered
 
       # 記録が登録済みでも、SteamVR の再インストールや設定の初期化で
       # アプリ登録だけが消えていることがある。実状態も確かめる。
       registered = @repository.auto_launch?(APP_KEY)
       if !moved?(section) && @store.exists?(@manifest_path) && registered
-        return nil
+        return SyncResult.new(SyncOutcome::UpToDate)
       end
 
       if registered
@@ -141,7 +162,11 @@ module SteamVR
       else
         Log.info { "SteamVR 側の登録が失われていたため登録し直す" }
       end
-      return nil unless register
+
+      # 失敗したことを呼び出し側へ伝える。
+      # 何もしなくてよかった場合と同じ扱いにすると、
+      # 古い実行ファイルのパスや消えたマニフェストが次の起動まで残る。
+      return SyncResult.new(SyncOutcome::Failed) unless register
 
       # 登録し直した結果をそのまま表す。
       # auto_launch_configured を既定の false のままにすると、
@@ -150,7 +175,7 @@ module SteamVR
       updated.auto_launch_registered = true
       updated.last_exe_path = @exe_path
       updated.auto_launch_configured = true
-      updated
+      SyncResult.new(SyncOutcome::Reregistered, updated)
     end
 
     def registered? : Bool

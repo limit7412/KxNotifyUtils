@@ -97,7 +97,7 @@ describe SteamVR::Usecase do
       usecase, repository, _ = build
       section = Config::SteamVRSection.new
 
-      usecase.sync(section).should be_nil
+      usecase.sync(section).outcome.should eq SteamVR::SyncOutcome::UpToDate
       repository.added_manifests.should be_empty
     end
 
@@ -107,7 +107,9 @@ describe SteamVR::Usecase do
       section.auto_launch_registered = true
       section.last_exe_path = "D:/tools/KxNotifyUtils.exe"
 
-      updated = usecase.sync(section).should_not be_nil
+      result = usecase.sync(section)
+      result.outcome.should eq SteamVR::SyncOutcome::Reregistered
+      updated = result.section.should_not be_nil
       updated.last_exe_path.should eq "E:/moved/KxNotifyUtils.exe"
       repository.added_manifests.size.should eq 1
     end
@@ -119,7 +121,7 @@ describe SteamVR::Usecase do
       section.auto_launch_registered = true
       section.last_exe_path = "D:/tools/KxNotifyUtils.exe"
 
-      usecase.sync(section).should be_nil
+      usecase.sync(section).outcome.should eq SteamVR::SyncOutcome::UpToDate
       repository.added_manifests.size.should eq 1
     end
 
@@ -131,7 +133,7 @@ describe SteamVR::Usecase do
       section.auto_launch_registered = true
       section.last_exe_path = "D:/tools/KxNotifyUtils.exe"
 
-      usecase.sync(section).should_not be_nil
+      usecase.sync(section).outcome.should eq SteamVR::SyncOutcome::Reregistered
       repository.auto_launch.should be_true
       repository.added_manifests.size.should eq 2
     end
@@ -142,9 +144,23 @@ describe SteamVR::Usecase do
       section.auto_launch_registered = true
       section.last_exe_path = "D:/tools/KxNotifyUtils.exe"
 
-      usecase.sync(section).should_not be_nil
+      usecase.sync(section).outcome.should eq SteamVR::SyncOutcome::Reregistered
       store.files.should_not be_empty
       repository.added_manifests.size.should eq 1
+    end
+
+    # UpToDate と同じ扱いにすると呼び出し側が失敗を知れず、
+    # 移動した実行ファイルのパスが次の起動まで直らない。
+    it "再登録に失敗したら Failed を返す" do
+      usecase, repository, _ = build("E:/moved/KxNotifyUtils.exe")
+      repository.fail_add = true
+      section = Config::SteamVRSection.new
+      section.auto_launch_registered = true
+      section.last_exe_path = "D:/tools/KxNotifyUtils.exe"
+
+      result = usecase.sync(section)
+      result.outcome.should eq SteamVR::SyncOutcome::Failed
+      result.section.should be_nil
     end
   end
 

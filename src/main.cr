@@ -52,6 +52,8 @@ module KxNotifyUtils
       @source_enabled = false
       # 開始の失敗を利用者へ知らせたか。再試行のたびに同じ通知を出さないために持つ。
       @source_start_notified = false
+      # SteamVR の同期が必要だったのに終わっていないか。再試行の判断に使う。
+      @steamvr_sync_pending = false
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -270,9 +272,12 @@ module KxNotifyUtils
     end
 
     private def sync_steamvr : Nil
-      updated = @steamvr.sync(@config.current.steamvr)
-      return unless updated
-      @config.save(@config.current.with_steamvr(updated.auto_launch_registered, updated.last_exe_path))
+      result = @steamvr.sync(@config.current.steamvr)
+      @steamvr_sync_pending = result.outcome.failed?
+
+      section = result.section
+      return unless section
+      @config.save(@config.current.with_steamvr(section.auto_launch_registered, section.last_exe_path))
     end
 
     private def register_steamvr : Nil
@@ -409,8 +414,12 @@ module KxNotifyUtils
     # 接続だけを見るわけにはいかない。
     # 初期化に成功しても登録が一時的に失敗することはあり、そのまま諦めると
     # 一度も登録しないまま SteamVR の終了に合わせて終わってしまうためである。
+    #
+    # 同期の失敗も同じである。設定には過去の決着が残っているため、
+    # そこだけを見ると、移動した実行ファイルのパスが次の起動まで直らない。
     private def steamvr_retry_needed? : Bool
       return true unless @openvr.opened?
+      return true if @steamvr_sync_pending
       !@config.current.steamvr.auto_launch_configured
     end
 
