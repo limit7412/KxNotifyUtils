@@ -206,8 +206,16 @@ module Config
 
     private def validate_icon(label : String, icon : String, errors : Array(ValidationError)) : Nil
       return if icon == "app" || BUILTIN_ICONS.includes?(icon)
-      return if @repository.file_exists?(icon)
-      errors << ValidationError.new(label, "icon のファイルが見つからない: #{icon}")
+
+      unless @repository.file_exists?(icon)
+        errors << ValidationError.new(label, "icon のファイルが見つからない: #{icon}")
+        return
+      end
+
+      # 内容まで確かめる。PNG 以外を通すと、シンクへは base64 化した中身がそのまま渡り、
+      # 表示できないアイコンとして送られる。
+      return if @repository.png_file?(icon)
+      errors << ValidationError.new(label, "icon のファイルが PNG ではない: #{icon}")
     end
 
     private def validate_sound(label : String, sound : String, errors : Array(ValidationError)) : Nil

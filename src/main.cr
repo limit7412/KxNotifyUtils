@@ -121,7 +121,13 @@ module KxNotifyUtils
 
     private def load_config : Nil
       errors = @config.load
-      Log.error { "設定の検証エラー: #{errors.join(" / ")}" } unless errors.empty?
+      unless errors.empty?
+        Log.error { "設定の検証エラー: #{errors.join(" / ")}" }
+        # 読めなかった設定は既定値で置き換わる。
+        # 黙って始めると、たとえば whitelist が壊れていた場合に、
+        # 除外していたはずの通知が流れ始めたことへ利用者が気付けない。
+        @errors.notify("設定を読めなかった", errors.map(&.to_s).join("\n"))
+      end
       @config.on_apply = ->(root : ::Config::Root) { apply(root) }
       apply(@config.current)
     end

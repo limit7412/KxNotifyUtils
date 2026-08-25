@@ -17,6 +17,28 @@ describe Config::FileRepository do
     end
   end
 
+  describe "#png_file?" do
+    it "PNG のシグネチャを持つファイルだけを受け付ける" do
+      directory = File.tempname("kxnotifyutils-spec")
+      Dir.mkdir_p(directory)
+      png = File.join(directory, "icon.png")
+      File.write(png, String.new(Config::PNG_SIGNATURE) + "rest")
+      text = File.join(directory, "notes.txt")
+      File.write(text, "not a png")
+      short = File.join(directory, "short.png")
+      File.write(short, "PNG")
+
+      repository = Config::FileRepository.new(File.join(directory, "config.json"))
+      repository.png_file?(png).should be_true
+      repository.png_file?(text).should be_false
+      repository.png_file?(short).should be_false
+      repository.png_file?(directory).should be_false
+      repository.png_file?(File.join(directory, "missing.png")).should be_false
+    ensure
+      FileUtils.rm_rf(directory) if directory
+    end
+  end
+
   describe "#save" do
     it "書き出した設定を読み戻せる" do
       directory = File.tempname("kxnotifyutils-spec")

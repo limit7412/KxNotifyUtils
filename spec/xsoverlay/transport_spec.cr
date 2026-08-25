@@ -114,9 +114,19 @@ describe XSOverlay::UdpRepository do
     listener.try(&.close)
   end
 
-  it "ソケットを開いていなければ送信せず false を返す" do
-    repository = XSOverlay::UdpRepository.new(settings(udp_port: 42069))
+  it "開けていなければ送信のときに開き直す" do
+    listener = UDPSocket.new
+    listener.bind "127.0.0.1", 0
+    port = listener.local_address.port
 
-    repository.send_message(message).should be_false
+    # start を呼ばず、開始に失敗したまま置かれた状態を作る。
+    repository = XSOverlay::UdpRepository.new(settings(udp_port: port))
+    repository.send_message(message).should be_true
+
+    payload, _ = listener.receive
+    payload.should_not be_empty
+  ensure
+    repository.try(&.stop)
+    listener.try(&.close)
   end
 end

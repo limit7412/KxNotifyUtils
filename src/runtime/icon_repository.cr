@@ -1,5 +1,6 @@
 require "base64"
 require "log"
+require "../config/repository"
 require "../notify/repository"
 
 module Runtime
@@ -25,8 +26,15 @@ module Runtime
       @cache.clear
     end
 
+    # 設定の検証を通っていても、保存後にファイルが差し替わることはある。
+    # PNG でないものを base64 化して送っても表示できないため、ここでも確かめて既定へ落とす。
     private def read(path : String) : String?
-      Base64.strict_encode(File.read(path))
+      content = File.read(path)
+      unless content.to_slice[0, ::Config::PNG_SIGNATURE.size]? == ::Config::PNG_SIGNATURE
+        Log.warn { "アイコンのファイルが PNG ではない: #{path}" }
+        return nil
+      end
+      Base64.strict_encode(content)
     rescue ex
       Log.warn { "アイコンのファイルを読めなかった: #{path} (#{ex.message})" }
       nil

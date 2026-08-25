@@ -125,6 +125,8 @@ module Fakes
   class ConfigRepository < Config::Repository
     property stored : String?
     property existing_files : Array(String) = [] of String
+    # PNG として扱うファイル。指定が無ければ existing_files をすべて PNG とみなす。
+    property png_files : Array(String)? = nil
     property save_count : Int32 = 0
 
     def initialize(@stored : String? = nil)
@@ -149,6 +151,14 @@ module Fakes
 
     def file_exists?(path : String) : Bool
       @existing_files.includes?(path)
+    end
+
+    def png_file?(path : String) : Bool
+      if files = @png_files
+        files.includes?(path)
+      else
+        @existing_files.includes?(path)
+      end
     end
 
     def modified_at : Time?

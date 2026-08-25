@@ -233,9 +233,11 @@ module Runtime
       box = UIng::Box.new(:vertical, padded: true)
 
       form = UIng::Form.new(padded: true)
-      mode = combo("defaults.timeout_mode", TIMEOUT_MODES)
-      mode.on_selected { |_index| update_timeout_inputs }
-      form.append("表示時間の決め方", mode, false)
+      form.append(
+        "表示時間の決め方",
+        combo("defaults.timeout_mode", TIMEOUT_MODES, -> { update_timeout_inputs }),
+        false,
+      )
       form.append("固定の表示時間 (秒)", entry("defaults.timeout"), false)
       form.append("dynamic: 基準 (秒)", entry("defaults.dynamic_timeout.base"), false)
       form.append("dynamic: 読字速度 (文字/秒)", entry("defaults.dynamic_timeout.reading_speed"), false)
@@ -328,9 +330,7 @@ module Runtime
       right.append(UIng::Label.new("チェックを外した項目は既定の通知設定を継承する"), false)
       RULE_OVERRIDE_ROWS.each do |field|
         row = UIng::Box.new(:horizontal, padded: true)
-        override = check("rule.override.#{field}", field)
-        override.on_toggled { |_checked| update_rule_field_state(field) }
-        row.append(override, false)
+        row.append(check("rule.override.#{field}", field, -> { update_rule_field_state(field) }), false)
         row.append(entry("rule.#{field}"), true)
         right.append(row, false)
       end
@@ -779,18 +779,27 @@ module Runtime
       control
     end
 
-    private def check(key : String, label : String) : UIng::Checkbox
+    # 入力欄ごとの追加処理は on_change で受け取る。
+    # libui-ng が覚えるハンドラは入力欄ごとに 1 つだけなので、
+    # 呼び出し側で登録し直すと mark_dirty が消える。
+    private def check(key : String, label : String, on_change : Proc(Nil)? = nil) : UIng::Checkbox
       control = UIng::Checkbox.new(label)
-      control.on_toggled { |_checked| mark_dirty }
+      control.on_toggled do |_checked|
+        mark_dirty
+        on_change.try(&.call)
+      end
       @checks[key] = control
       control
     end
 
-    private def combo(key : String, items : Array(String)) : UIng::Combobox
+    private def combo(key : String, items : Array(String), on_change : Proc(Nil)? = nil) : UIng::Combobox
       control = UIng::Combobox.new
       items.each { |item| control.append(item) }
       control.selected = 0
-      control.on_selected { |_index| mark_dirty }
+      control.on_selected do |_index|
+        mark_dirty
+        on_change.try(&.call)
+      end
       @combos[key] = control
       control
     end

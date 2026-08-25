@@ -1,8 +1,9 @@
 require "../spec_helper"
 
-private def usecase(stored : String? = nil, existing_files = [] of String)
+private def usecase(stored : String? = nil, existing_files = [] of String, png_files : Array(String)? = nil)
   repository = Fakes::ConfigRepository.new(stored)
   repository.existing_files = existing_files
+  repository.png_files = png_files
   target = Config::Usecase.new(repository)
   # composition root と同じく、組み立てられるシンクの検証を登録する。
   target.register_validator("sinks.xsoverlay") { |section| XSOverlay::Settings.validate(section) }
@@ -139,6 +140,22 @@ describe Config::Usecase do
       rule = Config::Rule.new("com.squirrel.Discord")
       rule.sound = "C:/sounds/discord.wav"
       root.rules << rule
+
+      target.validate(root).should be_empty
+    end
+
+    it "PNG でないアイコンのファイルを弾く" do
+      target, _ = usecase(existing_files: ["C:/icons/notes.txt"], png_files: [] of String)
+      root = Config::Root.default
+      root.defaults.icon = "C:/icons/notes.txt"
+
+      target.validate(root).map(&.message).any?(&.includes?("PNG")).should be_true
+    end
+
+    it "PNG のアイコンは通す" do
+      target, _ = usecase(existing_files: ["C:/icons/discord.png"], png_files: ["C:/icons/discord.png"])
+      root = Config::Root.default
+      root.defaults.icon = "C:/icons/discord.png"
 
       target.validate(root).should be_empty
     end
