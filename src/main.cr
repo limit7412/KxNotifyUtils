@@ -36,6 +36,7 @@ module KxNotifyUtils
   class Application
     def initialize
       @icons = Runtime::IconRepository.new
+      @log_backend = Runtime::DailyFileBackend.new(Runtime::Paths.log_directory)
       @errors = Error::Usecase.new
       @tray = Runtime::Tray.new
       @config = ::Config::Usecase.new(::Config::FileRepository.new(Runtime::Paths.config_path))
@@ -44,7 +45,8 @@ module KxNotifyUtils
       @win_client = WinNotification::FfiClient.new
       @win_source = WinNotification::Repository.new(@win_client, WinNotification::Settings.new)
       @sinks = [] of Notify::PostRepository
-      @sink_transport = nil.as(XSOverlay::Transport?)
+      # 通知先を組み直すかどうかの判断に使う、直前に適用したシンク設定。
+      @sink_signature = ""
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -65,7 +67,7 @@ module KxNotifyUtils
     end
 
     def run : Nil
-      Runtime::Logging.setup
+      Runtime::Logging.setup(@log_backend)
       {% if flag?(:windows) %}
         Runtime::Win32.enable_per_monitor_dpi_awareness
       {% end %}
@@ -104,7 +106,7 @@ module KxNotifyUtils
     # 設定スナップショットを各所へ配る。
     # 差し替えは代入 1 回で終わるため、ポーリング周期の途中で新旧が混ざらない。
     private def apply(root : ::Config::Root) : Nil
-      Runtime::Logging.setup(level: root.log_level)
+      Runtime::Logging.setup(@log_backend, root.log_level)
       @relay.config = root
       @win_source.settings = WinNotification::Settings.from_section(root.source(WinNotification::SOURCE_ID))
       @icons.clear
@@ -142,24 +144,25 @@ module KxNotifyUtils
       rebuild_sinks(@config.current)
     end
 
+    # 送信経路もポートも接続の張り直しが要るため、設定が変わったら通知先を作り直す。
+    # 変わっていなければ何もしない。設定を保存するたびに接続が切れるのを避けるためである。
     private def rebuild_sinks(root : ::Config::Root) : Nil
       settings = XSOverlay::Settings.from_section(root.sink(XSOverlay::SINK_ID))
-      desired = settings.enabled ? settings.transport : nil
-
-      return if desired == @sink_transport
+      signature = settings.enabled ? settings.to_json : ""
+      return if signature == @sink_signature
 
       @sinks.each(&.stop)
       @sinks.clear
-      @sink_transport = desired
-      return unless desired
+      @sink_signature = signature
+      return unless settings.enabled
 
-      sink = case desired
+      sink = case settings.transport
              in XSOverlay::Transport::Websocket then XSOverlay::WebsocketRepository.new(settings)
              in XSOverlay::Transport::Udp       then XSOverlay::UdpRepository.new(settings)
              end
       @sinks << sink
       sink.start
-      Log.info { "通知先を組み立てた: #{sink.sink_id} (#{desired.to_s.downcase})" }
+      Log.info { "通知先を組み立てた: #{sink.sink_id} (#{settings.transport.to_s.downcase})" }
     end
 
     private def start_tray : Nil
@@ -195,7 +198,10 @@ module KxNotifyUtils
     private def start_steamvr : Nil
       @errors.guard("SteamVR の初期化") do
         if @openvr.open
-          register_steamvr if @first_run
+          if @first_run
+            @first_run = false
+            register_steamvr
+          end
           sync_steamvr
         end
         update_tray_state

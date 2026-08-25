@@ -52,14 +52,9 @@ module Runtime
   end
 
   module Logging
-    # 起動直後に呼ぶ。設定を読む前なので、ここでは既定のログレベルで組み立てる。
-    def self.setup(directory : String = Paths.log_directory, level : String = "info") : Nil
-      backend = DailyFileBackend.new(directory)
-      ::Log.setup(severity(level), backend)
-    end
-
-    # 設定の反映でログレベルだけを差し替える。
-    def self.reconfigure(level : String, backend : ::Log::Backend) : Nil
+    # ログレベルを差し替える。
+    # バックエンドは開いたファイルを抱えるため、composition root が持つ 1 つを使い回す。
+    def self.setup(backend : ::Log::Backend, level : String = "info") : Nil
       ::Log.setup(severity(level), backend)
     end
 

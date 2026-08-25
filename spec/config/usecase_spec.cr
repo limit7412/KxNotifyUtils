@@ -59,6 +59,19 @@ describe Config::Usecase do
       repository.save_count.should eq 1
     end
 
+    it "保存しても、それ以前に取り出したスナップショットは変わらない" do
+      target, _ = usecase(Config::Root.default.to_json)
+      target.load
+      before = target.current
+
+      updated = Config::Root.default
+      updated.defaults.volume = 0.9
+      target.save(updated).should be_empty
+
+      before.defaults.volume.should eq 0.5
+      target.current.should_not be before
+    end
+
     it "検証エラーがあるときは保存も反映もしない" do
       target, repository = usecase(Config::Root.default.to_json)
       target.load

@@ -60,6 +60,8 @@ module Fakes
     getter sent : Array(Notify::Message) = [] of Notify::Message
     property fail : Bool = false
     property raise_on_send : Bool = false
+    # 送信のたびに呼ぶフック。送信の途中で状態が変わる場面を作るために使う。
+    property on_send : Proc(Nil) = -> { }
 
     def initialize(@id : String)
     end
@@ -69,6 +71,7 @@ module Fakes
     end
 
     def send_message(message : Notify::Message) : Bool
+      @on_send.call
       raise "送信に失敗した" if @raise_on_send
       return false if @fail
       @sent << message

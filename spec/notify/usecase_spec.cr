@@ -145,6 +145,22 @@ describe Notify::RelayUsecase do
     end
   end
 
+  it "周期の途中で設定を差し替えても、その周期は差し替え前の設定で処理する" do
+    sink = Fakes::Sink.new("xsoverlay")
+    source = Fakes::Source.new("windows", [[incoming, incoming(app_id: "com.example.A")]])
+    usecase = build_usecase([source.as(Notify::SourceRepository)], [sink.as(Notify::PostRepository)])
+
+    # 1 件目を送った直後に、すべてを落とすフィルタへ差し替える。
+    sink.on_send = -> {
+      usecase.config = Config::Root.from_json(%({"filter": {"mode": "whitelist", "apps": []}}))
+      nil
+    }
+
+    usecase.tick
+
+    sink.sent.size.should eq 2
+  end
+
   it "対応する MessageBuilder が無いソースの通知は中継しない" do
     sink = Fakes::Sink.new("xsoverlay")
     usecase = build_usecase([] of Notify::SourceRepository, [sink.as(Notify::PostRepository)])
