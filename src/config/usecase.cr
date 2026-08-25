@@ -33,6 +33,10 @@ module Config
     getter current : Root
     getter repository : Repository
 
+    # current が設定ファイルの内容かどうか。
+    # 読めなかったときは既定値で動くため、その内容でファイルを書き戻してはならない。
+    getter? readable : Bool = true
+
     def initialize(@repository : Repository, @current : Root = Root.default)
       # sources と sinks の各セクションは、そのアダプタが自分で検証する。
       @section_validators = {} of String => Proc(JSON::Any?, Array(String))
@@ -57,12 +61,15 @@ module Config
       errors = validate(root)
       if errors.empty?
         @current = root
+        @readable = true
         @on_apply.call(@current)
       else
+        @readable = false
         Log.error { "設定の検証に失敗したため初期設定で起動する: #{errors.join(" / ")}" }
       end
       errors
     rescue ex : JSON::Error | File::Error
+      @readable = false
       Log.error(exception: ex) { "設定ファイルを読めなかったため初期設定で起動する" }
       [ValidationError.new("全般", "設定ファイルを読めなかった: #{ex.message}")]
     end
@@ -74,27 +81,43 @@ module Config
       errors = validate(root)
       if errors.empty?
         @current = root
+        @readable = true
         @on_apply.call(@current)
         Log.info { "設定を再読み込みした" }
       else
+        @readable = false
         Log.error { "再読み込みした設定が不正なため直前の設定を維持する: #{errors.join(" / ")}" }
       end
       errors
     rescue ex : JSON::Error | File::Error
+      @readable = false
       Log.error(exception: ex) { "設定ファイルを読めなかったため直前の設定を維持する" }
       [ValidationError.new("全般", "設定ファイルを読めなかった: #{ex.message}")]
     end
 
     # 保存は全項目が有効なときだけ行う。
     # 保存が通ったときだけスナップショットを差し替えるため、検証エラーは現在の動作に影響しない。
-    def save(root : Root) : Array(ValidationError)
+    #
+    # 設定ファイルを読めていない間は、書き出さずに反映だけを行う。
+    # このとき current は既定値であり、書き戻すと利用者のルールごとファイルを失う。
+    # 読めなかったファイルはそのまま残してあり、利用者が直せる状態にしておく必要がある。
+    #
+    # overwrite_unreadable は、利用者が設定画面で全項目を確かめて保存したときに真にする。
+    # 壊れたファイルを画面から直す操作そのものなので、ここは書き出さなければならない。
+    def save(root : Root, overwrite_unreadable : Bool = false) : Array(ValidationError)
       errors = validate(root)
       return errors unless errors.empty?
 
-      @repository.save(root)
+      if @readable || overwrite_unreadable
+        @repository.save(root)
+        @readable = true
+        Log.info { "設定を保存した" }
+      else
+        Log.warn { "設定ファイルを読めていないため、書き出さずに反映だけを行う: #{@repository.path}" }
+      end
+
       @current = root
       @on_apply.call(@current)
-      Log.info { "設定を保存した" }
       errors
     end
 

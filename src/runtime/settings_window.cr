@@ -724,7 +724,8 @@ module Runtime
         return
       end
 
-      errors = @config.save(root)
+      # 画面で全項目を確かめたうえでの保存なので、読めなかったファイルもここで置き換える。
+      errors = @config.save(root, overwrite_unreadable: true)
       if errors.empty?
         @draft = @config.current.dup_snapshot
         # 保存の直前に書き戻した match_app_id を一覧の見出しへ反映する。

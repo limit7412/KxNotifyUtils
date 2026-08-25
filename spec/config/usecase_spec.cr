@@ -11,6 +11,32 @@ private def usecase(stored : String? = nil, existing_files = [] of String, png_f
 end
 
 describe Config::Usecase do
+  describe "読めなかった設定ファイルの扱い" do
+    # 既定値で書き戻すと、利用者が直す前にルールごと内容を失う。
+    it "読めていない間は自動の保存で書き出さず、反映だけを行う" do
+      target, repository = usecase(stored: "{ broken")
+      target.load.should_not be_empty
+      target.readable?.should be_false
+      before = repository.save_count
+
+      target.save(target.current.with_steamvr(true, "C:/KxNotifyUtils.exe")).should be_empty
+
+      repository.save_count.should eq before
+      target.current.steamvr.auto_launch_registered.should be_true
+    end
+
+    it "設定画面からの保存は読めていなくても書き出す" do
+      target, repository = usecase(stored: "{ broken")
+      target.load
+      before = repository.save_count
+
+      target.save(Config::Root.default, overwrite_unreadable: true).should be_empty
+
+      repository.save_count.should eq before + 1
+      target.readable?.should be_true
+    end
+  end
+
   describe "#load" do
     it "設定ファイルが無ければ初期設定を書き出す" do
       target, repository = usecase
