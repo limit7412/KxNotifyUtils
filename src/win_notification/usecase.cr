@@ -44,13 +44,22 @@ module WinNotification
       )
     end
 
+    # title テンプレートで置換するプレースホルダ。
+    PLACEHOLDER = /\{(?:app_name|app_id|title|body)\}/
+
     # title テンプレートの展開。
+    # 置換を 1 回の走査で済ませるのは、差し込んだ通知本文の中にプレースホルダらしき文字列が
+    # 含まれていても再解釈しないためである。連鎖した gsub では、たとえば通知タイトルに
+    # "{body}" と書かれていた場合に max_body_length を通さない本文が混ざり込む。
     private def expand(template : String, incoming : Notify::Incoming) : String
-      template
-        .gsub("{app_name}", incoming.app_name)
-        .gsub("{app_id}", incoming.app_id)
-        .gsub("{title}", incoming.title)
-        .gsub("{body}", incoming.body)
+      template.gsub(PLACEHOLDER) do |match|
+        case match
+        when "{app_name}" then incoming.app_name
+        when "{app_id}"   then incoming.app_id
+        when "{title}"    then incoming.title
+        else                   incoming.body
+        end
+      end
     end
 
     # max_body_length を超える本文は切り詰め、切り詰めたことがわかるよう末尾に記号を付ける。

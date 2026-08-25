@@ -10,12 +10,15 @@ module Runtime
     OPENVR_RETRY_INTERVAL = 60.seconds
     # SteamVR の終了イベントを確認する間隔。
     QUIT_POLL_INTERVAL = 1.second
+    # 開始に失敗した通知ソースをやり直す間隔。
+    SOURCE_RETRY_INTERVAL = 30.seconds
 
     getter? quit_requested : Bool = false
 
     def initialize(@relay : Notify::RelayUsecase, @steamvr : SteamVR::Usecase, @errors : Error::Usecase)
       @next_retry = Time.monotonic + OPENVR_RETRY_INTERVAL
       @next_quit_poll = Time.monotonic
+      @next_source_retry = Time.monotonic + SOURCE_RETRY_INTERVAL
     end
 
     # 主ループから繰り返し呼ぶ 1 拍。
@@ -40,6 +43,15 @@ module Runtime
       monotonic = Time.monotonic
       return false if monotonic < @next_retry
       @next_retry = monotonic + OPENVR_RETRY_INTERVAL
+      true
+    end
+
+    # 通知ソースの開始をやり直すべき時刻になったかを返す。
+    # 再試行そのものは composition root が行う。
+    def retry_source? : Bool
+      monotonic = Time.monotonic
+      return false if monotonic < @next_source_retry
+      @next_source_retry = monotonic + SOURCE_RETRY_INTERVAL
       true
     end
   end

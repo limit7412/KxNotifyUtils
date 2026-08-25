@@ -35,6 +35,16 @@ describe WinNotification::MessageBuilder do
     message.title.should eq "Discord: 件名"
   end
 
+  it "差し込んだ通知の文字列をプレースホルダとして解釈しない" do
+    builder = WinNotification::MessageBuilder.new(Fakes::Icons.new)
+
+    message = builder.build(
+      incoming(title: "{body}", body: "あ" * 300),
+      settings(title_template: "{title}", max_body_length: 10),
+    )
+    message.title.should eq "{body}"
+  end
+
   it "max_body_length を超える本文を切り詰める" do
     builder = WinNotification::MessageBuilder.new(Fakes::Icons.new)
 

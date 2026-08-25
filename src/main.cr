@@ -48,6 +48,10 @@ module KxNotifyUtils
       @sink_signature = ""
       # 監視対象を開始済みか。設定で有効と無効が切り替わったときの判断に使う。
       @source_started = false
+      # 設定上は有効か。開始に失敗したまま止まっていないかの判断に使う。
+      @source_enabled = false
+      # 開始の失敗を利用者へ知らせたか。再試行のたびに同じ通知を出さないために持つ。
+      @source_start_notified = false
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -139,15 +143,26 @@ module KxNotifyUtils
     private def build_sources(root : ::Config::Root = @config.current) : Nil
       settings = WinNotification::Settings.from_section(root.source(WinNotification::SOURCE_ID))
       @win_source.settings = settings
+      @source_enabled = settings.enabled
 
       if settings.enabled && !@source_started
         # 初期化に失敗したソースを並べると毎周期ポーリングに失敗し続けるため、
         # 開始できたものだけを中継の対象にする。
-        @errors.guard("Windows 通知ソースの初期化") do
+        begin
           @win_source.start
           @source_started = true
+          @source_start_notified = false
           @relay.sources << @win_source unless @relay.sources.includes?(@win_source)
           guide_notification_access unless @win_source.access_status.allowed?
+        rescue exception
+          # 開始できるまで一定間隔で試し直すため、知らせるのは最初の 1 回だけとする。
+          # 同じ失敗のたびにトレイ通知を出すと、利用者の手が止まる。
+          if @source_start_notified
+            Log.error(exception: exception) { "Windows 通知ソースの初期化" }
+          else
+            @source_start_notified = true
+            @errors.handle("Windows 通知ソースの初期化", exception)
+          end
         end
       elsif !settings.enabled && @source_started
         @relay.sources.delete(@win_source)
@@ -337,6 +352,7 @@ module KxNotifyUtils
         break if @tray.quit_requested?
 
         step_ui
+        retry_source if @source_enabled && !@source_started
         retry_steamvr if steamvr_retry_needed?
         @scheduler.step
         break if @scheduler.quit_requested?
@@ -353,6 +369,16 @@ module KxNotifyUtils
     private def steamvr_retry_needed? : Bool
       return true unless @openvr.opened?
       !@config.current.steamvr.auto_launch_configured
+    end
+
+    # 通知ソースの開始に失敗したままにしない。
+    #
+    # 起動直後は WinRT の初期化が一時的に失敗することがある。
+    # 設定の保存や再読み込みを待つと、その間の通知をすべて取りこぼすため、
+    # 有効なのに開始できていない間は一定間隔でやり直す。
+    private def retry_source : Nil
+      return unless @scheduler.retry_source?
+      build_sources
     end
 
     # SteamVR を後から起動した場合に備え、初期化を一定間隔でやり直す。

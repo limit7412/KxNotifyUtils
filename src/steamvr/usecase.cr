@@ -121,9 +121,13 @@ module SteamVR
       end
       return nil unless register
 
+      # 登録し直した結果をそのまま表す。
+      # auto_launch_configured を既定の false のままにすると、
+      # 呼び出し側がこの戻り値を保存したときに自動登録の再試行が止まらなくなる。
       updated = ::Config::SteamVRSection.new
       updated.auto_launch_registered = true
       updated.last_exe_path = @exe_path
+      updated.auto_launch_configured = true
       updated
     end
 

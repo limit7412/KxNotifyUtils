@@ -273,6 +273,8 @@ module Runtime
         flush_rule_form(errors)
         if errors.empty?
           @selected_rule = index
+          # 書き戻した match_app_id を一覧の見出しへ反映する。
+          reload_rule_list
           load_rule_form
         else
           # 読めない入力を持ったまま切り替えると、その入力が失われる。
@@ -707,6 +709,8 @@ module Runtime
       errors = @config.save(root)
       if errors.empty?
         @draft = @config.current.dup_snapshot
+        # 保存の直前に書き戻した match_app_id を一覧の見出しへ反映する。
+        reload_rule_list
         @close_warned = false
         @dirty = false
         @external_change_label.try { |label| label.text = "" }
@@ -754,7 +758,14 @@ module Runtime
 
       # 破棄した内容をそのままにすると、次に開いたときに再び現れて保存できてしまう。
       # ウィンドウは作り直さず再表示するだけなので、ここで下書きと入力欄を戻す。
-      reset_draft if changed
+      if changed
+        reset_draft
+      else
+        # 編集を元に戻した結果、保存済みの内容と一致した場合である。
+        # 捨てるものは無いが、編集した印は消しておく。
+        # 印が残ったままだと、次に開いたときに設定ファイルの変更を読み直さない。
+        @dirty = false
+      end
       @close_warned = false
       window.hide
     end
