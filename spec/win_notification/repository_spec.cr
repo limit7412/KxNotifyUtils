@@ -113,6 +113,20 @@ describe WinNotification::Repository do
     repository.poll_new.should be_empty
   end
 
+  # 5 秒ごとに走る経路なので、ここで例外を上げると同じ失敗を繰り返し知らせることになる。
+  it "確かめ直しに失敗しても中継を止めず、直前の許可状態を保つ" do
+    client = Fakes::ShimClient.new
+    repository = WinNotification::Repository.new(client, WinNotification::Settings.new, 10.milliseconds)
+    repository.start
+    repository.ready?.should be_true
+
+    client.fail_access_status = true
+    sleep 20.milliseconds
+
+    repository.ready?.should be_true
+    repository.access_status.should eq WinNotification::AccessStatus::Allowed
+  end
+
   it "通知アクセスが未許可の間は中継の対象にならない" do
     client = Fakes::ShimClient.new
     client.status = WinNotification::AccessStatus::Denied

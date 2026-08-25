@@ -54,27 +54,29 @@ describe SteamVR::Usecase do
       usecase, repository, store = build
       usecase.register
 
-      usecase.unregister.should be_true
+      usecase.unregister.should eq SteamVR::UnregisterResult::Succeeded
       repository.auto_launch.should be_false
       repository.removed_manifests.size.should eq 1
       store.files.should be_empty
     end
 
-    it "自動起動の無効化に失敗したら成功を返さず vrmanifest も残す" do
+    it "自動起動の無効化に失敗したら Failed を返し vrmanifest も残す" do
       usecase, repository, store = build
       usecase.register
       repository.fail_set_auto_launch = true
 
-      usecase.unregister.should be_false
+      usecase.unregister.should eq SteamVR::UnregisterResult::Failed
       store.files.should_not be_empty
     end
 
-    it "登録の解除に失敗したら成功を返さず vrmanifest も残す" do
+    # 自動起動を切れた事実を落とすと、次回起動時の同期が登録を復活させる。
+    it "登録の解除だけに失敗したら AutoLaunchOnly を返し vrmanifest は残す" do
       usecase, repository, store = build
       usecase.register
       repository.fail_remove = true
 
-      usecase.unregister.should be_false
+      usecase.unregister.should eq SteamVR::UnregisterResult::AutoLaunchOnly
+      repository.auto_launch.should be_false
       store.files.should_not be_empty
     end
   end

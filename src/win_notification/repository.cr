@@ -4,6 +4,10 @@ require "../notify/repository"
 require "./models"
 
 module WinNotification
+  # シムの呼び出しが失敗したことを表す。境界の利用側はこれだけを捕まえればよい。
+  class ShimError < Exception
+  end
+
   # シムの C API を呼ぶ境界。
   # FFI を直接触るのは実装側（ffi_client.cr）だけで、差分検出の試験ではテスト用実装に差し替える。
   abstract class ShimClient
@@ -71,7 +75,14 @@ module WinNotification
       if Time.monotonic - @access_checked_at >= @access_recheck_interval
         @access_checked_at = Time.monotonic
         previous = @access_status
-        @access_status = @client.access_status
+        # 確かめ直しに失敗しても中継そのものは止めない。
+        # 5 秒ごとに走る経路であり、ここで例外を上げると同じ失敗を繰り返し知らせることになる。
+        begin
+          @access_status = @client.access_status
+        rescue ex : ShimError
+          Log.warn { "通知アクセスの状態を確かめ直せなかった: #{ex.message}" }
+          return @access_status.allowed?
+        end
 
         if previous != @access_status
           Log.info { "通知アクセスの許可状態が変わった: #{previous} -> #{@access_status}" }

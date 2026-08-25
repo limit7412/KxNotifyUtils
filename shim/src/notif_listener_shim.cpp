@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <exception>
 #include <functional>
 #include <mutex>
 #include <queue>
@@ -65,7 +66,20 @@ class Worker {
     ready_ = false;
     failed_ = false;
     stopping_ = false;
-    thread_ = std::thread([this] { run(); });
+
+    // スレッドの生成そのものが失敗しうる。
+    // run 内の例外処理はスレッドが動き始めてからのものなので、ここは別に捕まえる。
+    // 捕まえずに通すと、C++ の例外が C ABI の境界を越えて Crystal 側へ出ていく。
+    try {
+      thread_ = std::thread([this] { run(); });
+    } catch (const std::exception& error) {
+      set_last_error(std::string("WinRT のワーカースレッドを生成できなかった: ") + error.what());
+      return false;
+    } catch (...) {
+      set_last_error("WinRT のワーカースレッドを生成できなかった");
+      return false;
+    }
+
     ready_condition_.wait(lock, [this] { return ready_ || failed_; });
 
     if (failed_) {
@@ -127,10 +141,11 @@ class Worker {
   void run() {
     try {
       init_apartment(apartment_type::multi_threaded);
+    } catch (const hresult_error& error) {
+      fail_start("MTA を初期化できなかった: " + format_exception(error));
+      return;
     } catch (...) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      failed_ = true;
-      ready_condition_.notify_all();
+      fail_start("MTA の初期化で不明な例外が出た");
       return;
     }
 
@@ -155,6 +170,14 @@ class Worker {
     }
 
     uninit_apartment();
+  }
+
+  // 開始に失敗したことを、待っている start() へ伝える。
+  void fail_start(const std::string& message) {
+    set_last_error(message);
+    std::lock_guard<std::mutex> lock(mutex_);
+    failed_ = true;
+    ready_condition_.notify_all();
   }
 
   void join() {
@@ -392,14 +415,22 @@ int32_t access_status_code(UserNotificationListenerAccessStatus status) {
 }  // namespace
 
 int32_t nls_init(void) {
-  if (g_worker.running()) {
+  // ここも C ABI の境界である。想定外の例外もエラーコードへ変える。
+  try {
+    if (g_worker.running()) {
+      return kOk;
+    }
+    if (!g_worker.start()) {
+      return kErrorWorkerFailed;
+    }
     return kOk;
-  }
-  if (!g_worker.start()) {
-    set_last_error("WinRT のワーカースレッドを開始できなかった");
+  } catch (const std::exception& error) {
+    set_last_error(std::string("初期化に失敗した: ") + error.what());
+    return kErrorWorkerFailed;
+  } catch (...) {
+    set_last_error("初期化で不明な例外が出た");
     return kErrorWorkerFailed;
   }
-  return kOk;
 }
 
 void nls_shutdown(void) {

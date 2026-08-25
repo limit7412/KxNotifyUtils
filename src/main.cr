@@ -89,7 +89,14 @@ module KxNotifyUtils
 
       # トレイを先に立てる。
       # 通知アクセスの誘導など、設定の読み込みの途中で利用者へ伝えたいことがあるためである。
-      start_tray
+      #
+      # 立てられなければ起動を終える。
+      # トレイはこのアプリの唯一の操作面であり、無いまま常駐すると
+      # 設定も終了もできないプロセスが、多重起動の抑止によって置き換えもできずに残る。
+      unless start_tray
+        Log.error { "トレイを作れなかった。操作する手立てが無いため起動を終える" }
+        return
+      end
       register_validators
       load_config
       build_sources
@@ -217,10 +224,15 @@ module KxNotifyUtils
       Log.info { "通知先を組み立てた: #{sink.sink_id} (#{settings.transport.to_s.downcase})" }
     end
 
-    private def start_tray : Nil
+    private def start_tray : Bool
       @tray.on_command = ->(command : Runtime::Tray::Command) { handle(command) }
-      @errors.guard("トレイの初期化") { @tray.start }
+      @tray.start
       @errors.notifier = ->(title : String, body : String) { @tray.show_balloon(title, body) }
+      true
+    rescue exception
+      # notifier をまだ登録していないため、ここで伝えられるのはログだけである。
+      Log.error(exception: exception) { "トレイの初期化" }
+      false
     end
 
     # libui-ng の初期化に失敗しても常駐は続ける。設定は JSON の手編集でも行える。
@@ -273,9 +285,21 @@ module KxNotifyUtils
 
     private def unregister_steamvr : Nil
       @errors.guard("SteamVR 登録の解除") do
-        next unless @steamvr.unregister
+        result = @steamvr.unregister
+        next if result.failed?
+
+        # 自動起動を無効にできた時点で設定へ書き戻す。
+        # マニフェストの登録解除だけが失敗した場合に「登録済み」を残すと、
+        # 次回起動時の同期が自動起動を有効に戻してしまう。
         @config.save(@config.current.with_steamvr(false, "", configured: true))
         update_tray_state
+
+        if result.auto_launch_only?
+          @errors.notify(
+            "SteamVR の登録解除が途中で止まった",
+            "自動起動は無効にした。vrmanifest の登録解除に失敗したため、SteamVR 側にアプリの登録が残っている。",
+          )
+        end
       end
     end
 
@@ -394,8 +418,10 @@ module KxNotifyUtils
     end
 
     private def step_ui : Nil
-      return unless @settings_window
+      window = @settings_window
+      return unless window
       UIng.main_step(false)
+      window.tick
     rescue exception
       @errors.handle("設定ウィンドウの処理", exception)
     end

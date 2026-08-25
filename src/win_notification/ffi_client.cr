@@ -6,9 +6,6 @@ require "./repository"
 {% end %}
 
 module WinNotification
-  class ShimError < Exception
-  end
-
   # シムの C API を呼ぶ ShimClient 実装。
   # FFI に触れるのはこのクラスだけで、差分検出も整形もここには置かない。
   #
@@ -32,7 +29,7 @@ module WinNotification
 
     def access_status : AccessStatus
       {% if flag?(:windows) %}
-        AccessStatus.from_code(LibShim.get_access_status)
+        to_access_status(LibShim.get_access_status, "通知アクセスの状態を取得できなかった")
       {% else %}
         AccessStatus::Unknown
       {% end %}
@@ -40,10 +37,18 @@ module WinNotification
 
     def request_access : AccessStatus
       {% if flag?(:windows) %}
-        AccessStatus.from_code(LibShim.request_access)
+        to_access_status(LibShim.request_access, "通知アクセスを要求できなかった")
       {% else %}
         AccessStatus::Unknown
       {% end %}
+    end
+
+    # 負の値はヘッダーが定めるエラーコードであり、許可状態ではない。
+    # Unknown へ丸めると、シムが動いていないのに開始できたことになり、
+    # 実行時エラーが「通知アクセスの問題」として利用者へ案内されてしまう。
+    private def to_access_status(code : Int32, context : String) : AccessStatus
+      raise ShimError.new("#{context} (#{code}): #{last_error}") if code < 0
+      AccessStatus.from_code(code)
     end
 
     # 文字列はシムが確保したものを受け取り、対になる解放関数で必ず返す。

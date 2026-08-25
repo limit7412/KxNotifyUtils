@@ -45,6 +45,10 @@ module Runtime
     # 画面に並べる上書き行。
     RULE_OVERRIDE_ROWS = RULE_FIELDS + DYNAMIC_TIMEOUT_FIELDS.map { |field| "dynamic_timeout.#{field}" }
 
+    # 表示中に状態のラベルを映し直す間隔。
+    # 通知アクセスの確かめ直しがソース側で 5 秒ごとなので、それより短くしても表示は変わらない。
+    STATUS_REFRESH_INTERVAL = 2.seconds
+
     property on_request_steamvr_register : Proc(Nil) = -> { }
     property on_request_steamvr_unregister : Proc(Nil) = -> { }
     property on_open_notification_settings : Proc(Nil) = -> { }
@@ -79,6 +83,8 @@ module Runtime
       @observed_app_ids = [] of String
       # 画面で何かを編集したか。再表示のときに下書きを捨ててよいかの判断に使う。
       @dirty = false
+      # 表示中の状態ラベルを次に映し直す時刻。
+      @next_status_refresh = Time.monotonic
     end
 
     # トレイメニューから開く。既に開いていれば前面化するだけとする。
@@ -639,6 +645,18 @@ module Runtime
       {% if flag?(:windows) %}
         Win32.open_with_shell(REPOSITORY_URL)
       {% end %}
+    end
+
+    # 主ループから毎周期呼ぶ。表示中だけ、一定間隔で状態のラベルを映し直す。
+    #
+    # 利用者が Windows の設定画面で通知アクセスを切り替えても、
+    # 開いたままの画面には届かない。開いた時点の表示が残り続けることになる。
+    def tick(now : Time::Span = Time.monotonic) : Nil
+      return unless @window
+      return if now < @next_status_refresh
+
+      @next_status_refresh = now + STATUS_REFRESH_INTERVAL
+      refresh_status
     end
 
     private def refresh_status : Nil

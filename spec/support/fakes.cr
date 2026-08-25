@@ -90,6 +90,8 @@ module Fakes
   class ShimClient < WinNotification::ShimClient
     property responses : Array(String)
     property status : WinNotification::AccessStatus = WinNotification::AccessStatus::Allowed
+    # 真にすると access_status が ShimError を上げる。シムの呼び出しが失敗した状況を作る。
+    property fail_access_status : Bool = false
     getter opened : Bool = false
 
     def initialize(@responses : Array(String) = [] of String)
@@ -104,6 +106,7 @@ module Fakes
     end
 
     def access_status : WinNotification::AccessStatus
+      raise WinNotification::ShimError.new("シムの呼び出しに失敗した") if @fail_access_status
       @status
     end
 

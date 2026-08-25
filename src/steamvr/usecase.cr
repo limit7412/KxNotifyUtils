@@ -5,6 +5,19 @@ require "./repository"
 
 # SteamVR 連携コンテキスト。
 module SteamVR
+  # 登録解除の結果。
+  #
+  # 自動起動の無効化とマニフェストの登録解除は別々の操作で、片方だけ通ることがある。
+  # 成否の 2 値にまとめると、呼び出し側は「自動起動を無効にできた」事実を設定へ残せない。
+  enum UnregisterResult
+    # 両方できた。
+    Succeeded
+    # 自動起動は無効にできたが、マニフェストの登録解除に失敗した。
+    AutoLaunchOnly
+    # 自動起動を無効にできなかった。
+    Failed
+  end
+
   # スタートアップ登録と終了イベントの処理（仕様書 4.5 節）。
   class Usecase
     Log = ::Log.for("steamvr")
@@ -79,24 +92,25 @@ module SteamVR
 
     # 解除。自動起動を無効にし、登録を外し、生成した vrmanifest も消す。
     #
-    # どちらかの操作が失敗したまま成功を返すわけにはいかない。
-    # 呼び出し側はその結果を設定へ「未登録」として書き戻すため、
-    # SteamVR 側に登録が残ったまま次回起動時の同期も行われない状態になるからである。
-    def unregister : Bool
-      return false unless @repository.opened?
+    # 自動起動を無効にできたかどうかは、マニフェストの登録解除の成否と分けて返す。
+    # まとめて失敗として扱うと、呼び出し側は設定に「登録済み」を残す。
+    # 次回起動時の sync がその記録と実状態の食い違いを「登録が消えた」と読み、
+    # 利用者が解除した自動起動を有効に戻してしまう。
+    def unregister : UnregisterResult
+      return UnregisterResult::Failed unless @repository.opened?
 
       unless @repository.set_auto_launch(APP_KEY, false)
         Log.error { "自動起動の無効化に失敗した" }
-        return false
+        return UnregisterResult::Failed
       end
       unless @repository.remove_application_manifest(@manifest_path)
         Log.error { "vrmanifest の登録解除に失敗した: #{@manifest_path}" }
-        return false
+        return UnregisterResult::AutoLaunchOnly
       end
 
       @store.delete(@manifest_path)
       Log.info { "SteamVR の自動起動を解除した" }
-      true
+      UnregisterResult::Succeeded
     end
 
     # 毎起動時の同期。
