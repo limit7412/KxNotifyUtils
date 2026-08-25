@@ -93,6 +93,13 @@ runs:
       # uing はデバッグ情報の有無で release と debug を選び分けており、
       # Crystal はデバッグ情報を既定で出すため、--release だけでは debug 版が使われる。
       #
+      # --static は配布物を exe 1 ファイルにするために要る。
+      # Crystal の Windows 配布物は依存ライブラリを静的版（z.lib など）と
+      # インポートライブラリ（z-dynamic.lib など）の両方で持っており、
+      # コンパイラは --static なら -static、既定では -dynamic を付けた名前を先に探す。
+      # -static 版は無いので --static では素の名前、つまり静的版へ落ちる。
+      # 付けないと -dynamic 版が選ばれ、zlib1.dll などを要求する exe になる。
+      #
       # 行継続のバッククォートは使わず、リンク引数を変数に組み立ててから 1 行で渡す。
       # また終了コードを自分で確かめる。
       # 失敗したときに何も出力が残らないと原因を追えないためである。
@@ -103,6 +110,49 @@ runs:
         # 置き場所に空白が入っていても壊れないよう、どちらも引用符で囲む。
         $linkFlags = "/LIBPATH:`"$env:GITHUB_WORKSPACE\shim\build\Release`" `"$env:GITHUB_WORKSPACE\res\kxnotifyutils.res`""
         Write-Host "link flags: $linkFlags"
-        crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --link-flags $linkFlags
+        crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --static --link-flags $linkFlags
         Write-Host "crystal build exit code: $LASTEXITCODE"
         if ($LASTEXITCODE -ne 0) { throw "crystal build が終了コード $LASTEXITCODE で失敗した" }
+
+    - name: exe が単体で動くことを確かめる
+      # 配布物は exe 1 ファイルであり、同梱する DLL は無い（仕様書 1 章、8.2 節）。
+      # リンクの仕方を間違えると Crystal が同梱する DLL を要求する exe ができ、
+      # ビルドは通るのに配布先で「zlib1.dll が見つからない」と言われて起動しない。
+      # ここで実際の依存を見て、残っていれば落とす。
+      shell: pwsh
+      run: |
+        $dependents = dumpbin /nologo /dependents KxNotifyUtils.exe
+        if ($LASTEXITCODE -ne 0) { throw "dumpbin が終了コード $LASTEXITCODE で失敗した" }
+
+        # 依存を 1 つも読み取れていないなら、確認そのものが成り立っていない。
+        # 何も出ていないのを「依存が無い」と読むと、この確認は素通りするだけになる。
+        $imports = $dependents |
+          Select-String -Pattern '^\s{4}(\S+\.dll)$' |
+          ForEach-Object { $_.Matches[0].Groups[1].Value }
+        if (-not $imports) {
+          $dependents | Write-Host
+          throw "dumpbin の出力から依存 DLL を読み取れなかった"
+        }
+
+        # 実行時に LoadLibrary で解決する openvr_api.dll はインポートに出ないため、
+        # ここに並ぶのは Windows が最初から持っている DLL だけになるはずである。
+        Write-Host "インポートしている DLL:"
+        $imports | Sort-Object | ForEach-Object { Write-Host "  $_" }
+
+        # Crystal の Windows 配布物が同梱する DLL。
+        $bundled = @(
+          "gc.dll", "pcre.dll", "pcre2-8.dll", "zlib1.dll", "iconv-2.dll",
+          "libssl-3-x64.dll", "libcrypto-3-x64.dll",
+          "libxml2.dll", "yaml.dll", "mpir.dll", "libffi.dll"
+        )
+        $found = $imports | Where-Object { $bundled -contains $_.ToLowerInvariant() }
+        if ($found) {
+          throw "exe が同梱前提の DLL に依存している: $($found -join ', ')"
+        }
+
+        # 実行ページから見えるようにジョブの要約へも残す。
+        $summary = @("### exe がインポートしている DLL", "") +
+          ($imports | Sort-Object | ForEach-Object { "- ``$_``" })
+        $summary -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+        Write-Host "同梱前提の DLL への依存は無い"

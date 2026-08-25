@@ -161,7 +161,8 @@ WinRT の呼び出しだけは別である。
 
 仕様書（issue #1）が未決としていた点のうち、実装で決めたものを挙げる。
 
-- **CRT のリンク設定**：シムは静的 CRT（`/MT`）でビルドする。リンク時に `RuntimeLibrary` の食い違いを見るのは、その記録を持つオブジェクト同士である。Crystal が生成するオブジェクトはこの記録を持たず、C ランタイムはリンク行の `msvcrt.lib` で決まる。記録を持つのは uing が配る `ui.lib` とシムだけで、`ui.lib` は静的 CRT でビルドされている。そのためシムが合わせる相手は Crystal ではなく `ui.lib` になる。静的 CRT を指定すると `libcmt.lib` が既定ライブラリとして要求されるが、uing がリンク行に `/NODEFAULTLIB:LIBCMT` を足すため、C ランタイムは `msvcrt.lib` から解決される。
+- **CRT のリンク設定**：シムは静的 CRT（`/MT`）でビルドする。リンク時に `RuntimeLibrary` の食い違いを見るのは、その記録を持つオブジェクト同士である。Crystal が生成するオブジェクトはこの記録を持たない。記録を持つのは uing が配る `ui.lib` とシムだけで、`ui.lib` は静的 CRT でビルドされている。そのためシムが合わせる相手は Crystal ではなく `ui.lib` になる。本体を `--static` でビルドすると Crystal 側も静的 CRT（`libcmt.lib`）を要求するため、三者が揃う。uing がリンク行へ足す `/NODEFAULTLIB:LIBCMT` が外すのは既定ライブラリの一覧であり、Crystal が絶対パスで明示的に渡す `libcmt.lib` はその対象にならない。
+- **exe を 1 ファイルにするためのリンク**：本体は `--static` でビルドする。Crystal の Windows 配布物は依存ライブラリを静的版（`lib/z.lib` など）とインポートライブラリ（`lib/z-dynamic.lib` など）の両方で持ち、コンパイラは `--static` なら `-static`、既定では `-dynamic` を付けた名前を先に探す。`-static` 版は配布物に無いため `--static` では素の名前、つまり静的版へ落ちる。付けないと `zlib1.dll` や `libcrypto-3-x64.dll` を要求する exe になる。手元では Crystal がそれらの DLL を exe の隣へ複製するので動いてしまい、exe だけを配ったときに初めて起動しない。CI はビルド後に `dumpbin /dependents` で実際の依存を見て、同梱前提の DLL が残っていれば落とす。
 - **uing の静的リンク**：uing 0.2.0 は libui-ng の静的ライブラリを postinstall で取得し、そのままリンクする。fork も設定の上書きも要らなかった。
 - **libui-ng とトレイの共存**：`uiMainStep(0)` を主ループから呼ぶ形で、UI スレッド 1 本に収めた。専用スレッドへの分離はしていない。
 - **openvr のインターフェースバージョン**：`IVRSystem_026` と `IVRApplications_008` に固定した。FnTable の並びは `openvr_capi.h` から機械的に写している。起動時に `VR_IsInterfaceVersionValid` で検証し、通らなければ SteamVR 連携を無効にして常駐を続ける。
