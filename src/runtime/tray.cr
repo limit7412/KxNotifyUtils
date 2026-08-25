@@ -47,6 +47,9 @@ module Runtime
       @instance_handle = Pointer(Void).null
       @icon = Pointer(Void).null
       @added = false
+      # Explorer が再起動するとシェル側のアイコンだけが消える。
+      # このメッセージを受け取ったら登録し直す。
+      @taskbar_created = 0_u32
     end
 
     # メッセージ専用ウィンドウを作り、トレイアイコンを登録する。
@@ -56,6 +59,7 @@ module Runtime
 
       register_window_class
       create_window
+      @taskbar_created = LibWin32.register_window_message_w(Win32.utf16("TaskbarCreated").to_unsafe)
       load_icon
       add_icon
     end
@@ -108,15 +112,21 @@ module Runtime
       raise "トレイのウィンドウクラスを登録できなかった" if LibWin32.register_class_ex_w(pointerof(wnd_class)) == 0
     end
 
+    # 画面に出さないトップレベルウィンドウを作る。
+    #
+    # メッセージ専用ウィンドウ（HWND_MESSAGE を親にしたもの）にはブロードキャストが届かない。
+    # Explorer の再起動を知らせる TaskbarCreated はブロードキャストで飛ぶため、
+    # それを受け取れるトップレベルウィンドウにしておく必要がある。
+    # 表示はしないので、利用者から見た振る舞いはメッセージ専用ウィンドウと変わらない。
     private def create_window : Nil
       class_name = Win32.utf16(CLASS_NAME)
       window_name = Win32.utf16(WINDOW_NAME)
       @hwnd = LibWin32.create_window_ex_w(
         0_u32, class_name.to_unsafe, window_name.to_unsafe, 0_u32,
         0, 0, 0, 0,
-        Win32.hwnd_message, Pointer(Void).null, @instance_handle, Pointer(Void).null,
+        Pointer(Void).null, Pointer(Void).null, @instance_handle, Pointer(Void).null,
       )
-      raise "トレイのメッセージウィンドウを作れなかった" if @hwnd.null?
+      raise "トレイのウィンドウを作れなかった" if @hwnd.null?
     end
 
     # 埋め込んだアプリケーションアイコンを使い、取れなければ既定のアイコンで代用する。
@@ -127,10 +137,13 @@ module Runtime
     end
 
     private def add_icon : Nil
+      raise "トレイアイコンを登録できなかった" unless try_add_icon
+    end
+
+    private def try_add_icon : Bool
       data = notify_icon_data(LibWin32::NIF_MESSAGE | LibWin32::NIF_ICON | LibWin32::NIF_TIP)
       Win32.copy_utf16(data.tip.to_unsafe, 128, WINDOW_NAME)
       @added = LibWin32.shell_notify_icon_w(LibWin32::NIM_ADD, pointerof(data)) != 0
-      raise "トレイアイコンを登録できなかった" unless @added
     end
 
     private def notify_icon_data(flags : UInt32) : LibWin32::NotifyIconData
@@ -198,6 +211,13 @@ module Runtime
     end
 
     protected def handle(message : UInt32, _w_param : LibWin32::WParam, l_param : LibWin32::LParam) : Bool
+      if @taskbar_created != 0 && message == @taskbar_created
+        # Explorer が再起動した。シェル側のアイコンだけが消えているので登録し直す。
+        @added = false
+        Log.info { "タスクバーの再作成を検知したためトレイアイコンを登録し直す" } if try_add_icon
+        return true
+      end
+
       case message
       when LibWin32::WM_TRAY_CALLBACK
         event = l_param.to_u32!

@@ -88,12 +88,21 @@ uing の postinstall が libui-ng の静的ライブラリを GitHub から取�
 
 次の項目は、SteamVR と XSOverlay と HMD が揃った環境でないと確認できない。
 
+最初に確かめるべきなのは通知アクセスの許可である。
+`UserNotificationListener` の許可はパッケージ ID と結びついており、パッケージ化していない exe では `RequestAccessAsync` が `Denied` を返し続けることがある。
+仕様書もこの問題を前提に、失敗時は Windows の設定画面へ誘導する形にしている（実装済み）。
+ただし設定画面にアプリが並ばず、利用者が手で許可することもできない可能性は残っている。
+先行実装の扱いは分かれており、xsoverlay-notifier は MSIX で ID を付与し、xs-notify はパッケージ化せずに `RequestAccessAsync` の結果へ依存している。
+この点は [#4](https://github.com/limit7412/KxNotifyUtils/issues/4) で追う。
+
+- **単体 exe のまま通知アクセスが `Allowed` になること**（ここが通らないと中心機能が動かない）
 - テスト通知が XSOverlay に出ること、実際の通知で件名と本文とアイコンが期待どおりであること
 - XSOverlay を落として再起動したときに中継が復帰し、切断中の通知が捨てられること
 - SteamVR の起動で自動起動し、終了で一緒に終了すること
 - SteamVR より先に手動起動した場合でも、60 秒の再試行で終了の連動が働くこと
 - 実行ファイルを移動したときに vrmanifest が作り直され、次回の SteamVR 起動で新しいパスから起動すること
 - 設定ウィンドウとトレイが同時に動くこと、メニューの操作中もポーリングが止まらないこと
+- Explorer を再起動したあと、トレイアイコンが登録し直されること
 - 表示の高さの係数とアイコンの見え方
 
 高さの係数は `WinNotification::MessageBuilder` の `HEIGHT_PER_CHAR` などにある。

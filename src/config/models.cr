@@ -38,6 +38,37 @@ module Config
   # 設定編集ウィンドウの入力欄も同じ範囲を使う。
   MAX_BODY_LENGTH_RANGE = 0..5000
 
+  # rules で dynamic_timeout の係数を部分的に上書きするための型。
+  # 値を書いた係数だけが defaults を上書きし、書かなかった係数は defaults を継承する。
+  #
+  # 4 つまとまった DynamicTimeout をそのまま持たせるわけにはいかない。
+  # 1 つの係数を変えたいだけでも残り 3 つが実値として固定され、
+  # 以後 defaults を変えてもそのルールだけ追従しなくなるためである。
+  struct DynamicTimeoutOverride
+    include JSON::Serializable
+
+    getter base : Float64?
+    getter reading_speed : Float64?
+    getter min : Float64?
+    getter max : Float64?
+
+    def initialize(@base = nil, @reading_speed = nil, @min = nil, @max = nil)
+    end
+
+    def empty? : Bool
+      @base.nil? && @reading_speed.nil? && @min.nil? && @max.nil?
+    end
+
+    def resolve(defaults : DynamicTimeout) : DynamicTimeout
+      DynamicTimeout.new(
+        base: @base || defaults.base,
+        reading_speed: @reading_speed || defaults.reading_speed,
+        min: @min || defaults.min,
+        max: @max || defaults.max,
+      )
+    end
+  end
+
   # 通知の見た目と鳴り方を決める項目の集合。
   # defaults と rules はどちらもこの項目集合を持ち、rules 側は省略した項目を defaults から継承する。
   struct Resolved
@@ -109,7 +140,7 @@ module Config
 
     property timeout_mode : TimeoutMode?
     property timeout : Float64?
-    property dynamic_timeout : DynamicTimeout?
+    property dynamic_timeout : DynamicTimeoutOverride?
     property max_body_length : Int32?
     property title_template : String?
     property icon : String?
@@ -129,7 +160,7 @@ module Config
       Resolved.new(
         timeout_mode: @timeout_mode || defaults.timeout_mode,
         timeout: @timeout || defaults.timeout,
-        dynamic_timeout: @dynamic_timeout || defaults.dynamic_timeout,
+        dynamic_timeout: @dynamic_timeout.try(&.resolve(defaults.dynamic_timeout)) || defaults.dynamic_timeout,
         max_body_length: @max_body_length || defaults.max_body_length,
         title_template: @title_template || defaults.title_template,
         icon: @icon || defaults.icon,

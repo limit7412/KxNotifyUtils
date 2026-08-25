@@ -107,6 +107,8 @@ module Runtime
 
     fun get_module_handle_w = GetModuleHandleW(module_name : UInt16*) : Handle
     fun create_mutex_w = CreateMutexW(attributes : Void*, initial_owner : Int32, name : UInt16*) : Handle
+    # タスクバーの再作成を知るためのブロードキャストメッセージ ID を得る。
+    fun register_window_message_w = RegisterWindowMessageW(name : UInt16*) : UInt32
     fun get_last_error = GetLastError : UInt32
 
     fun register_class_ex_w = RegisterClassExW(wnd_class : WndClassEx*) : UInt16
@@ -152,11 +154,6 @@ module Runtime
     # 数値のリソース ID を LPCWSTR として渡すための MAKEINTRESOURCE 相当。
     def self.int_resource(id : UInt32) : UInt16*
       Pointer(UInt16).new(id.to_u64)
-    end
-
-    # HWND_MESSAGE。画面に出さないメッセージ専用ウィンドウの親に指定する。
-    def self.hwnd_message : LibWin32::Handle
-      Pointer(Void).new(-3.to_u64!)
     end
 
     # 名前付きミューテックスを取り、このプロセスが最初の 1 つかを返す。

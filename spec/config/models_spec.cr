@@ -28,6 +28,36 @@ describe Config::Root do
       resolved.timeout_mode.should eq Config::TimeoutMode::Dynamic
     end
 
+    it "dynamic_timeout は書いた係数だけを上書きし、残りは defaults を継承する" do
+      root = Config::Root.from_json(<<-JSON)
+        {
+          "defaults": {"dynamic_timeout": {"base": 2.0, "reading_speed": 12, "min": 3.0, "max": 15.0}},
+          "rules": [{"match_app_id": "com.example", "dynamic_timeout": {"base": 5.0}}]
+        }
+        JSON
+
+      dynamic = root.resolve_rule("com.example.App").dynamic_timeout
+      dynamic.base.should eq 5.0
+      dynamic.reading_speed.should eq 12.0
+      dynamic.min.should eq 3.0
+      dynamic.max.should eq 15.0
+    end
+
+    it "defaults を変えると、ルールが上書きしていない係数は追従する" do
+      root = Config::Root.from_json(<<-JSON)
+        {
+          "defaults": {"dynamic_timeout": {"base": 2.0, "reading_speed": 12, "min": 3.0, "max": 15.0}},
+          "rules": [{"match_app_id": "com.example", "dynamic_timeout": {"base": 5.0}}]
+        }
+        JSON
+      root.defaults.dynamic_timeout = Config::DynamicTimeout.new(
+        base: 2.0, reading_speed: 20.0, min: 3.0, max: 15.0)
+
+      dynamic = root.resolve_rule("com.example.App").dynamic_timeout
+      dynamic.base.should eq 5.0
+      dynamic.reading_speed.should eq 20.0
+    end
+
     it "先に書いたルールが勝つ" do
       root = Config::Root.from_json(<<-JSON)
         {

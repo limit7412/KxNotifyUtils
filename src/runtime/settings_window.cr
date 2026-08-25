@@ -454,41 +454,21 @@ module Runtime
       assign_dynamic_timeout(rule, errors)
     end
 
-    # 係数を 1 つでも上書きしていれば dynamic_timeout 全体を持たせる。
-    # 上書きしていない係数は既定の通知設定から埋める。
+    # 上書きした係数だけをルールへ持たせる。
+    # 上書きしていない係数は値を持たせず、ルールの解決時に既定の通知設定から埋まる。
     private def assign_dynamic_timeout(rule : ::Config::Rule, errors : Array(String)?) : Nil
-      overridden = DYNAMIC_TIMEOUT_FIELDS.any? { |field| checked?("rule.override.dynamic_timeout.#{field}") }
-      unless overridden
-        rule.dynamic_timeout = nil
-        return
-      end
-
-      inherited = editing_defaults_dynamic_timeout
-      rule.dynamic_timeout = ::Config::DynamicTimeout.new(
-        base: dynamic_timeout_value("base", inherited.base, errors),
-        reading_speed: dynamic_timeout_value("reading_speed", inherited.reading_speed, errors),
-        min: dynamic_timeout_value("min", inherited.min, errors),
-        max: dynamic_timeout_value("max", inherited.max, errors),
+      override = ::Config::DynamicTimeoutOverride.new(
+        base: dynamic_timeout_value("base", errors),
+        reading_speed: dynamic_timeout_value("reading_speed", errors),
+        min: dynamic_timeout_value("min", errors),
+        max: dynamic_timeout_value("max", errors),
       )
+      rule.dynamic_timeout = override.empty? ? nil : override
     end
 
-    # 継承に使う既定値は、保存済みのものではなく画面で編集中のものを読む。
-    # 既定値とルールを同時に編集して保存したとき、
-    # 上書きしていない係数だけが古い値で固定されないためである。
-    # 読めない入力は既定の通知設定タブ側の検証で拾うので、ここでは記録しない。
-    private def editing_defaults_dynamic_timeout : ::Config::DynamicTimeout
-      stored = @draft.defaults.dynamic_timeout
-      ::Config::DynamicTimeout.new(
-        base: text("defaults.dynamic_timeout.base").to_f64? || stored.base,
-        reading_speed: text("defaults.dynamic_timeout.reading_speed").to_f64? || stored.reading_speed,
-        min: text("defaults.dynamic_timeout.min").to_f64? || stored.min,
-        max: text("defaults.dynamic_timeout.max").to_f64? || stored.max,
-      )
-    end
-
-    private def dynamic_timeout_value(field : String, inherited : Float64, errors : Array(String)?) : Float64
-      return inherited unless checked?("rule.override.dynamic_timeout.#{field}")
-      rule_float(text("rule.dynamic_timeout.#{field}"), "dynamic_timeout.#{field}", errors) || inherited
+    private def dynamic_timeout_value(field : String, errors : Array(String)?) : Float64?
+      return nil unless checked?("rule.override.dynamic_timeout.#{field}")
+      rule_float(text("rule.dynamic_timeout.#{field}"), "dynamic_timeout.#{field}", errors)
     end
 
     private def current_rule : ::Config::Rule?
@@ -509,10 +489,10 @@ module Runtime
       when .starts_with?("dynamic_timeout.")
         rule.dynamic_timeout.try do |dynamic|
           case field.lchop("dynamic_timeout.")
-          when "base"          then dynamic.base.to_s
-          when "reading_speed" then dynamic.reading_speed.to_s
-          when "min"           then dynamic.min.to_s
-          when "max"           then dynamic.max.to_s
+          when "base"          then dynamic.base.try(&.to_s)
+          when "reading_speed" then dynamic.reading_speed.try(&.to_s)
+          when "min"           then dynamic.min.try(&.to_s)
+          when "max"           then dynamic.max.try(&.to_s)
           end
         end
       else nil
@@ -707,12 +687,21 @@ module Runtime
     end
 
     # テスト通知は保存せず、編集中の既定の通知設定をそのまま使って送る。
+    # テスト通知でも保存と同じ検証を通す。
+    # 範囲外や有限でない値をそのまま送ると、何も出ないか、シンクが解釈できない通知になる。
     private def send_test(window : UIng::Window) : Nil
       root, parse_errors = collect
       unless root
         window.msg_box_error("テスト通知を送れない", parse_errors.join("\n"))
         return
       end
+
+      errors = @config.validate(root)
+      unless errors.empty?
+        window.msg_box_error("テスト通知を送れない", errors.map(&.to_s).join("\n"))
+        return
+      end
+
       @relay.send_test(root.defaults.to_resolved)
     end
 
