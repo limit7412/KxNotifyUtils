@@ -161,7 +161,7 @@ WinRT の呼び出しだけは別である。
 
 仕様書（issue #1）が未決としていた点のうち、実装で決めたものを挙げる。
 
-- **CRT のリンク設定**：動的 CRT（`/MD`）で統一した。Crystal の Windows 向けリンク行が `msvcrt.lib` と `ucrt.lib` と `vcruntime.lib` を渡すため、シムを静的 CRT でビルドすると defaultlib が混在する。
+- **CRT のリンク設定**：シムは静的 CRT（`/MT`）でビルドする。リンク時に `RuntimeLibrary` の食い違いを見るのは、その記録を持つオブジェクト同士である。Crystal が生成するオブジェクトはこの記録を持たず、C ランタイムはリンク行の `msvcrt.lib` で決まる。記録を持つのは uing が配る `ui.lib` とシムだけで、`ui.lib` は静的 CRT でビルドされている。そのためシムが合わせる相手は Crystal ではなく `ui.lib` になる。静的 CRT を指定すると `libcmt.lib` が既定ライブラリとして要求されるが、uing がリンク行に `/NODEFAULTLIB:LIBCMT` を足すため、C ランタイムは `msvcrt.lib` から解決される。
 - **uing の静的リンク**：uing 0.2.0 は libui-ng の静的ライブラリを postinstall で取得し、そのままリンクする。fork も設定の上書きも要らなかった。
 - **libui-ng とトレイの共存**：`uiMainStep(0)` を主ループから呼ぶ形で、UI スレッド 1 本に収めた。専用スレッドへの分離はしていない。
 - **openvr のインターフェースバージョン**：`IVRSystem_026` と `IVRApplications_008` に固定した。FnTable の並びは `openvr_capi.h` から機械的に写している。起動時に `VR_IsInterfaceVersionValid` で検証し、通らなければ SteamVR 連携を無効にして常駐を続ける。

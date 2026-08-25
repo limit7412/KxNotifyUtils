@@ -4,10 +4,20 @@ project(NotifListenerShim CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# CRT は Crystal 本体に合わせて動的 CRT (/MD) で統一する。
-# Crystal の Windows 向けリンク行が msvcrt.lib と ucrt.lib と vcruntime.lib を渡すため、
-# ここを静的 CRT にすると defaultlib が混在してリンクが通らない。
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+# CRT は libui-ng に合わせて静的 CRT (/MT) にする。
+#
+# リンク時に RuntimeLibrary の食い違いを見るのは、その記録を持つオブジェクト同士である。
+# Crystal が生成するオブジェクトはこの記録を持たず、CRT はリンク行の msvcrt.lib で決まる。
+# 記録を持つのは uing が配る ui.lib とこのライブラリだけで、ui.lib は静的 CRT でビルドされている。
+# そのため合わせる相手は Crystal ではなく ui.lib になる。
+#
+# 静的 CRT を指定すると libcmt.lib と libcpmt.lib が既定ライブラリとして要求されるが、
+# uing がリンク行に /NODEFAULTLIB:LIBCMT を足すため、C ランタイムは msvcrt.lib から解決される。
+# C++ ランタイムは ui.lib と同じく libcpmt.lib から取る。
+#
+# Debug 構成でも静的 CRT の Release 版に合わせる。
+# uing が配る ui.lib は debug 構成のものも MT_StaticRelease でビルドされているためである。
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
 add_library(NotifListenerShim STATIC src/notif_listener_shim.cpp)
 target_include_directories(NotifListenerShim PUBLIC include)

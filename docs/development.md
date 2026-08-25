@@ -25,6 +25,10 @@ crystal build src/main.cr -o KxNotifyUtils.exe --release `
   --link-flags "/LIBPATH:$PWD\shim\build\Release $PWD\res\kxnotifyutils.res"
 ```
 
+シムの CRT は静的（`/MT`）に固定してある。
+uing が配る `ui.lib` が静的 CRT でビルドされており、そこに合わせないとリンク時に `RuntimeLibrary` の食い違いで止まる。
+理由は `docs/architecture.md` の「仕様書からの変更点」に書いた。
+
 `openvr_api.dll` はリンクしない。
 SteamVR がインストールしたものを実行時に探してロードする。
 
