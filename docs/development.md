@@ -21,9 +21,18 @@ cmake -S shim -B shim/build -A x64
 cmake --build shim/build --config Release
 rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
 shards install
-crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug `
+crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --static `
   --link-flags "/LIBPATH:$PWD\shim\build\Release $PWD\res\kxnotifyutils.res"
 ```
+
+`--static` は配布物を exe 1 ファイルにするために要る。
+
+Crystal の Windows 配布物は、依存ライブラリを静的版（`lib/z.lib` など）とインポートライブラリ（`lib/z-dynamic.lib` など）の両方で持っている。
+コンパイラは `--static` なら `-static`、既定では `-dynamic` を付けた名前を先に探す。
+`-static` 版は配布物に無いため `--static` では素の名前、つまり静的版へ落ちる。
+
+付けずにビルドすると `zlib1.dll` や `libcrypto-3-x64.dll` を要求する exe ができる。
+手元では Crystal がそれらの DLL を exe の隣へ複製するので動いてしまい、exe だけを配ったときに初めて起動しなくなる。
 
 `--no-debug` を外すと uing が libui-ng の debug 版を選ぶ。
 uing はデバッグ情報の有無で libui-ng の release と debug を選び分けており、Crystal はデバッグ情報を既定で出すため、`--release` だけでは debug 版が使われる。
