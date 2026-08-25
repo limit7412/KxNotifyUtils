@@ -128,9 +128,20 @@ module Runtime
     end
 
     # 外部エディタでの編集を取り込んだときに呼ぶ。
-    # 編集中の内容は破棄せず、変更があったことだけを知らせて利用者に選ばせる。
+    #
+    # 編集していなければ、読み直した内容をそのまま映す。
+    # 古い下書きを残すと、あとで一項目だけ直して保存したときに、
+    # 外部で変えた他の項目まで古い値へ戻してしまう。
+    #
+    # 編集中なら破棄せず、変更があったことだけを知らせて利用者に選ばせる。
     def notify_external_change : Nil
       return unless @window
+
+      unless @dirty
+        reset_draft
+        return
+      end
+
       @external_change_label.try do |label|
         label.text = "設定ファイルが変更されています。編集中の内容を保存すると上書きされます。"
       end
