@@ -1,0 +1,16 @@
+/docs/output/
+/lib/
+/bin/
+/.shards/
+*.dwarf
+
+# シムの Visual Studio ビルド成果物
+/shim/build/
+/shim/out/
+*.obj
+*.lib
+*.pdb
+*.ilk
+*.exe
+lib/
+res/*.res

@@ -1,0 +1,33 @@
+#include <winver.h>
+
+// トレイと実行ファイルのアイコン。
+// Tray::APP_ICON_RESOURCE がこの ID を LoadIconW に渡す。
+1 ICON "kxnotifyutils.ico"
+
+// exe のバージョン情報。
+// 配布物は exe 1 ファイルで同梱の LICENSE を持たないため、ライセンスの所在をここにも書く。
+1 VERSIONINFO
+FILEVERSION 0, 1, 0, 0
+PRODUCTVERSION 0, 1, 0, 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+{
+  BLOCK "StringFileInfo"
+  {
+    BLOCK "041104b0"
+    {
+      VALUE "CompanyName", "limit7412\0"
+      VALUE "FileDescription", "\345\220\204\347\250\256\351\200\232\347\237\245\343\202\222 XSOverlay \343\201\270\344\270\255\347\266\231\343\201\231\343\202\213\345\270\270\351\247\220\343\202\242\343\203\227\343\203\252\0"
+      VALUE "FileVersion", "0.1.0\0"
+      VALUE "InternalName", "KxNotifyUtils\0"
+      VALUE "OriginalFilename", "KxNotifyUtils.exe\0"
+      VALUE "ProductName", "KxNotifyUtils\0"
+      VALUE "ProductVersion", "0.1.0\0"
+      VALUE "LegalCopyright", "MIT License. Third-party notices are shown in the settings window.\0"
+    }
+  }
+  BLOCK "VarFileInfo"
+  {
+    VALUE "Translation", 0x411, 1200
+  }
+}
