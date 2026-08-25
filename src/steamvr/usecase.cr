@@ -107,11 +107,18 @@ module SteamVR
       return nil unless @repository.opened?
       return nil unless section.auto_launch_registered
 
-      if !moved?(section) && @store.exists?(@manifest_path)
+      # 記録が登録済みでも、SteamVR の再インストールや設定の初期化で
+      # アプリ登録だけが消えていることがある。実状態も確かめる。
+      registered = @repository.auto_launch?(APP_KEY)
+      if !moved?(section) && @store.exists?(@manifest_path) && registered
         return nil
       end
 
-      Log.info { "実行ファイルの位置が変わったため再登録する: #{section.last_exe_path} -> #{@exe_path}" }
+      if registered
+        Log.info { "実行ファイルの位置が変わったため再登録する: #{section.last_exe_path} -> #{@exe_path}" }
+      else
+        Log.info { "SteamVR 側の登録が失われていたため登録し直す" }
+      end
       return nil unless register
 
       updated = ::Config::SteamVRSection.new

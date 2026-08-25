@@ -28,11 +28,19 @@ module Runtime
     TRANSPORTS    = %w[websocket udp]
     LOG_LEVELS    = %w[trace debug info notice warn error fatal none]
 
-    # rules の 1 項目で上書きできるフィールド。
+    # rules の 1 項目で上書きできるフィールドのうち、単独の値を持つもの。
     # どれも「上書きするか」のチェックと入力欄の組で編集するため、同じ形で扱う。
     RULE_FIELDS = %w[
       timeout_mode timeout max_body_length title_template icon opacity volume sound
     ]
+
+    # dynamic_timeout は 4 つの係数をまとめた 1 つの値である。
+    # 画面では係数ごとに編集し、1 つでも上書きされていれば、
+    # 残りを既定の通知設定から埋めて 1 つの値として持たせる。
+    DYNAMIC_TIMEOUT_FIELDS = %w[base reading_speed min max]
+
+    # 画面に並べる上書き行。
+    RULE_OVERRIDE_ROWS = RULE_FIELDS + DYNAMIC_TIMEOUT_FIELDS.map { |field| "dynamic_timeout.#{field}" }
 
     property on_request_steamvr_register : Proc(Nil) = -> { }
     property on_request_steamvr_unregister : Proc(Nil) = -> { }
@@ -284,7 +292,7 @@ module Runtime
       right.append(form, false)
 
       right.append(UIng::Label.new("チェックを外した項目は既定の通知設定を継承する"), false)
-      RULE_FIELDS.each do |field|
+      RULE_OVERRIDE_ROWS.each do |field|
         row = UIng::Box.new(:horizontal, padded: true)
         override = check("rule.override.#{field}", field)
         override.on_toggled { |_checked| update_rule_field_state(field) }
@@ -387,7 +395,7 @@ module Runtime
       rule = current_rule
       set_text("rule.match_app_id", rule.try(&.match_app_id) || "")
 
-      RULE_FIELDS.each do |field|
+      RULE_OVERRIDE_ROWS.each do |field|
         value = rule ? rule_field(rule, field) : nil
         set_check("rule.override.#{field}", !value.nil?)
         set_text("rule.#{field}", value || "")
@@ -406,6 +414,30 @@ module Runtime
         value = checked?("rule.override.#{field}") ? text("rule.#{field}") : nil
         assign_rule_field(rule, field, value, errors)
       end
+      assign_dynamic_timeout(rule, errors)
+    end
+
+    # 係数を 1 つでも上書きしていれば dynamic_timeout 全体を持たせる。
+    # 上書きしていない係数は既定の通知設定から埋める。
+    private def assign_dynamic_timeout(rule : ::Config::Rule, errors : Array(String)?) : Nil
+      overridden = DYNAMIC_TIMEOUT_FIELDS.any? { |field| checked?("rule.override.dynamic_timeout.#{field}") }
+      unless overridden
+        rule.dynamic_timeout = nil
+        return
+      end
+
+      inherited = @draft.defaults.dynamic_timeout
+      rule.dynamic_timeout = ::Config::DynamicTimeout.new(
+        base: dynamic_timeout_value("base", inherited.base, errors),
+        reading_speed: dynamic_timeout_value("reading_speed", inherited.reading_speed, errors),
+        min: dynamic_timeout_value("min", inherited.min, errors),
+        max: dynamic_timeout_value("max", inherited.max, errors),
+      )
+    end
+
+    private def dynamic_timeout_value(field : String, inherited : Float64, errors : Array(String)?) : Float64
+      return inherited unless checked?("rule.override.dynamic_timeout.#{field}")
+      rule_float(text("rule.dynamic_timeout.#{field}"), "dynamic_timeout.#{field}", errors) || inherited
     end
 
     private def current_rule : ::Config::Rule?
@@ -586,6 +618,11 @@ module Runtime
       root.filter.mode = ::Config::FilterMode.parse(selected_value("filter.mode", FILTER_MODES))
       root.filter.apps = (@filter_apps.try(&.text) || "").lines.map(&.strip).reject(&.empty?)
       root.rules = @rules.map { |rule| ::Config::Rule.from_json(rule.to_json) }
+
+      # steamvr セクションはアプリが書き込む記録であり、画面では編集しない。
+      # SteamVR タブのボタンで登録や解除を行うと現在の設定だけが変わるため、
+      # 下書きの古い記録で上書きしないよう、保存の直前に最新のものへ差し替える。
+      root.steamvr = ::Config::SteamVRSection.from_json(@config.current.steamvr.to_json)
 
       return {nil, errors} unless errors.empty?
       {root, errors}

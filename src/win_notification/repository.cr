@@ -41,7 +41,12 @@ module WinNotification
       @settings.polling_interval_ms.milliseconds
     end
 
+    # 開始のたびに差分検出の状態を戻す。
+    # 無効にしている間に届いて通知センターに残っている通知を、
+    # 再開直後の 1 周期で一斉に中継しないためである。
     def start : Nil
+      @seen = Set(UInt32).new
+      @primed = false
       @client.open
       @access_status = @client.access_status
       @access_status = @client.request_access unless @access_status.allowed?

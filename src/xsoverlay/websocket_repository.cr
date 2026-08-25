@@ -70,6 +70,14 @@ module XSOverlay
       until @stopping
         begin
           socket = HTTP::WebSocket.new(URI.parse(endpoint))
+
+          # 接続を張っている間に停止を頼まれていることがある。
+          # そのときの @socket はまだ nil で stop が閉じられないため、ここで閉じて抜ける。
+          if @stopping
+            socket.close rescue nil
+            break
+          end
+
           @socket = socket
           @connected = true
           @backoff = BACKOFF_MIN

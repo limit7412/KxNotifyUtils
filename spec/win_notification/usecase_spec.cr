@@ -43,6 +43,12 @@ describe WinNotification::MessageBuilder do
     message.body.ends_with?("…").should be_true
   end
 
+  it "max_body_length が 0 なら本文を載せない" do
+    builder = WinNotification::MessageBuilder.new(Fakes::Icons.new)
+
+    builder.build(incoming(body: "本文"), settings(max_body_length: 0)).body.should eq ""
+  end
+
   it "fixed モードでは timeout をそのまま使う" do
     builder = WinNotification::MessageBuilder.new(Fakes::Icons.new)
 

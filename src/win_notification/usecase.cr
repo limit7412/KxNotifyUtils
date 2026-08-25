@@ -54,8 +54,10 @@ module WinNotification
     end
 
     # max_body_length を超える本文は切り詰め、切り詰めたことがわかるよう末尾に記号を付ける。
+    # 0 は「本文を載せない」を意味する。無制限を表す値は設けていない。
     private def truncate(body : String, max_length : Int32) : String
-      return body if max_length <= 0 || body.size <= max_length
+      return "" if max_length <= 0
+      return body if body.size <= max_length
       "#{body[0, max_length]}…"
     end
 

@@ -110,6 +110,19 @@ describe SteamVR::Usecase do
       repository.added_manifests.size.should eq 1
     end
 
+    it "SteamVR 側の登録が失われていれば登録し直す" do
+      usecase, repository, _ = build
+      usecase.register
+      repository.auto_launch = false
+      section = Config::SteamVRSection.new
+      section.auto_launch_registered = true
+      section.last_exe_path = "D:/tools/KxNotifyUtils.exe"
+
+      usecase.sync(section).should_not be_nil
+      repository.auto_launch.should be_true
+      repository.added_manifests.size.should eq 2
+    end
+
     it "vrmanifest が消えていれば書き直す" do
       usecase, repository, store = build
       section = Config::SteamVRSection.new

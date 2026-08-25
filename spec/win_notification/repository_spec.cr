@@ -55,6 +55,23 @@ describe WinNotification::Repository do
     icon.value.should eq "iVBORw0KGgo="
   end
 
+  it "開始し直したら差分検出をやり直し、残っている通知を一斉に中継しない" do
+    client = Fakes::ShimClient.new([
+      notifications_json([1]),
+      notifications_json([1, 2]),
+      notifications_json([1, 2]),
+    ])
+    repository = WinNotification::Repository.new(client, WinNotification::Settings.new)
+    repository.poll_new
+    repository.poll_new.size.should eq 1
+
+    # 無効にしてから有効に戻す経路。停止と開始をまたいでも既読の扱いは起動時と同じにする。
+    repository.stop
+    repository.start
+
+    repository.poll_new.should be_empty
+  end
+
   it "ポーリング間隔を設定から取る" do
     settings = WinNotification::Settings.from_json(%({"polling_interval_ms": 250}))
     repository = WinNotification::Repository.new(Fakes::ShimClient.new, settings)
