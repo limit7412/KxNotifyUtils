@@ -93,7 +93,7 @@ uing の postinstall が libui-ng の静的ライブラリを GitHub から取�
 仕様書もこの問題を前提に、失敗時は Windows の設定画面へ誘導する形にしている（実装済み）。
 ただし設定画面にアプリが並ばず、利用者が手で許可することもできない可能性は残っている。
 先行実装の扱いは分かれており、xsoverlay-notifier は MSIX で ID を付与し、xs-notify はパッケージ化せずに `RequestAccessAsync` の結果へ依存している。
-この点は [#4](https://github.com/limit7412/KxNotifyUtils/issues/4) で追う。
+この点は [#6](https://github.com/limit7412/KxNotifyUtils/issues/6) で追う。
 
 - **単体 exe のまま通知アクセスが `Allowed` になること**（ここが通らないと中心機能が動かない）
 - テスト通知が XSOverlay に出ること、実際の通知で件名と本文とアイコンが期待どおりであること
