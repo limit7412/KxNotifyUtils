@@ -69,9 +69,16 @@ jobs:
         # --no-debug を外すと uing が libui-ng の debug 版を選ぶ。
         # uing はデバッグ情報の有無で release と debug を選び分けており、
         # Crystal はデバッグ情報を既定で出すため、--release だけでは debug 版が使われる。
+        #
+        # 行継続のバッククォートは使わず、リンク引数を変数に組み立ててから 1 行で渡す。
+        # また終了コードを自分で確かめる。
+        # 失敗したときに何も出力が残らないと原因を追えないためである。
         run: |
-          crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug `
-            --link-flags "/LIBPATH:${{ github.workspace }}\shim\build\Release ${{ github.workspace }}\res\kxnotifyutils.res"
+          $linkFlags = "/LIBPATH:$env:GITHUB_WORKSPACE\shim\build\Release $env:GITHUB_WORKSPACE\res\kxnotifyutils.res"
+          Write-Host "link flags: $linkFlags"
+          crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --link-flags $linkFlags
+          Write-Host "crystal build exit code: $LASTEXITCODE"
+          if ($LASTEXITCODE -ne 0) { throw "crystal build が終了コード $LASTEXITCODE で失敗した" }
 
       - name: 成果物を保存する
         uses: actions/upload-artifact@v4
