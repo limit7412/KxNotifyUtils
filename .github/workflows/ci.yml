@@ -48,32 +48,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - uses: crystal-lang/install-crystal@v1
-        with:
-          crystal: 1.14.0
-
-      - name: 依存 shard を取得する
-        # uing の postinstall は libui-ng の静的ライブラリを GitHub から取得する。
-        # この取得は落ちることがあり、shards は理由を出さずに終わる。
-        # 取り直せば通るため、lib を消してから間隔を空けて試し直す。
-        run: |
-          foreach ($attempt in 1..3) {
-            if (Test-Path lib) { Remove-Item -Recurse -Force lib }
-            shards install
-            if ($LASTEXITCODE -eq 0) { exit 0 }
-            Write-Host "shards install に失敗した ($attempt 回目, 終了コード $LASTEXITCODE)"
-            Start-Sleep -Seconds ($attempt * 10)
-          }
-          throw "shards install が 3 回とも失敗した"
-
-      - name: NotifListenerShim をビルドする
-        run: |
-          cmake -S shim -B shim/build -A x64
-          cmake --build shim/build --config Release
+      # ビルドの手順はリリースとプレリリースでも使うため複合アクションに置いてある。
+      # CI とリリースで違う手順を踏むと、CI が通ったのにリリースで落ちる状態が起きる。
+      # バージョンは渡さない。配布物ではないため、ソースの既定値のままでよい。
+      - uses: ./.github/actions/build-windows
 
       - name: シムのテストハーネスを動かす
         # 通知アクセスが無い環境ではハーネスが自分で「確認を飛ばす」と判断して 0 を返す。
@@ -84,25 +62,6 @@ jobs:
       - name: 単体テストを実行する
         # FFI 宣言のコンパイル確認を兼ねて Windows でも実行する。
         run: crystal spec
-
-      - name: リソースをコンパイルする
-        run: rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
-
-      - name: 本体をビルドする
-        # --no-debug を外すと uing が libui-ng の debug 版を選ぶ。
-        # uing はデバッグ情報の有無で release と debug を選び分けており、
-        # Crystal はデバッグ情報を既定で出すため、--release だけでは debug 版が使われる。
-        #
-        # 行継続のバッククォートは使わず、リンク引数を変数に組み立ててから 1 行で渡す。
-        # また終了コードを自分で確かめる。
-        # 失敗したときに何も出力が残らないと原因を追えないためである。
-        run: |
-          # 置き場所に空白が入っていても壊れないよう、どちらも引用符で囲む。
-          $linkFlags = "/LIBPATH:`"$env:GITHUB_WORKSPACE\shim\build\Release`" `"$env:GITHUB_WORKSPACE\res\kxnotifyutils.res`""
-          Write-Host "link flags: $linkFlags"
-          crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --link-flags $linkFlags
-          Write-Host "crystal build exit code: $LASTEXITCODE"
-          if ($LASTEXITCODE -ne 0) { throw "crystal build が終了コード $LASTEXITCODE で失敗した" }
 
       - name: 成果物を保存する
         uses: actions/upload-artifact@v4

@@ -1,0 +1,78 @@
+name: Release Build
+
+# リリースの公開を契機に exe をビルドし、そのリリースへ添付する。
+#
+# `published` のみを対象にする。通常リリースとプレリリースのどちらの公開でも発火する。
+# ただし prerelease.yml が GITHUB_TOKEN で自動作成するプレリリースは、
+# ワークフローの連鎖起動を防ぐ GitHub Actions の仕様により `release` イベント自体が
+# 発火しないため対象外である。そちらの exe の添付は prerelease.yml 側で行う。
+#
+# `released` は追加しない。プレリリースからの昇格に限らず通常リリースの公開時にも
+# `published` と同時に発火するため、同じタグに対してこのワークフローが 2 回並行実行され、
+# 同名 exe のアップロードが競合する。
+# プレリリースを正式リリースへ昇格した場合（`released` のみが発火するケース）は、
+# 昇格前の `published` で exe が添付済みである。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 実行ファイルへ埋めるバージョン（例 0.1.0）。空ならソースの既定値のままビルドする。
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ビルド (Windows)
+    runs-on: windows-latest
+    permissions:
+      # リリースへの添付に必要
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: バージョンを決める
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "release" ]; then
+            VERSION="$TAG_NAME"
+          else
+            # 手動実行でバージョンを渡さなかった場合は空のままにする。
+            # ソースの既定値でビルドされ、リリース版と見分けが付く。
+            VERSION="${INPUT_VERSION:-}"
+          fi
+
+          # タグに v を付ける運用へ変わっても読めるよう、先頭の v は落とす
+          VERSION="${VERSION#v}"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "バージョン: ${VERSION:-(ソースの既定値)}"
+
+      - uses: ./.github/actions/build-windows
+        with:
+          version: ${{ steps.version.outputs.version }}
+
+      - name: 成果物を保存する
+        uses: actions/upload-artifact@v4
+        with:
+          name: KxNotifyUtils-${{ steps.version.outputs.version || 'dev' }}
+          path: KxNotifyUtils.exe
+
+      - name: リリースへ添付する
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: KxNotifyUtils.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
