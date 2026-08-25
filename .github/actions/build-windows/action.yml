@@ -1,0 +1,108 @@
+name: KxNotifyUtils をビルドする
+description: >
+  シムと本体をビルドし、作業ディレクトリへ KxNotifyUtils.exe を作る。
+  CI とリリースとプレリリースで同じ手順を使うため、複合アクションに切り出してある。
+
+inputs:
+  version:
+    description: >
+      実行ファイルへ埋めるバージョン。
+      空にすると src/main.cr と res/kxnotifyutils.rc の既定値のままビルドする。
+    required: false
+    default: ""
+  crystal:
+    description: 使う Crystal のバージョン。
+    required: false
+    default: "1.14.0"
+
+runs:
+  using: composite
+  steps:
+    - uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - uses: crystal-lang/install-crystal@v1
+      with:
+        crystal: ${{ inputs.crystal }}
+
+    - name: 依存 shard を取得する
+      # uing の postinstall は libui-ng の静的ライブラリを GitHub から取得する。
+      # この取得は落ちることがあり、shards は理由を出さずに終わる。
+      # 取り直せば通るため、lib を消してから間隔を空けて試し直す。
+      shell: pwsh
+      run: |
+        foreach ($attempt in 1..3) {
+          if (Test-Path lib) { Remove-Item -Recurse -Force lib }
+          shards install
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          Write-Host "shards install に失敗した ($attempt 回目, 終了コード $LASTEXITCODE)"
+          Start-Sleep -Seconds ($attempt * 10)
+        }
+        throw "shards install が 3 回とも失敗した"
+
+    - name: NotifListenerShim をビルドする
+      shell: pwsh
+      run: |
+        cmake -S shim -B shim/build -A x64
+        if ($LASTEXITCODE -ne 0) { throw "cmake の構成が終了コード $LASTEXITCODE で失敗した" }
+        cmake --build shim/build --config Release
+        if ($LASTEXITCODE -ne 0) { throw "シムのビルドが終了コード $LASTEXITCODE で失敗した" }
+
+    - name: バージョンをリソースへ埋める
+      # 本体側のバージョンは KXNOTIFYUTILS_VERSION から読むが、exe のプロパティに出る
+      # バージョン情報はリソースが持つため、こちらは書き換えて渡す。
+      #
+      # 書き換えるのはワークスペース上のファイルだけで、コミットはしない。
+      # タグが版の source of truth であり、リポジトリ側の値は手元ビルドの既定値である。
+      if: inputs.version != ''
+      shell: pwsh
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        $path = "res/kxnotifyutils.rc"
+
+        # FILEVERSION と PRODUCTVERSION は数値 4 つしか置けない。
+        # -testN のようなプレリリース識別子は入らないため、X.Y.Z だけを使う。
+        if ($env:VERSION -notmatch '^(\d+)\.(\d+)\.(\d+)') {
+          throw "バージョン '$($env:VERSION)' から X.Y.Z を読み取れなかった"
+        }
+        $numeric = "$($Matches[1]), $($Matches[2]), $($Matches[3]), 0"
+
+        $rc = Get-Content $path -Raw
+        $rc = $rc -replace '(?m)^FILEVERSION .*$', "FILEVERSION $numeric"
+        $rc = $rc -replace '(?m)^PRODUCTVERSION .*$', "PRODUCTVERSION $numeric"
+        # 文字列側は識別子を含む完全なバージョンを載せる。末尾の \0 はリソースの記法。
+        $rc = $rc -replace '(?m)^([ \t]*VALUE "FileVersion", ").*$', ('${1}' + $env:VERSION + '\0"')
+        $rc = $rc -replace '(?m)^([ \t]*VALUE "ProductVersion", ").*$', ('${1}' + $env:VERSION + '\0"')
+
+        # BOM を付けずに書き戻す。Set-Content の既定は PowerShell の版で変わる。
+        [System.IO.File]::WriteAllText(
+          (Join-Path $PWD $path), $rc, (New-Object System.Text.UTF8Encoding $false))
+
+        Write-Host "リソースへ埋めたバージョン: $($env:VERSION) (数値は $numeric)"
+
+    - name: リソースをコンパイルする
+      shell: pwsh
+      run: |
+        rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
+        if ($LASTEXITCODE -ne 0) { throw "リソースのコンパイルが終了コード $LASTEXITCODE で失敗した" }
+
+    - name: 本体をビルドする
+      # --no-debug を外すと uing が libui-ng の debug 版を選ぶ。
+      # uing はデバッグ情報の有無で release と debug を選び分けており、
+      # Crystal はデバッグ情報を既定で出すため、--release だけでは debug 版が使われる。
+      #
+      # 行継続のバッククォートは使わず、リンク引数を変数に組み立ててから 1 行で渡す。
+      # また終了コードを自分で確かめる。
+      # 失敗したときに何も出力が残らないと原因を追えないためである。
+      shell: pwsh
+      env:
+        KXNOTIFYUTILS_VERSION: ${{ inputs.version }}
+      run: |
+        # 置き場所に空白が入っていても壊れないよう、どちらも引用符で囲む。
+        $linkFlags = "/LIBPATH:`"$env:GITHUB_WORKSPACE\shim\build\Release`" `"$env:GITHUB_WORKSPACE\res\kxnotifyutils.res`""
+        Write-Host "link flags: $linkFlags"
+        crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --link-flags $linkFlags
+        Write-Host "crystal build exit code: $LASTEXITCODE"
+        if ($LASTEXITCODE -ne 0) { throw "crystal build が終了コード $LASTEXITCODE で失敗した" }

@@ -29,7 +29,9 @@ require "./xsoverlay/websocket_repository"
 # composition root。
 # 設定の解決、アダプタの選択、usecase への依存注入をここで一度だけ行う（仕様書 2.1 節）。
 module KxNotifyUtils
-  VERSION = "0.1.0"
+  # リリースのワークフローが、タグから決めた値を KXNOTIFYUTILS_VERSION で渡す。
+  # 手元のビルドでは渡らないため、リリース版と見分けが付く既定値を使う。
+  VERSION = {{ (env("KXNOTIFYUTILS_VERSION") || "") == "" ? "0.1.0-dev" : env("KXNOTIFYUTILS_VERSION") }}
 
   Log = ::Log.for("main")
 
