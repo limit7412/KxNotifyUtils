@@ -108,7 +108,15 @@ module SteamVR
         return UnregisterResult::AutoLaunchOnly
       end
 
-      @store.delete(@manifest_path)
+      # ファイルを消せなくても、SteamVR 側の解除そのものは終わっている。
+      # ここで例外を通すと呼び出し側は結果を受け取れず、設定に「登録済み」が残る。
+      # 次回起動時の sync がそれを見て、利用者が解除した自動起動を戻してしまう。
+      begin
+        @store.delete(@manifest_path)
+      rescue exception
+        Log.warn(exception: exception) { "vrmanifest を消せなかった: #{@manifest_path}" }
+      end
+
       Log.info { "SteamVR の自動起動を解除した" }
       UnregisterResult::Succeeded
     end

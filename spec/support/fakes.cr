@@ -225,12 +225,15 @@ module Fakes
 
   class ManifestStore < SteamVR::ManifestStore
     property files : Hash(String, String) = {} of String => String
+    # 真にすると delete が例外を上げる。ファイルがロックされている状況を作る。
+    property fail_delete : Bool = false
 
     def write(path : String, content : String) : Nil
       @files[path] = content
     end
 
     def delete(path : String) : Nil
+      raise File::Error.new("消せなかった", file: path) if @fail_delete
       @files.delete(path)
     end
 

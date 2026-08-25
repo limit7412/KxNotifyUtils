@@ -69,6 +69,17 @@ describe SteamVR::Usecase do
       store.files.should_not be_empty
     end
 
+    # ファイルを消せなくても SteamVR 側の解除は終わっている。
+    # 例外を通すと設定に「登録済み」が残り、次回起動時の同期が登録を復活させる。
+    it "vrmanifest を消せなくても解除できたことを返す" do
+      usecase, repository, store = build
+      usecase.register
+      store.fail_delete = true
+
+      usecase.unregister.should eq SteamVR::UnregisterResult::Succeeded
+      repository.auto_launch.should be_false
+    end
+
     # 自動起動を切れた事実を落とすと、次回起動時の同期が登録を復活させる。
     it "登録の解除だけに失敗したら AutoLaunchOnly を返し vrmanifest は残す" do
       usecase, repository, store = build
