@@ -113,6 +113,17 @@ describe WinNotification::Repository do
     repository.poll_new.should be_empty
   end
 
+  # 呼び出し側は開始できなかったものとして扱い stop を呼ばないため、
+  # ここで閉じないとシムのワーカースレッドが残る。
+  it "開始の途中で失敗したら開いたクライアントを閉じる" do
+    client = Fakes::ShimClient.new
+    client.fail_access_status = true
+    repository = WinNotification::Repository.new(client, WinNotification::Settings.new)
+
+    expect_raises(WinNotification::ShimError) { repository.start }
+    client.opened.should be_false
+  end
+
   # 5 秒ごとに走る経路なので、ここで例外を上げると同じ失敗を繰り返し知らせることになる。
   it "確かめ直しに失敗しても中継を止めず、直前の許可状態を保つ" do
     client = Fakes::ShimClient.new

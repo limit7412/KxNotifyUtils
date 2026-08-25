@@ -55,8 +55,18 @@ module WinNotification
     def start : Nil
       reset_diff_state
       @client.open
-      @access_status = @client.access_status
-      @access_status = @client.request_access unless @access_status.allowed?
+
+      # open のあとで失敗したら、開いたものを閉じてから投げ直す。
+      # 呼び出し側は開始できなかったものとして扱い stop を呼ばないため、
+      # ここで閉じないとシムのワーカースレッドが残る。
+      begin
+        @access_status = @client.access_status
+        @access_status = @client.request_access unless @access_status.allowed?
+      rescue exception
+        @client.close rescue nil
+        raise exception
+      end
+
       @access_checked_at = Time.monotonic
       Log.info { "通知アクセスの許可状態: #{@access_status}" }
     end

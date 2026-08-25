@@ -46,7 +46,8 @@ Assert-LastExitCode "shards install"
 Write-Host "==> 本体をビルドする"
 $shimDirectory = Join-Path $root "shim\build\$configuration"
 $resource = Join-Path $root "res\kxnotifyutils.res"
-$linkFlags = "/LIBPATH:$shimDirectory `"$resource`""
+# 置き場所に空白が入っていても壊れないよう、どちらも引用符で囲む。
+$linkFlags = "/LIBPATH:`"$shimDirectory`" `"$resource`""
 
 # --no-debug を外すと uing が libui-ng の debug 版を選ぶ。
 # uing はデバッグ情報の有無で libui-ng の release と debug を選び分けており、

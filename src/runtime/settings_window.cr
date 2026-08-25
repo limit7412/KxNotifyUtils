@@ -604,10 +604,13 @@ module Runtime
       dynamic ? @controls["defaults.timeout"].disable : @controls["defaults.timeout"].enable
     end
 
+    # ルールの追加と削除と並べ替えは入力欄を通らないため、
+    # 変更ハンドラが動かない。編集した印はここで自分で付ける。
     private def add_rule : Nil
       return unless flush_rule_form_or_warn
       @rules << ::Config::Rule.new("")
       @selected_rule = @rules.size - 1
+      mark_dirty
       reload_rule_list
       load_rule_form
     end
@@ -616,6 +619,7 @@ module Runtime
       return if @selected_rule < 0 || @selected_rule >= @rules.size
       @rules.delete_at(@selected_rule)
       @selected_rule = @rules.empty? ? -1 : Math.min(@selected_rule, @rules.size - 1)
+      mark_dirty
       reload_rule_list
       load_rule_form
     end
@@ -628,6 +632,7 @@ module Runtime
 
       @rules.swap(@selected_rule, target)
       @selected_rule = target
+      mark_dirty
       reload_rule_list
       load_rule_form
     end
@@ -639,6 +644,8 @@ module Runtime
       app_id = @observed_app_ids[index]?
       return unless app_id
       set_text("rule.match_app_id", app_id)
+      # 入力欄への代入では変更ハンドラが動かない。
+      mark_dirty
     end
 
     private def open_repository : Nil

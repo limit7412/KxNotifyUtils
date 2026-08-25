@@ -97,7 +97,8 @@ jobs:
         # また終了コードを自分で確かめる。
         # 失敗したときに何も出力が残らないと原因を追えないためである。
         run: |
-          $linkFlags = "/LIBPATH:$env:GITHUB_WORKSPACE\shim\build\Release $env:GITHUB_WORKSPACE\res\kxnotifyutils.res"
+          # 置き場所に空白が入っていても壊れないよう、どちらも引用符で囲む。
+          $linkFlags = "/LIBPATH:`"$env:GITHUB_WORKSPACE\shim\build\Release`" `"$env:GITHUB_WORKSPACE\res\kxnotifyutils.res`""
           Write-Host "link flags: $linkFlags"
           crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --link-flags $linkFlags
           Write-Host "crystal build exit code: $LASTEXITCODE"

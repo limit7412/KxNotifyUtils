@@ -286,6 +286,11 @@ std::vector<uint8_t> read_all(const IRandomAccessStream& stream) {
 
 // ロゴを PNG へ変換して base64 化する。
 // 形式はアプリによって差があるため、いったんデコードしてから PNG で書き直す。
+//
+// CreateForTranscodingAsync は入力のコーデックをそのまま引き継ぐため使えない。
+// ロゴが JPEG のアプリでは JPEG のまま出てきてしまい、
+// 本体はそれを PNG として base64 で渡すので、シンクが表示できない。
+// PNG のエンコーダーを名指しし、デコードしたピクセルを書き出す。
 std::string logo_as_png_base64(const AppDisplayInfo& display_info) {
   const auto reference = display_info.GetLogo(Size(48.0f, 48.0f));
   if (!reference) {
@@ -294,9 +299,19 @@ std::string logo_as_png_base64(const AppDisplayInfo& display_info) {
 
   const auto source = reference.OpenReadAsync().get();
   const auto decoder = BitmapDecoder::CreateAsync(source).get();
+  // PNG はストレートアルファなので、取り出すときも書き出すときも Straight で揃える。
+  const auto pixels = decoder
+                          .GetPixelDataAsync(BitmapPixelFormat::Bgra8, BitmapAlphaMode::Straight,
+                                             BitmapTransform(),
+                                             ExifOrientationMode::IgnoreExifOrientation,
+                                             ColorManagementMode::DoNotColorManage)
+                          .get();
+  const auto bytes = pixels.DetachPixelData();
 
   InMemoryRandomAccessStream target;
-  const auto encoder = BitmapEncoder::CreateForTranscodingAsync(target, decoder).get();
+  const auto encoder = BitmapEncoder::CreateAsync(BitmapEncoder::PngEncoderId(), target).get();
+  encoder.SetPixelData(BitmapPixelFormat::Bgra8, BitmapAlphaMode::Straight, decoder.PixelWidth(),
+                       decoder.PixelHeight(), decoder.DpiX(), decoder.DpiY(), bytes);
   encoder.FlushAsync().get();
 
   return to_base64(read_all(target));
