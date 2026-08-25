@@ -210,7 +210,7 @@ module Runtime
       LibWin32.append_menu_w(menu, LibWin32::MF_SEPARATOR, 0_u64, Pointer(UInt16).null)
     end
 
-    protected def handle(message : UInt32, _w_param : LibWin32::WParam, l_param : LibWin32::LParam) : Bool
+    protected def handle(message : UInt32, w_param : LibWin32::WParam, l_param : LibWin32::LParam) : Bool
       if @taskbar_created != 0 && message == @taskbar_created
         # Explorer が再起動した。シェル側のアイコンだけが消えているので登録し直す。
         @added = false
@@ -223,8 +223,13 @@ module Runtime
         event = l_param.to_u32!
         show_menu if event == LibWin32::WM_RBUTTONUP || event == LibWin32::WM_LBUTTONDBLCLK
         true
-      when LibWin32::WM_QUERYENDSESSION, LibWin32::WM_CLOSE, LibWin32::WM_DESTROY
-        # Windows のシャットダウンとウィンドウの破棄はどちらも常駐の終了として扱う。
+      when LibWin32::WM_ENDSESSION
+        # セッション終了が確定した。w_param が偽なら他のアプリが拒否している。
+        # 問い合わせ（WM_QUERYENDSESSION）の時点で終了すると、
+        # 拒否された場合にこのアプリだけが落ちたままになる。
+        @quit_requested = true if w_param != 0
+        true
+      when LibWin32::WM_CLOSE, LibWin32::WM_DESTROY
         @quit_requested = true
         false
       else

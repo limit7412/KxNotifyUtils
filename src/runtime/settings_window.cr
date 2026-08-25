@@ -39,6 +39,9 @@ module Runtime
     # 残りを既定の通知設定から埋めて 1 つの値として持たせる。
     DYNAMIC_TIMEOUT_FIELDS = %w[base reading_speed min max]
 
+    # 前後の空白に意味が無く、落として読むフィールド。
+    TRIMMED_RULE_FIELDS = %w[timeout_mode timeout max_body_length opacity volume]
+
     # 画面に並べる上書き行。
     RULE_OVERRIDE_ROWS = RULE_FIELDS + DYNAMIC_TIMEOUT_FIELDS.map { |field| "dynamic_timeout.#{field}" }
 
@@ -74,11 +77,21 @@ module Runtime
       @suppress_rule_selection = false
       # 「観測した app_id」に並べた順序。選択位置から app_id を引くために持つ。
       @observed_app_ids = [] of String
+      # 画面で何かを編集したか。再表示のときに下書きを捨ててよいかの判断に使う。
+      @dirty = false
     end
 
     # トレイメニューから開く。既に開いていれば前面化するだけとする。
     def open : Nil
       if window = @window
+        # 編集していなければ、閉じている間に変わった設定を読み直す。
+        # 古い下書きのまま保存すると、外部で編集された内容を丸ごと上書きしてしまう。
+        if @dirty
+          notify_external_change if @draft.to_json != @config.current.to_json
+        else
+          reset_draft
+        end
+
         # 閉じている間に観測したアプリも入力補助から選べるようにする。
         reload_observed_apps
         refresh_status
@@ -100,6 +113,7 @@ module Runtime
       @rules = @draft.rules.map { |rule| ::Config::Rule.from_json(rule.to_json) }
       @selected_rule = @rules.empty? ? -1 : 0
       load_draft
+      @dirty = false
       @external_change_label.try { |label| label.text = "" }
     end
 
@@ -290,7 +304,7 @@ module Runtime
       filter_box.append(UIng::Label.new("対象の app_id（1 行に 1 つ、前方一致）"), false)
       filter_apps = UIng::MultilineEntry.new
       # 他の入力部品と同じく、編集したら閉じる確認をやり直す。
-      filter_apps.on_changed { @close_warned = false }
+      filter_apps.on_changed { mark_dirty }
       @filter_apps = filter_apps
       filter_box.append(filter_apps, true)
       filter_group.child = filter_box
@@ -452,9 +466,12 @@ module Runtime
       rule = current_rule
       return unless rule
 
-      rule.match_app_id = text("rule.match_app_id")
+      rule.match_app_id = trimmed("rule.match_app_id")
       RULE_FIELDS.each do |field|
-        value = checked?("rule.override.#{field}") ? text("rule.#{field}") : nil
+        # 数値と timeout_mode は前後の空白を落として読む。
+        # 文字列として保存する項目は入力のまま扱う。
+        raw = TRIMMED_RULE_FIELDS.includes?(field) ? trimmed("rule.#{field}") : text("rule.#{field}")
+        value = checked?("rule.override.#{field}") ? raw : nil
         assign_rule_field(rule, field, value, errors)
       end
       assign_dynamic_timeout(rule, errors)
@@ -474,7 +491,7 @@ module Runtime
 
     private def dynamic_timeout_value(field : String, errors : Array(String)?) : Float64?
       return nil unless checked?("rule.override.dynamic_timeout.#{field}")
-      rule_float(text("rule.dynamic_timeout.#{field}"), "dynamic_timeout.#{field}", errors)
+      rule_float(trimmed("rule.dynamic_timeout.#{field}"), "dynamic_timeout.#{field}", errors)
     end
 
     private def current_rule : ::Config::Rule?
@@ -691,6 +708,7 @@ module Runtime
       if errors.empty?
         @draft = @config.current.dup_snapshot
         @close_warned = false
+        @dirty = false
         @external_change_label.try { |label| label.text = "" }
         window.msg_box("保存した", "設定を保存し、動作に反映した。")
       else
@@ -745,14 +763,14 @@ module Runtime
 
     private def entry(key : String) : UIng::Entry
       control = UIng::Entry.new
-      control.on_changed { |_text| @close_warned = false }
+      control.on_changed { |_text| mark_dirty }
       @controls[key] = control
       control
     end
 
     private def check(key : String, label : String) : UIng::Checkbox
       control = UIng::Checkbox.new(label)
-      control.on_toggled { |_checked| @close_warned = false }
+      control.on_toggled { |_checked| mark_dirty }
       @checks[key] = control
       control
     end
@@ -761,14 +779,14 @@ module Runtime
       control = UIng::Combobox.new
       items.each { |item| control.append(item) }
       control.selected = 0
-      control.on_selected { |_index| @close_warned = false }
+      control.on_selected { |_index| mark_dirty }
       @combos[key] = control
       control
     end
 
     private def spin(key : String, min : Int32, max : Int32) : UIng::Spinbox
       control = UIng::Spinbox.new(min, max)
-      control.on_changed { |_value| @close_warned = false }
+      control.on_changed { |_value| mark_dirty }
       @spins[key] = control
       control
     end
@@ -779,8 +797,22 @@ module Runtime
       control
     end
 
+    # 入力された文字列をそのまま返す。
+    # title_template や icon や sound には前後の空白を含む値もありうるため、
+    # 一律で落とすと利用者が設定した値を黙って書き換えることになる。
+    # 編集された印を付ける。閉じる確認もやり直す。
+    private def mark_dirty : Nil
+      @dirty = true
+      @close_warned = false
+    end
+
     private def text(key : String) : String
-      (@controls[key]?.try(&.text) || "").strip
+      @controls[key]?.try(&.text) || ""
+    end
+
+    # 前後の空白を落として返す。数値欄や app_id のように、空白に意味が無い項目で使う。
+    private def trimmed(key : String) : String
+      text(key).strip
     end
 
     private def set_text(key : String, value : String) : Nil
@@ -814,7 +846,7 @@ module Runtime
     end
 
     private def number(key : String, label : String, errors : Array(String)) : Float64
-      raw = text(key)
+      raw = trimmed(key)
       value = raw.to_f64?
       return value if value && value.finite?
       errors << "#{label} には有限の数値を入れる: #{raw}"

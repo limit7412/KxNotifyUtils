@@ -24,17 +24,32 @@ const char* access_status_label(int32_t code) {
   }
 }
 
-// 通知アクセスの許可を確かめる。
-// 許可されていないのは環境の都合であってシムの異常ではないため、
-// 呼び出し側はこの場合を失敗として扱わない。
-bool notification_access_granted() {
+enum class AccessCheck {
+  Granted,  // 許可されている。通知の確認まで行える。
+  Skip,     // 許可されていないだけ。環境の都合であってシムの異常ではない。
+  Failed,   // 問い合わせ自体が失敗した。シムの異常として扱う。
+};
+
+// 通知アクセスの状態を確かめる。
+//
+// 未許可と、問い合わせの失敗は分ける。
+// どちらもスキップにすると、シムが実行できない状態でも CI が通ってしまう。
+AccessCheck check_notification_access() {
   int32_t status = nls_get_access_status();
   std::printf("access status: %s (%d)\n", access_status_label(status), status);
-  if (status != 0) {
+  if (status > 0) {
     status = nls_request_access();
     std::printf("after request: %s (%d)\n", access_status_label(status), status);
   }
-  return status == 0;
+
+  if (status == 0) {
+    return AccessCheck::Granted;
+  }
+  if (status < 0) {
+    std::printf("failed to query notification access (%d): %s\n", status, nls_last_error());
+    return AccessCheck::Failed;
+  }
+  return AccessCheck::Skip;
 }
 
 int dump_once() {
@@ -72,10 +87,13 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  if (!notification_access_granted()) {
-    std::printf("notification access is not granted; skipping the notification checks\n");
+  const AccessCheck access = check_notification_access();
+  if (access != AccessCheck::Granted) {
+    if (access == AccessCheck::Skip) {
+      std::printf("notification access is not granted; skipping the notification checks\n");
+    }
     nls_shutdown();
-    return 0;
+    return access == AccessCheck::Skip ? 0 : 1;
   }
 
   int result = 0;
