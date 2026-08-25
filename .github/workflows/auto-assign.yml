@@ -1,0 +1,47 @@
+# issue と pull request が作られたときに、担当者を自動で割り当てる。
+#
+# 担当者が一人も付いていないものだけを対象にする。
+# すでに誰かが割り当てられている場合は、その割り当てを上書きしない。
+name: auto assign
+
+on:
+  issues:
+    types: [opened, reopened]
+  # fork から送られた pull request でも書き込み権限のあるトークンが必要なため、
+  # pull_request ではなく pull_request_target を使う。
+  # この workflow は pull request のコードを checkout せず、API を呼ぶだけなので、
+  # fork のコードが実行されることはない。
+  pull_request_target:
+    types: [opened, reopened]
+
+# 割り当てに必要な権限だけを与える。
+# pull request の担当者も issues API 経由で設定するため、両方を write にする。
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    # issues イベントでは pull_request が、pull_request_target イベントでは issue が
+    # それぞれ null になるため、両方の条件を満たすかどうかで未割り当てを判定できる。
+    if: >-
+      github.event.issue.assignees[0] == null
+      && github.event.pull_request.assignees[0] == null
+    steps:
+      - name: Assign
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # pull request も issue として番号を持つため、同じ API で扱える。
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # 割り当て先の GitHub アカウント。
+          # リポジトリ変数 AUTO_ASSIGNEE を設定すると、そちらが優先される。
+          ASSIGNEE: ${{ vars.AUTO_ASSIGNEE || 'limit7412' }}
+        run: |
+          set -euo pipefail
+          jq -n --arg assignee "${ASSIGNEE}" '{assignees: [$assignee]}' \
+            | gh api \
+                --method POST \
+                "repos/${REPO}/issues/${NUMBER}/assignees" \
+                --input -
