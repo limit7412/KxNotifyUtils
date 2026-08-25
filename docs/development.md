@@ -79,6 +79,11 @@ FFI の宣言、トレイ、設定ウィンドウなど、Linux では実行で�
 CI もこの 2 段構成を採っている。
 Linux のジョブで書式と単体テストとクロスコンパイルを回し、Windows のジョブでシムを含む実際のビルドと単体テストを行う。
 
+`shards install` は CI で試し直すようにしてある。
+uing の postinstall が libui-ng の静的ライブラリを GitHub から取得しており、この取得は落ちることがあるためである。
+落ちたとき shards は `Failed postinstall of uing on crystal run download.cr:` とだけ出して理由を残さないので、失敗の見分けがつきにくい。
+`lib` を消してから取り直せば通る。
+
 ## 実機でしか確かめられないこと
 
 次の項目は、SteamVR と XSOverlay と HMD が揃った環境でないと確認できない。

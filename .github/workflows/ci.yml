@@ -18,7 +18,18 @@ jobs:
           crystal: 1.14.0
 
       - name: 依存 shard を取得する
-        run: shards install
+        # uing の postinstall は libui-ng の静的ライブラリを GitHub から取得する。
+        # この取得は落ちることがあり、shards は理由を出さずに終わる。
+        # 取り直せば通るため、lib を消してから間隔を空けて試し直す。
+        run: |
+          for attempt in 1 2 3; do
+            rm -rf lib
+            if shards install; then exit 0; fi
+            echo "shards install に失敗した (${attempt} 回目)"
+            sleep $((attempt * 10))
+          done
+          echo "shards install が 3 回とも失敗した" >&2
+          exit 1
 
       - name: 書式を確かめる
         run: crystal tool format --check src spec
@@ -46,7 +57,18 @@ jobs:
           crystal: 1.14.0
 
       - name: 依存 shard を取得する
-        run: shards install
+        # uing の postinstall は libui-ng の静的ライブラリを GitHub から取得する。
+        # この取得は落ちることがあり、shards は理由を出さずに終わる。
+        # 取り直せば通るため、lib を消してから間隔を空けて試し直す。
+        run: |
+          foreach ($attempt in 1..3) {
+            if (Test-Path lib) { Remove-Item -Recurse -Force lib }
+            shards install
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "shards install に失敗した ($attempt 回目, 終了コード $LASTEXITCODE)"
+            Start-Sleep -Seconds ($attempt * 10)
+          }
+          throw "shards install が 3 回とも失敗した"
 
       - name: NotifListenerShim をビルドする
         run: |
