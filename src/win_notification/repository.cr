@@ -49,8 +49,7 @@ module WinNotification
     # 無効にしている間に届いて通知センターに残っている通知を、
     # 再開直後の 1 周期で一斉に中継しないためである。
     def start : Nil
-      @seen = Set(UInt32).new
-      @primed = false
+      reset_diff_state
       @client.open
       @access_status = @client.access_status
       @access_status = @client.request_access unless @access_status.allowed?
@@ -73,7 +72,13 @@ module WinNotification
         @access_checked_at = Time.monotonic
         previous = @access_status
         @access_status = @client.access_status
-        Log.info { "通知アクセスの許可状態が変わった: #{previous} -> #{@access_status}" } if previous != @access_status
+
+        if previous != @access_status
+          Log.info { "通知アクセスの許可状態が変わった: #{previous} -> #{@access_status}" }
+          # 許可が戻ったときは、拒否されていた間に届いて通知センターに残っている通知を
+          # 再開直後の 1 周期で一斉に中継しないよう、開始時と同じく既読からやり直す。
+          reset_diff_state if @access_status.allowed?
+        end
       end
       @access_status.allowed?
     end
@@ -92,6 +97,12 @@ module WinNotification
       end
 
       fresh.map { |n| to_incoming(n) }
+    end
+
+    # 次のポーリングの結果を既読とみなす状態に戻す。
+    private def reset_diff_state : Nil
+      @seen = Set(UInt32).new
+      @primed = false
     end
 
     private def to_incoming(notification : Notification) : Notify::Incoming

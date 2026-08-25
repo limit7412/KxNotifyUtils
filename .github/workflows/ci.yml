@@ -76,9 +76,10 @@ jobs:
           cmake --build shim/build --config Release
 
       - name: シムのテストハーネスを動かす
-        # 通知アクセスが許可されない環境でも、初期化と JSON の組み立てが壊れていないことは確かめられる。
+        # 通知アクセスが無い環境ではハーネスが自分で「確認を飛ばす」と判断して 0 を返す。
+        # それ以外の異常終了（初期化の失敗、ABI の食い違い、クラッシュ）はこのジョブを落とす。
+        # 見逃すと、ビルドは通るのに動かない変更が素通りする。
         run: ./shim/build/Release/shim_harness.exe
-        continue-on-error: true
 
       - name: 単体テストを実行する
         # FFI 宣言のコンパイル確認を兼ねて Windows でも実行する。

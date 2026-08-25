@@ -91,6 +91,28 @@ describe WinNotification::Repository do
     repository.ready?.should be_false
   end
 
+  it "許可が戻ったときは差分検出をやり直し、拒否中に届いた通知を一斉に中継しない" do
+    client = Fakes::ShimClient.new([
+      notifications_json([1]),
+      notifications_json([1, 2]),
+      notifications_json([1, 2]),
+    ])
+    repository = WinNotification::Repository.new(client, WinNotification::Settings.new, 10.milliseconds)
+    repository.start
+    repository.poll_new
+
+    client.status = WinNotification::AccessStatus::Denied
+    sleep 20.milliseconds
+    repository.ready?.should be_false
+
+    client.status = WinNotification::AccessStatus::Allowed
+    sleep 20.milliseconds
+    repository.ready?.should be_true
+
+    # 拒否されていた間に届いて通知センターに残っている分は既読として扱う。
+    repository.poll_new.should be_empty
+  end
+
   it "通知アクセスが未許可の間は中継の対象にならない" do
     client = Fakes::ShimClient.new
     client.status = WinNotification::AccessStatus::Denied

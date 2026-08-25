@@ -337,12 +337,22 @@ module KxNotifyUtils
         break if @tray.quit_requested?
 
         step_ui
-        retry_steamvr unless @openvr.opened?
+        retry_steamvr if steamvr_retry_needed?
         @scheduler.step
         break if @scheduler.quit_requested?
 
         sleep 10.milliseconds
       end
+    end
+
+    # OpenVR につながっていないか、自動登録の決着がついていない間は試し直す。
+    #
+    # 接続だけを見るわけにはいかない。
+    # 初期化に成功しても登録が一時的に失敗することはあり、そのまま諦めると
+    # 一度も登録しないまま SteamVR の終了に合わせて終わってしまうためである。
+    private def steamvr_retry_needed? : Bool
+      return true unless @openvr.opened?
+      !@config.current.steamvr.auto_launch_configured
     end
 
     # SteamVR を後から起動した場合に備え、初期化を一定間隔でやり直す。

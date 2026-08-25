@@ -86,7 +86,10 @@ module Notify
 
       settings = snapshot.resolve_rule(incoming.app_id)
       message = builder.build(incoming, settings)
-      Log.debug { "中継する: #{incoming.source} #{incoming.app_id} #{message.title}" }
+      # 件名はテンプレート展開前のものを書く。
+      # title_template に {body} を入れると展開後の件名に本文が載るため、
+      # 展開後を書くと debug でも本文を残さないという約束を破ることになる。
+      Log.debug { "中継する: #{incoming.source} #{incoming.app_id} #{incoming.title}" }
       @relayed[incoming.source] += 1
       deliver(message)
       true

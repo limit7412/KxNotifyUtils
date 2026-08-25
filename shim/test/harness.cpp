@@ -24,14 +24,20 @@ const char* access_status_label(int32_t code) {
   }
 }
 
-int dump_once() {
-  const int32_t status = nls_get_access_status();
+// 通知アクセスの許可を確かめる。
+// 許可されていないのは環境の都合であってシムの異常ではないため、
+// 呼び出し側はこの場合を失敗として扱わない。
+bool notification_access_granted() {
+  int32_t status = nls_get_access_status();
   std::printf("access status: %s (%d)\n", access_status_label(status), status);
   if (status != 0) {
-    const int32_t requested = nls_request_access();
-    std::printf("after request: %s (%d)\n", access_status_label(requested), requested);
+    status = nls_request_access();
+    std::printf("after request: %s (%d)\n", access_status_label(status), status);
   }
+  return status == 0;
+}
 
+int dump_once() {
   const char* json = nls_get_notifications();
   if (!json) {
     std::printf("failed to get notifications: %s\n", nls_last_error());
@@ -64,6 +70,12 @@ int main(int argc, char** argv) {
   if (code != 0) {
     std::printf("nls_init failed (%d): %s\n", code, nls_last_error());
     return 1;
+  }
+
+  if (!notification_access_granted()) {
+    std::printf("notification access is not granted; skipping the notification checks\n");
+    nls_shutdown();
+    return 0;
   }
 
   int result = 0;

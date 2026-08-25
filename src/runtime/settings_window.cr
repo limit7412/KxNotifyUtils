@@ -72,6 +72,8 @@ module Runtime
       @close_warned = false
       # 一覧の作り直しや選択の戻しで on_selected が動くのを抑える。
       @suppress_rule_selection = false
+      # 「観測した app_id」に並べた順序。選択位置から app_id を引くために持つ。
+      @observed_app_ids = [] of String
     end
 
     # トレイメニューから開く。既に開いていれば前面化するだけとする。
@@ -423,8 +425,12 @@ module Runtime
       return unless observed
 
       observed.clear
-      @relay.observed_apps.to_a.sort_by(&.[0]).each do |app_id, app_name|
-        observed.append("#{app_id} (#{app_name})")
+      # 表示した時点の並びを覚えておく。
+      # 選ぶまでの間に新しいアプリを観測すると並びが変わり、
+      # 選択位置から引き直すと画面で選んだものと違う app_id になるためである。
+      @observed_app_ids = @relay.observed_apps.keys.sort
+      @observed_app_ids.each do |app_id|
+        observed.append("#{app_id} (#{@relay.observed_apps[app_id]?})")
       end
     end
 
@@ -535,10 +541,16 @@ module Runtime
       end
     end
 
+    # NaN と無限大も受け付けない。
+    # ルールは検証の前に JSON へ写して複製するため、ここを通すと
+    # 検証エラーのダイアログへ辿り着く前に書き出しで例外になる。
     private def rule_float(value : String?, field : String, errors : Array(String)?) : Float64?
       value.try do |raw|
         parsed = raw.to_f64?
-        errors << "ルールの #{field} に数値以外が入っている: #{raw}" if parsed.nil? && errors
+        if parsed.nil? || !parsed.finite?
+          errors << "ルールの #{field} には有限の数値を入れる: #{raw}" if errors
+          next nil
+        end
         parsed
       end
     end
@@ -599,7 +611,7 @@ module Runtime
       index = @observed.try(&.selected) || -1
       return if index < 0
 
-      app_id = @relay.observed_apps.keys.sort[index]?
+      app_id = @observed_app_ids[index]?
       return unless app_id
       set_text("rule.match_app_id", app_id)
     end
@@ -804,8 +816,8 @@ module Runtime
     private def number(key : String, label : String, errors : Array(String)) : Float64
       raw = text(key)
       value = raw.to_f64?
-      return value if value
-      errors << "#{label} に数値以外が入っている: #{raw}"
+      return value if value && value.finite?
+      errors << "#{label} には有限の数値を入れる: #{raw}"
       0.0
     end
   end
