@@ -5,8 +5,10 @@
 #   - Crystal の Windows 版（MSVC ツールチェーン）
 #
 # 使い方:
-#   pwsh scripts/build.ps1            リリースビルド
-#   pwsh scripts/build.ps1 -Debug     デバッグビルド
+#   pwsh scripts/build.ps1              リリースビルド
+#   pwsh scripts/build.ps1 -DebugBuild  デバッグビルド
+#
+# PowerShell の共通パラメータに -Debug があるため、独自のスイッチは -DebugBuild とする。
 [CmdletBinding()]
 param(
   [switch]$DebugBuild,

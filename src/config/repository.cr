@@ -38,8 +38,11 @@ module Config
       File.rename(temporary, @path)
     end
 
+    # 存在するだけでなく通常のファイルであることを確かめる。
+    # ディレクトリを通すと、アイコンは読み込みに失敗して既定へ落ち、
+    # 通知音はそのパスがそのままシンクへ送られる。
     def file_exists?(path : String) : Bool
-      File.exists?(path)
+      File.file?(path)
     end
 
     def modified_at : Time?

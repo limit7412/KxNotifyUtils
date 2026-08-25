@@ -19,6 +19,10 @@ module XSOverlay
     BACKOFF_MIN = 1.second
     BACKOFF_MAX = 30.seconds
 
+    # 接続が安定したとみなす長さ。
+    # これより長く続いた接続が切れたときだけ、待ち時間を初期値へ戻す。
+    STABLE_CONNECTION = 30.seconds
+
     # client クエリパラメータが無いと XSOverlay 側が接続を拒否するため、必ず付与する。
     CLIENT_NAME = "KxNotifyUtils"
 
@@ -68,6 +72,8 @@ module XSOverlay
     # 切断を検知したら指数バックオフで再接続する。
     private def maintain_connection : Nil
       until @stopping
+        connected_at = nil.as(Time::Span?)
+
         begin
           socket = HTTP::WebSocket.new(URI.parse(endpoint))
 
@@ -80,7 +86,7 @@ module XSOverlay
 
           @socket = socket
           @connected = true
-          @backoff = BACKOFF_MIN
+          connected_at = Time.monotonic
           Log.info { "XSOverlay へ接続した: #{endpoint}" }
 
           socket.on_close do |_code, _reason|
@@ -95,6 +101,13 @@ module XSOverlay
         end
 
         break if @stopping
+
+        # 受け入れた直後に切られる状態では、接続のたびに待ち時間を戻すと毎秒つなぎ直してしまう。
+        # 一定時間続いた接続が切れたときだけ戻す。
+        if (started = connected_at) && Time.monotonic - started >= STABLE_CONNECTION
+          @backoff = BACKOFF_MIN
+        end
+
         Log.info { "XSOverlay との接続が切れた。#{@backoff.total_seconds.to_i} 秒後に再接続する" }
         sleep @backoff
         @backoff = {@backoff * 2, BACKOFF_MAX}.min

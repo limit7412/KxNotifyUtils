@@ -1,7 +1,9 @@
 require "spec"
 require "log"
+require "file_utils"
 
 require "../src/config/models"
+require "../src/config/repository"
 require "../src/config/usecase"
 require "../src/notify/models"
 require "../src/notify/repository"

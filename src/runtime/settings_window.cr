@@ -70,11 +70,15 @@ module Runtime
       # 未保存の変更があるまま閉じようとしたことを覚えておく。
       # 一度警告を出し、続けてもう一度閉じる操作をしたときに破棄する。
       @close_warned = false
+      # 一覧の作り直しや選択の戻しで on_selected が動くのを抑える。
+      @suppress_rule_selection = false
     end
 
     # トレイメニューから開く。既に開いていれば前面化するだけとする。
     def open : Nil
       if window = @window
+        # 閉じている間に観測したアプリも入力補助から選べるようにする。
+        reload_observed_apps
         refresh_status
         window.show
         return
@@ -247,9 +251,19 @@ module Runtime
       rule_list = UIng::Combobox.new
       @rule_list = rule_list
       rule_list.on_selected do |index|
-        flush_rule_form
-        @selected_rule = index
-        load_rule_form
+        next if @suppress_rule_selection
+
+        errors = [] of String
+        flush_rule_form(errors)
+        if errors.empty?
+          @selected_rule = index
+          load_rule_form
+        else
+          # 読めない入力を持ったまま切り替えると、その入力が失われる。
+          # 選択を戻し、直してもらう。
+          @window.try(&.msg_box_error("ルールを切り替えられない", errors.join("\n")))
+          restore_rule_selection
+        end
       end
       left.append(rule_list, false)
 
@@ -373,12 +387,33 @@ module Runtime
       rule_list = @rule_list
       return unless rule_list
 
+      @suppress_rule_selection = true
       rule_list.clear
       @rules.each_with_index do |rule, index|
         label = rule.match_app_id.empty? ? "(未設定)" : rule.match_app_id
         rule_list.append("#{index + 1}. #{label}")
       end
       rule_list.selected = @selected_rule if @selected_rule >= 0 && @selected_rule < @rules.size
+      @suppress_rule_selection = false
+    end
+
+    private def restore_rule_selection : Nil
+      rule_list = @rule_list
+      return unless rule_list
+
+      @suppress_rule_selection = true
+      rule_list.selected = @selected_rule if @selected_rule >= 0 && @selected_rule < @rules.size
+      @suppress_rule_selection = false
+    end
+
+    # 画面の入力をルールへ書き戻す。読めない入力があれば知らせて false を返す。
+    private def flush_rule_form_or_warn : Bool
+      errors = [] of String
+      flush_rule_form(errors)
+      return true if errors.empty?
+
+      @window.try(&.msg_box_error("入力を直す必要がある", errors.join("\n")))
+      false
     end
 
     private def reload_observed_apps : Nil
@@ -426,12 +461,26 @@ module Runtime
         return
       end
 
-      inherited = @draft.defaults.dynamic_timeout
+      inherited = editing_defaults_dynamic_timeout
       rule.dynamic_timeout = ::Config::DynamicTimeout.new(
         base: dynamic_timeout_value("base", inherited.base, errors),
         reading_speed: dynamic_timeout_value("reading_speed", inherited.reading_speed, errors),
         min: dynamic_timeout_value("min", inherited.min, errors),
         max: dynamic_timeout_value("max", inherited.max, errors),
+      )
+    end
+
+    # 継承に使う既定値は、保存済みのものではなく画面で編集中のものを読む。
+    # 既定値とルールを同時に編集して保存したとき、
+    # 上書きしていない係数だけが古い値で固定されないためである。
+    # 読めない入力は既定の通知設定タブ側の検証で拾うので、ここでは記録しない。
+    private def editing_defaults_dynamic_timeout : ::Config::DynamicTimeout
+      stored = @draft.defaults.dynamic_timeout
+      ::Config::DynamicTimeout.new(
+        base: text("defaults.dynamic_timeout.base").to_f64? || stored.base,
+        reading_speed: text("defaults.dynamic_timeout.reading_speed").to_f64? || stored.reading_speed,
+        min: text("defaults.dynamic_timeout.min").to_f64? || stored.min,
+        max: text("defaults.dynamic_timeout.max").to_f64? || stored.max,
       )
     end
 
@@ -528,7 +577,7 @@ module Runtime
     end
 
     private def add_rule : Nil
-      flush_rule_form
+      return unless flush_rule_form_or_warn
       @rules << ::Config::Rule.new("")
       @selected_rule = @rules.size - 1
       reload_rule_list
@@ -545,7 +594,7 @@ module Runtime
 
     # 先勝ちマッチのため、並び順そのものが設定の意味を持つ。
     private def move_rule(offset : Int32) : Nil
-      flush_rule_form
+      return unless flush_rule_form_or_warn
       target = @selected_rule + offset
       return if @selected_rule < 0 || target < 0 || target >= @rules.size
 
