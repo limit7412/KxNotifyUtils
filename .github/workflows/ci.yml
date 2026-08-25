@@ -66,8 +66,11 @@ jobs:
         run: rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
 
       - name: 本体をビルドする
+        # --no-debug を外すと uing が libui-ng の debug 版を選ぶ。
+        # uing はデバッグ情報の有無で release と debug を選び分けており、
+        # Crystal はデバッグ情報を既定で出すため、--release だけでは debug 版が使われる。
         run: |
-          crystal build src/main.cr -o KxNotifyUtils.exe --release `
+          crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug `
             --link-flags "/LIBPATH:${{ github.workspace }}\shim\build\Release ${{ github.workspace }}\res\kxnotifyutils.res"
 
       - name: 成果物を保存する

@@ -34,8 +34,11 @@ $shimDirectory = Join-Path $root "shim\build\$configuration"
 $resource = Join-Path $root "res\kxnotifyutils.res"
 $linkFlags = "/LIBPATH:$shimDirectory `"$resource`""
 
+# --no-debug を外すと uing が libui-ng の debug 版を選ぶ。
+# uing はデバッグ情報の有無で libui-ng の release と debug を選び分けており、
+# Crystal はデバッグ情報を既定で出すため、--release だけでは debug 版が使われる。
 $arguments = @("build", "src/main.cr", "-o", $Output, "--link-flags", $linkFlags)
-if (-not $DebugBuild) { $arguments += "--release" }
+if (-not $DebugBuild) { $arguments += @("--release", "--no-debug") }
 crystal @arguments
 
 Write-Host "==> 完成: $Output"

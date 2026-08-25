@@ -21,9 +21,12 @@ cmake -S shim -B shim/build -A x64
 cmake --build shim/build --config Release
 rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
 shards install
-crystal build src/main.cr -o KxNotifyUtils.exe --release `
+crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug `
   --link-flags "/LIBPATH:$PWD\shim\build\Release $PWD\res\kxnotifyutils.res"
 ```
+
+`--no-debug` を外すと uing が libui-ng の debug 版を選ぶ。
+uing はデバッグ情報の有無で libui-ng の release と debug を選び分けており、Crystal はデバッグ情報を既定で出すため、`--release` だけでは debug 版が使われる。
 
 シムの CRT は静的（`/MT`）に固定してある。
 uing が配る `ui.lib` が静的 CRT でビルドされており、そこに合わせないとリンク時に `RuntimeLibrary` の食い違いで止まる。
