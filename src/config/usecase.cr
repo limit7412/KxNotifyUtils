@@ -22,9 +22,9 @@ module Config
   class Usecase
     Log = ::Log.for("config")
 
-    BUILTIN_ICONS = %w[default warning error]
+    BUILTIN_ICONS  = %w[default warning error]
     BUILTIN_SOUNDS = %w[default warning error]
-    LOG_LEVELS = %w[trace debug info notice warn error fatal none]
+    LOG_LEVELS     = %w[trace debug info notice warn error fatal none]
 
     # 検証を通った設定を各 usecase へ流すためのフック。
     # composition root がスナップショットの差し替えを登録する。

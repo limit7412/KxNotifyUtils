@@ -1,0 +1,177 @@
+module Runtime
+  # トレイ常駐に必要な Win32 API の宣言（仕様書 4.7 節）。
+  #
+  # GUI ツールキットを使わず Win32 を直に叩くのは、トレイアイコンとメニューだけのために
+  # ツールキットを 1 つ増やしたくないためである。設定ウィンドウ側は libui-ng を使う。
+  lib LibWin32
+    alias Handle = Void*
+    alias WParam = UInt64
+    alias LParam = Int64
+    alias LResult = Int64
+
+    WM_DESTROY         = 0x0002_u32
+    WM_CLOSE           = 0x0010_u32
+    WM_QUERYENDSESSION = 0x0011_u32
+    WM_ENDSESSION      = 0x0016_u32
+    WM_QUIT            = 0x0012_u32
+    WM_RBUTTONUP       = 0x0205_u32
+    WM_LBUTTONDBLCLK   = 0x0203_u32
+    WM_APP             = 0x8000_u32
+
+    # トレイアイコンからの通知を受け取るための独自メッセージ。
+    WM_TRAY_CALLBACK = 0x8001_u32
+
+    PM_REMOVE = 0x0001_u32
+
+    NIM_ADD    = 0x0000_u32
+    NIM_MODIFY = 0x0001_u32
+    NIM_DELETE = 0x0002_u32
+
+    NIF_MESSAGE = 0x0001_u32
+    NIF_ICON    = 0x0002_u32
+    NIF_TIP     = 0x0004_u32
+    NIF_INFO    = 0x0010_u32
+
+    NIIF_INFO    = 0x0001_u32
+    NIIF_WARNING = 0x0002_u32
+    NIIF_ERROR   = 0x0003_u32
+
+    MF_STRING    = 0x0000_u32
+    MF_GRAYED    = 0x0001_u32
+    MF_CHECKED   = 0x0008_u32
+    MF_SEPARATOR = 0x0800_u32
+
+    TPM_LEFTALIGN   = 0x0000_u32
+    TPM_RIGHTBUTTON = 0x0002_u32
+    TPM_NONOTIFY    = 0x0080_u32
+    TPM_RETURNCMD   = 0x0100_u32
+
+    IMAGE_ICON      =      1_u32
+    LR_DEFAULTSIZE  = 0x0040_u32
+    LR_SHARED       = 0x8000_u32
+    IDI_APPLICATION =  32512_u32
+    IDC_ARROW       =  32512_u32
+
+    SW_SHOWNORMAL = 1_i32
+
+    struct Point
+      x : Int32
+      y : Int32
+    end
+
+    struct Msg
+      hwnd : Handle
+      message : UInt32
+      w_param : WParam
+      l_param : LParam
+      time : UInt32
+      pt : Point
+      private_value : UInt32
+    end
+
+    struct WndClassEx
+      cb_size : UInt32
+      style : UInt32
+      wnd_proc : Void*
+      cb_cls_extra : Int32
+      cb_wnd_extra : Int32
+      instance : Handle
+      icon : Handle
+      cursor : Handle
+      background : Handle
+      menu_name : UInt16*
+      class_name : UInt16*
+      icon_small : Handle
+    end
+
+    # NOTIFYICONDATAW。配列の長さは Windows SDK の定義に合わせる。
+    struct NotifyIconData
+      cb_size : UInt32
+      hwnd : Handle
+      id : UInt32
+      flags : UInt32
+      callback_message : UInt32
+      icon : Handle
+      tip : UInt16[128]
+      state : UInt32
+      state_mask : UInt32
+      info : UInt16[256]
+      timeout_or_version : UInt32
+      info_title : UInt16[64]
+      info_flags : UInt32
+      guid_item : UInt8[16]
+      balloon_icon : Handle
+    end
+
+    fun get_module_handle_w = GetModuleHandleW(module_name : UInt16*) : Handle
+    fun get_last_error = GetLastError : UInt32
+
+    fun register_class_ex_w = RegisterClassExW(wnd_class : WndClassEx*) : UInt16
+    fun create_window_ex_w = CreateWindowExW(
+      ex_style : UInt32, class_name : UInt16*, window_name : UInt16*, style : UInt32,
+      x : Int32, y : Int32, width : Int32, height : Int32,
+      parent : Handle, menu : Handle, instance : Handle, param : Void*
+    ) : Handle
+    fun destroy_window = DestroyWindow(hwnd : Handle) : Int32
+    fun def_window_proc_w = DefWindowProcW(hwnd : Handle, message : UInt32, w_param : WParam, l_param : LParam) : LResult
+    fun post_quit_message = PostQuitMessage(exit_code : Int32) : Void
+    fun peek_message_w = PeekMessageW(msg : Msg*, hwnd : Handle, filter_min : UInt32, filter_max : UInt32, remove : UInt32) : Int32
+    fun translate_message = TranslateMessage(msg : Msg*) : Int32
+    fun dispatch_message_w = DispatchMessageW(msg : Msg*) : LResult
+
+    fun load_icon_w = LoadIconW(instance : Handle, icon_name : UInt16*) : Handle
+    fun load_cursor_w = LoadCursorW(instance : Handle, cursor_name : UInt16*) : Handle
+
+    fun create_popup_menu = CreatePopupMenu : Handle
+    fun append_menu_w = AppendMenuW(menu : Handle, flags : UInt32, id : UInt64, item : UInt16*) : Int32
+    fun destroy_menu = DestroyMenu(menu : Handle) : Int32
+    fun track_popup_menu = TrackPopupMenu(
+      menu : Handle, flags : UInt32, x : Int32, y : Int32,
+      reserved : Int32, hwnd : Handle, rect : Void*
+    ) : Int32
+    fun get_cursor_pos = GetCursorPos(point : Point*) : Int32
+    fun set_foreground_window = SetForegroundWindow(hwnd : Handle) : Int32
+
+    fun shell_notify_icon_w = Shell_NotifyIconW(message : UInt32, data : NotifyIconData*) : Int32
+    fun shell_execute_w = ShellExecuteW(
+      hwnd : Handle, operation : UInt16*, file : UInt16*,
+      parameters : UInt16*, directory : UInt16*, show : Int32
+    ) : Handle
+  end
+
+  module Win32
+    # 数値のリソース ID を LPCWSTR として渡すための MAKEINTRESOURCE 相当。
+    def self.int_resource(id : UInt32) : UInt16*
+      Pointer(UInt16).new(id.to_u64)
+    end
+
+    # HWND_MESSAGE。画面に出さないメッセージ専用ウィンドウの親に指定する。
+    def self.hwnd_message : LibWin32::Handle
+      Pointer(Void).new(-3.to_u64!)
+    end
+
+    def self.utf16(value : String) : Slice(UInt16)
+      value.to_utf16
+    end
+
+    # 固定長の UTF-16 配列へ、終端を残して詰める。
+    def self.copy_utf16(target : Pointer(UInt16), capacity : Int32, value : String) : Nil
+      encoded = value.to_utf16
+      length = Math.min(encoded.size, capacity - 1)
+      length.times { |i| target[i] = encoded[i] }
+      target[length] = 0_u16
+    end
+
+    # 既定のアプリケーションで開く。設定ファイル、ログフォルダ、Windows 設定画面に使う。
+    def self.open_with_shell(target : String) : Nil
+      LibWin32.shell_execute_w(
+        Pointer(Void).null,
+        utf16("open").to_unsafe,
+        utf16(target).to_unsafe,
+        Pointer(UInt16).null,
+        Pointer(UInt16).null,
+        LibWin32::SW_SHOWNORMAL,
+      )
+    end
+  end
+end
