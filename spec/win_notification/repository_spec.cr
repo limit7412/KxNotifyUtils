@@ -79,6 +79,18 @@ describe WinNotification::Repository do
     repository.poll_interval.should eq 250.milliseconds
   end
 
+  it "起動後に許可が取り消されたら中継の対象から外れる" do
+    client = Fakes::ShimClient.new
+    repository = WinNotification::Repository.new(client, WinNotification::Settings.new, 10.milliseconds)
+    repository.start
+    repository.ready?.should be_true
+
+    client.status = WinNotification::AccessStatus::Denied
+    sleep 20.milliseconds
+
+    repository.ready?.should be_false
+  end
+
   it "通知アクセスが未許可の間は中継の対象にならない" do
     client = Fakes::ShimClient.new
     client.status = WinNotification::AccessStatus::Denied

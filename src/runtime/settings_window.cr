@@ -287,6 +287,8 @@ module Runtime
       filter_box.append(filter_form, false)
       filter_box.append(UIng::Label.new("対象の app_id（1 行に 1 つ、前方一致）"), false)
       filter_apps = UIng::MultilineEntry.new
+      # 他の入力部品と同じく、編集したら閉じる確認をやり直す。
+      filter_apps.on_changed { @close_warned = false }
       @filter_apps = filter_apps
       filter_box.append(filter_apps, true)
       filter_group.child = filter_box
@@ -504,7 +506,16 @@ module Runtime
       when "opacity"         then rule.opacity.try(&.to_s)
       when "volume"          then rule.volume.try(&.to_s)
       when "sound"           then rule.sound
-      else                        nil
+      when .starts_with?("dynamic_timeout.")
+        rule.dynamic_timeout.try do |dynamic|
+          case field.lchop("dynamic_timeout.")
+          when "base"          then dynamic.base.to_s
+          when "reading_speed" then dynamic.reading_speed.to_s
+          when "min"           then dynamic.min.to_s
+          when "max"           then dynamic.max.to_s
+          end
+        end
+      else nil
       end
     end
 

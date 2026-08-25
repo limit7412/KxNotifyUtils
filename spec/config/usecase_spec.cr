@@ -184,6 +184,25 @@ describe Config::Usecase do
       target.validate(root).map(&.message).any?(&.includes?("max_body_length")).should be_true
     end
 
+    it "有限でない表示時間を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.defaults.timeout = Float64::NAN
+      root.defaults.dynamic_timeout = Config::DynamicTimeout.new(
+        base: Float64::NAN,
+        reading_speed: Float64::INFINITY,
+        min: Float64::NAN,
+        max: Float64::INFINITY,
+      )
+
+      messages = target.validate(root).map(&.message)
+      messages.any?(&.includes?("timeout は")).should be_true
+      messages.any?(&.includes?("dynamic_timeout.base")).should be_true
+      messages.any?(&.includes?("dynamic_timeout.reading_speed")).should be_true
+      messages.any?(&.includes?("dynamic_timeout.min")).should be_true
+      messages.any?(&.includes?("dynamic_timeout.max")).should be_true
+    end
+
     it "未知の log_level を弾く" do
       target, _ = usecase
       root = Config::Root.default

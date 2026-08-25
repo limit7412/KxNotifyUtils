@@ -27,7 +27,11 @@ module WinNotification
     property settings : Settings
     getter access_status : AccessStatus = AccessStatus::Unspecified
 
-    def initialize(@client : ShimClient, @settings : Settings)
+    def initialize(
+      @client : ShimClient,
+      @settings : Settings,
+      @access_recheck_interval : Time::Span = ACCESS_RECHECK_INTERVAL,
+    )
       @seen = Set(UInt32).new
       @primed = false
       @access_checked_at = Time.monotonic
@@ -60,14 +64,17 @@ module WinNotification
 
     # 許可が下りるまでポーリングを行わない。
     # 常駐は続けたままなので、許可された時点で中継が始まる。
+    #
+    # 許可されている間も確かめ直す。
+    # 起動後に利用者が許可を取り消すこともあり、そのまま呼び続けると
+    # 失敗するポーリングを周期ごとに繰り返すことになるためである。
     def ready? : Bool
-      return true if @access_status.allowed?
-      return false if Time.monotonic - @access_checked_at < ACCESS_RECHECK_INTERVAL
-
-      @access_checked_at = Time.monotonic
-      previous = @access_status
-      @access_status = @client.access_status
-      Log.info { "通知アクセスの許可状態が変わった: #{previous} -> #{@access_status}" } if previous != @access_status
+      if Time.monotonic - @access_checked_at >= @access_recheck_interval
+        @access_checked_at = Time.monotonic
+        previous = @access_status
+        @access_status = @client.access_status
+        Log.info { "通知アクセスの許可状態が変わった: #{previous} -> #{@access_status}" } if previous != @access_status
+      end
       @access_status.allowed?
     end
 

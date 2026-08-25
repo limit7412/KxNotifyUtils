@@ -164,8 +164,8 @@ module Config
       unless (0.0..1.0).includes?(settings.volume)
         errors << ValidationError.new(label, "volume は 0.0 から 1.0 の範囲で指定する")
       end
-      if settings.timeout <= 0.0
-        errors << ValidationError.new(label, "timeout は 0 より大きい値で指定する")
+      unless positive_finite?(settings.timeout)
+        errors << ValidationError.new(label, "timeout は 0 より大きい有限の値で指定する")
       end
       unless MAX_BODY_LENGTH_RANGE.includes?(settings.max_body_length)
         errors << ValidationError.new(
@@ -175,18 +175,18 @@ module Config
       end
 
       dynamic = settings.dynamic_timeout
-      if dynamic.reading_speed <= 0.0
-        errors << ValidationError.new(label, "dynamic_timeout.reading_speed は 0 より大きい値で指定する")
+      unless positive_finite?(dynamic.reading_speed)
+        errors << ValidationError.new(label, "dynamic_timeout.reading_speed は 0 より大きい有限の値で指定する")
       end
-      if dynamic.base < 0.0
-        errors << ValidationError.new(label, "dynamic_timeout.base は 0 以上で指定する")
+      unless dynamic.base.finite? && dynamic.base >= 0.0
+        errors << ValidationError.new(label, "dynamic_timeout.base は 0 以上の有限の値で指定する")
       end
       # 上下限そのものが正でないと、動的表示時間が負の値へクランプされる。
-      if dynamic.min <= 0.0
-        errors << ValidationError.new(label, "dynamic_timeout.min は 0 より大きい値で指定する")
+      unless positive_finite?(dynamic.min)
+        errors << ValidationError.new(label, "dynamic_timeout.min は 0 より大きい有限の値で指定する")
       end
-      if dynamic.max <= 0.0
-        errors << ValidationError.new(label, "dynamic_timeout.max は 0 より大きい値で指定する")
+      unless positive_finite?(dynamic.max)
+        errors << ValidationError.new(label, "dynamic_timeout.max は 0 より大きい有限の値で指定する")
       end
       if dynamic.min > dynamic.max
         errors << ValidationError.new(label, "dynamic_timeout.min は max 以下で指定する")
@@ -194,6 +194,14 @@ module Config
 
       validate_icon(label, settings.icon, errors)
       validate_sound(label, settings.sound, errors)
+    end
+
+    # 大小の比較だけでは NaN を弾けない。
+    # NaN はどの比較でも偽になるため、範囲を外れているとみなされずに検証を通ってしまう。
+    # NaN や無限大が混ざると、表示時間が解釈できないまま送られるか、
+    # 設定の JSON 書き出しで例外になる。
+    private def positive_finite?(value : Float64) : Bool
+      value.finite? && value > 0.0
     end
 
     private def validate_icon(label : String, icon : String, errors : Array(ValidationError)) : Nil
