@@ -72,15 +72,21 @@ module Runtime
         return
       end
 
+      @close_warned = false
+      @window = build_window
+      reset_draft
+      refresh_status
+      @window.try(&.show)
+    end
+
+    # 下書きと入力欄を現在の設定へ戻す。
+    # 開いたときと、未保存の変更を破棄して閉じたときに呼ぶ。
+    private def reset_draft : Nil
       @draft = @config.current.dup_snapshot
       @rules = @draft.rules.map { |rule| ::Config::Rule.from_json(rule.to_json) }
       @selected_rule = @rules.empty? ? -1 : 0
-      @close_warned = false
-
-      @window = build_window
       load_draft
-      refresh_status
-      @window.try(&.show)
+      @external_change_label.try { |label| label.text = "" }
     end
 
     def open? : Bool
@@ -207,7 +213,11 @@ module Runtime
       form.append("dynamic: 読字速度 (文字/秒)", entry("defaults.dynamic_timeout.reading_speed"), false)
       form.append("dynamic: 下限 (秒)", entry("defaults.dynamic_timeout.min"), false)
       form.append("dynamic: 上限 (秒)", entry("defaults.dynamic_timeout.max"), false)
-      form.append("本文の最大文字数", spin("defaults.max_body_length", 0, 5000), false)
+      form.append(
+        "本文の最大文字数",
+        spin("defaults.max_body_length", ::Config::MAX_BODY_LENGTH_RANGE.begin, ::Config::MAX_BODY_LENGTH_RANGE.end),
+        false,
+      )
       form.append("title テンプレート", entry("defaults.title_template"), false)
       form.append("アイコン", entry("defaults.icon"), false)
       form.append("透明度 (0.0 から 1.0)", entry("defaults.opacity"), false)
@@ -386,14 +396,15 @@ module Runtime
     end
 
     # 画面の入力をルールへ書き戻す。選択の切り替えと保存の直前に呼ぶ。
-    private def flush_rule_form : Nil
+    # errors を渡すと、数値として読めない入力をそこへ記録する。
+    private def flush_rule_form(errors : Array(String)? = nil) : Nil
       rule = current_rule
       return unless rule
 
       rule.match_app_id = text("rule.match_app_id")
       RULE_FIELDS.each do |field|
         value = checked?("rule.override.#{field}") ? text("rule.#{field}") : nil
-        assign_rule_field(rule, field, value)
+        assign_rule_field(rule, field, value, errors)
       end
     end
 
@@ -417,26 +428,54 @@ module Runtime
     end
 
     # 入力欄の文字列をルールへ書き戻す。
-    # 数値として読めない入力は上書きなしとして扱い、保存時の検証で気付ける状態にはしない。
-    # 代わりに、読めない入力はその場で握りつぶさず、保存前の検証でエラーとして表示する。
-    private def assign_rule_field(rule : ::Config::Rule, field : String, value : String?) : Nil
+    #
+    # 数値として読めない入力を「上書きなし」として捨てるわけにはいかない。
+    # 捨てると既定値を継承した有効な設定になり、検証を通って保存され、
+    # 利用者が書いた値が黙って消えるためである。
+    # 読めない入力は errors に残し、保存もテスト通知も行わない。
+    private def assign_rule_field(
+      rule : ::Config::Rule,
+      field : String,
+      value : String?,
+      errors : Array(String)?,
+    ) : Nil
       case field
       when "timeout_mode"
-        rule.timeout_mode = value.try { |v| ::Config::TimeoutMode.parse?(v) }
+        rule.timeout_mode = value.try do |raw|
+          mode = ::Config::TimeoutMode.parse?(raw)
+          errors << "ルールの timeout_mode は #{TIMEOUT_MODES.join(" / ")} のいずれかで指定する" if mode.nil? && errors
+          mode
+        end
       when "timeout"
-        rule.timeout = value.try(&.to_f64?)
+        rule.timeout = rule_float(value, "timeout", errors)
       when "max_body_length"
-        rule.max_body_length = value.try(&.to_i32?)
+        rule.max_body_length = rule_integer(value, "max_body_length", errors)
       when "title_template"
         rule.title_template = value
       when "icon"
         rule.icon = value
       when "opacity"
-        rule.opacity = value.try(&.to_f64?)
+        rule.opacity = rule_float(value, "opacity", errors)
       when "volume"
-        rule.volume = value.try(&.to_f64?)
+        rule.volume = rule_float(value, "volume", errors)
       when "sound"
         rule.sound = value
+      end
+    end
+
+    private def rule_float(value : String?, field : String, errors : Array(String)?) : Float64?
+      value.try do |raw|
+        parsed = raw.to_f64?
+        errors << "ルールの #{field} に数値以外が入っている: #{raw}" if parsed.nil? && errors
+        parsed
+      end
+    end
+
+    private def rule_integer(value : String?, field : String, errors : Array(String)?) : Int32?
+      value.try do |raw|
+        parsed = raw.to_i32?
+        errors << "ルールの #{field} に整数以外が入っている: #{raw}" if parsed.nil? && errors
+        parsed
       end
     end
 
@@ -508,8 +547,8 @@ module Runtime
     # 画面の入力から設定スナップショットを組み立てる。
     # 数値として読めない入力はここで拾い、保存も反映も行わない。
     private def collect : {::Config::Root?, Array(String)}
-      flush_rule_form
       errors = [] of String
+      flush_rule_form(errors)
 
       root = @draft.dup_snapshot
       root.log_level = selected_value("log_level", LOG_LEVELS)
@@ -597,6 +636,9 @@ module Runtime
         return
       end
 
+      # 破棄した内容をそのままにすると、次に開いたときに再び現れて保存できてしまう。
+      # ウィンドウは作り直さず再表示するだけなので、ここで下書きと入力欄を戻す。
+      reset_draft if changed
       @close_warned = false
       window.hide
     end

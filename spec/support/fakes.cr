@@ -164,6 +164,8 @@ module Fakes
     property removed_manifests : Array(String) = [] of String
     property acknowledged : Bool = false
     property fail_add : Bool = false
+    property fail_remove : Bool = false
+    property fail_set_auto_launch : Bool = false
 
     def open : Bool
       @opened = true
@@ -184,11 +186,13 @@ module Fakes
     end
 
     def remove_application_manifest(manifest_path : String) : Bool
+      return false if @fail_remove
       @removed_manifests << manifest_path
       true
     end
 
     def set_auto_launch(app_key : String, enabled : Bool) : Bool
+      return false if @fail_set_auto_launch
       @auto_launch = enabled
       true
     end

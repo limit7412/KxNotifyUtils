@@ -48,7 +48,7 @@ describe Notify::RelayUsecase do
     source = Fakes::Source.new("windows", [] of Array(Notify::Incoming), 500.milliseconds)
     usecase = build_usecase([source.as(Notify::SourceRepository)], [] of Notify::PostRepository)
 
-    now = Time.utc
+    now = Time.monotonic
     usecase.tick(now)
     usecase.tick(now + 100.milliseconds)
     usecase.tick(now + 600.milliseconds)

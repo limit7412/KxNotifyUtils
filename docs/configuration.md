@@ -53,7 +53,8 @@
 
   "steamvr": {
     "auto_launch_registered": true,
-    "last_exe_path": "D:/tools/KxNotifyUtils.exe"
+    "last_exe_path": "D:/tools/KxNotifyUtils.exe",
+    "auto_launch_configured": true
   },
 
   "log_level": "info"
@@ -109,8 +110,8 @@ XSOverlay へ通知を送る。
 
 - **timeout_mode**：`fixed` なら `timeout` の秒数をそのまま使い、`dynamic` なら文字数から計算する。
 - **timeout**：`fixed` のときの表示時間（秒）。
-- **dynamic_timeout**：`dynamic` のときの係数。`base + 文字数 / reading_speed` を `min` と `max` でクランプした値を表示時間にする。文字数は件名と本文の合計である。
-- **max_body_length**：本文の最大文字数。超えた分は切り詰め、末尾に省略の記号を付ける。
+- **dynamic_timeout**：`dynamic` のときの係数。`base + 文字数 / reading_speed` を `min` と `max` でクランプした値を表示時間にする。文字数は件名と本文の合計である。`min` と `max` はどちらも 0 より大きい値で指定する。
+- **max_body_length**：本文の最大文字数。0 から 5000 の範囲で指定する。超えた分は切り詰め、末尾に省略の記号を付ける。
 - **title_template**：件名の組み立て方。`{app_name}`、`{app_id}`、`{title}`、`{body}` を展開する。
 - **icon**：`app`（アプリのアイコンを使い、取れなければ `default` に落とす）、`default`、`warning`、`error`、または PNG ファイルのパス。
 - **opacity**：透明度。0.0 から 1.0 で指定する。
@@ -124,8 +125,9 @@ XSOverlay へ通知を送る。
 
 - **auto_launch_registered**：SteamVR の自動起動に登録しているか。
 - **last_exe_path**：前回登録したときの実行ファイルのパス。移動の検知に使う。
+- **auto_launch_configured**：自動起動の登録について一度でも決着がついたか。初回の自動登録を行うかどうかの判断に使う。登録したときと、利用者が解除したときに立つ。
 
-どちらもアプリが書き込む記録であり、手で編集する項目ではない。
+どれもアプリが書き込む記録であり、手で編集する項目ではない。
 
 ## log_level
 

@@ -78,11 +78,22 @@ module SteamVR
     end
 
     # 解除。自動起動を無効にし、登録を外し、生成した vrmanifest も消す。
+    #
+    # どちらかの操作が失敗したまま成功を返すわけにはいかない。
+    # 呼び出し側はその結果を設定へ「未登録」として書き戻すため、
+    # SteamVR 側に登録が残ったまま次回起動時の同期も行われない状態になるからである。
     def unregister : Bool
       return false unless @repository.opened?
 
-      @repository.set_auto_launch(APP_KEY, false)
-      @repository.remove_application_manifest(@manifest_path)
+      unless @repository.set_auto_launch(APP_KEY, false)
+        Log.error { "自動起動の無効化に失敗した" }
+        return false
+      end
+      unless @repository.remove_application_manifest(@manifest_path)
+        Log.error { "vrmanifest の登録解除に失敗した: #{@manifest_path}" }
+        return false
+      end
+
       @store.delete(@manifest_path)
       Log.info { "SteamVR の自動起動を解除した" }
       true

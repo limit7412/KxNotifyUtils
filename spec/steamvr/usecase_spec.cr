@@ -59,6 +59,24 @@ describe SteamVR::Usecase do
       repository.removed_manifests.size.should eq 1
       store.files.should be_empty
     end
+
+    it "自動起動の無効化に失敗したら成功を返さず vrmanifest も残す" do
+      usecase, repository, store = build
+      usecase.register
+      repository.fail_set_auto_launch = true
+
+      usecase.unregister.should be_false
+      store.files.should_not be_empty
+    end
+
+    it "登録の解除に失敗したら成功を返さず vrmanifest も残す" do
+      usecase, repository, store = build
+      usecase.register
+      repository.fail_remove = true
+
+      usecase.unregister.should be_false
+      store.files.should_not be_empty
+    end
   end
 
   describe "#sync" do

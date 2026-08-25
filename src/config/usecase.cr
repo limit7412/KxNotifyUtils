@@ -108,9 +108,13 @@ module Config
       errors
     end
 
+    # 有効な通知先を数えるとき、検証を登録していないキーは数に入れない。
+    # 検証を登録しているのは composition root が組み立てられるシンクだけであり、
+    # 将来用の未知のキーを数に入れると、実際には送信先が無い設定を通してしまうためである。
     private def validate_sinks(root : Root, errors : Array(ValidationError)) : Nil
-      enabled = root.sinks.count { |_, section| section["enabled"]?.try(&.as_bool?) != false }
-      if root.sinks.empty? || enabled.zero?
+      buildable = root.sinks.select { |id, _| @section_validators.has_key?("sinks.#{id}") }
+      enabled = buildable.count { |_, section| section["enabled"]?.try(&.as_bool?) != false }
+      if enabled.zero?
         errors << ValidationError.new("通知先", "有効な通知先が 1 つも無い")
       end
 
@@ -163,8 +167,11 @@ module Config
       if settings.timeout <= 0.0
         errors << ValidationError.new(label, "timeout は 0 より大きい値で指定する")
       end
-      if settings.max_body_length < 0
-        errors << ValidationError.new(label, "max_body_length は 0 以上で指定する")
+      unless MAX_BODY_LENGTH_RANGE.includes?(settings.max_body_length)
+        errors << ValidationError.new(
+          label,
+          "max_body_length は #{MAX_BODY_LENGTH_RANGE.begin} から #{MAX_BODY_LENGTH_RANGE.end} の範囲で指定する",
+        )
       end
 
       dynamic = settings.dynamic_timeout
@@ -173,6 +180,13 @@ module Config
       end
       if dynamic.base < 0.0
         errors << ValidationError.new(label, "dynamic_timeout.base は 0 以上で指定する")
+      end
+      # 上下限そのものが正でないと、動的表示時間が負の値へクランプされる。
+      if dynamic.min <= 0.0
+        errors << ValidationError.new(label, "dynamic_timeout.min は 0 より大きい値で指定する")
+      end
+      if dynamic.max <= 0.0
+        errors << ValidationError.new(label, "dynamic_timeout.max は 0 より大きい値で指定する")
       end
       if dynamic.min > dynamic.max
         errors << ValidationError.new(label, "dynamic_timeout.min は max 以下で指定する")

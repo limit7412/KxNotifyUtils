@@ -34,6 +34,10 @@ module Config
     end
   end
 
+  # 本文の最大文字数として受け付ける範囲。
+  # 設定編集ウィンドウの入力欄も同じ範囲を使う。
+  MAX_BODY_LENGTH_RANGE = 0..5000
+
   # 通知の見た目と鳴り方を決める項目の集合。
   # defaults と rules はどちらもこの項目集合を持ち、rules 側は省略した項目を defaults から継承する。
   struct Resolved
@@ -154,12 +158,20 @@ module Config
   end
 
   # steamvr セクション。
-  # last_exe_path は実行ファイルの移動を検知するための記録であり、利用者が編集する項目ではない。
+  # どれもアプリが書き込む記録であり、利用者が編集する項目ではない。
   class SteamVRSection
     include JSON::Serializable
 
     property auto_launch_registered : Bool = false
     property last_exe_path : String = ""
+
+    # 自動起動の登録について一度でも決着がついたか。
+    # 初回の自動登録を「設定ファイルが無いこと」で判断すると、
+    # SteamVR を起動していない初回実行で設定ファイルだけができた場合に、
+    # 一度も登録しないまま二度と登録を試さなくなる。
+    # 逆に登録状態だけを見ると、利用者が解除した後で毎回登録し直してしまう。
+    # そのため「決着がついたか」を別に持つ。
+    property auto_launch_configured : Bool = false
 
     def initialize
     end
@@ -222,10 +234,11 @@ module Config
     end
 
     # SteamVR 登録の記録だけを差し替えた新しいスナップショットを返す。
-    def with_steamvr(registered : Bool, exe_path : String) : Root
+    def with_steamvr(registered : Bool, exe_path : String, configured : Bool = true) : Root
       copy = dup_snapshot
       copy.steamvr.auto_launch_registered = registered
       copy.steamvr.last_exe_path = exe_path
+      copy.steamvr.auto_launch_configured = configured
       copy
     end
   end

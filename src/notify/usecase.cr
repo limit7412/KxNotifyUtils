@@ -34,7 +34,7 @@ module Notify
     )
       @builders = {} of String => MessageBuilder
       builders.each { |b| @builders[b.source_id] = b }
-      @next_due = {} of String => Time
+      @next_due = {} of String => Time::Span
       @relayed = Hash(String, Int32).new(0)
       @delivered = Hash(String, Int32).new(0)
       @dropped = Hash(String, Int32).new(0)
@@ -43,7 +43,11 @@ module Notify
 
     # ポーリングの 1 拍。
     # 呼び出し間隔よりソースのポーリング間隔のほうが長い場合に備え、ソースごとに次回時刻を持つ。
-    def tick(now : Time = Time.utc) : Nil
+    #
+    # 時刻には単調時計を使う。
+    # 壁時計だと、時刻同期や利用者の時計修正でシステム時刻が後退したとき、
+    # 時計が元の値へ追いつくまでどのソースもポーリングされなくなるためである。
+    def tick(now : Time::Span = Time.monotonic) : Nil
       snapshot = @config
       @sources.each do |source|
         next unless source.ready?
@@ -124,20 +128,10 @@ module Notify
       deliver(builder.build(incoming, settings))
     end
 
-    def start : Nil
-      @sources.each(&.start)
-      @sinks.each(&.start)
-    end
-
-    def stop : Nil
-      @sinks.each(&.stop)
-      @sources.each(&.stop)
-    end
-
     # 中継件数を 1 分ごとにログへ落とす（仕様書 6 章）。
-    private def flush_stats(now : Time) : Nil
-      return if Time.monotonic - @stats_since < 1.minute
-      @stats_since = Time.monotonic
+    private def flush_stats(now : Time::Span) : Nil
+      return if now - @stats_since < 1.minute
+      @stats_since = now
 
       return if @relayed.empty? && @delivered.empty? && @dropped.empty?
       Log.info do

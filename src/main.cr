@@ -40,13 +40,14 @@ module KxNotifyUtils
       @errors = Error::Usecase.new
       @tray = Runtime::Tray.new
       @config = ::Config::Usecase.new(::Config::FileRepository.new(Runtime::Paths.config_path))
-      @first_run = !@config.repository.exists?
 
       @win_client = WinNotification::FfiClient.new
       @win_source = WinNotification::Repository.new(@win_client, WinNotification::Settings.new)
       @sinks = [] of Notify::PostRepository
       # 通知先を組み直すかどうかの判断に使う、直前に適用したシンク設定。
       @sink_signature = ""
+      # 監視対象を開始済みか。設定で有効と無効が切り替わったときの判断に使う。
+      @source_started = false
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -71,19 +72,37 @@ module KxNotifyUtils
       {% if flag?(:windows) %}
         Runtime::Win32.enable_per_monitor_dpi_awareness
       {% end %}
+
+      # 手動起動と SteamVR の自動起動が重なると、同じ通知を 2 つのプロセスが取得し、
+      # 同じクライアント名で XSOverlay へ送ることになる。
+      # 通知が重複するため、後から起動したほうは何もせず終了する。
+      unless single_instance?
+        Log.info { "KxNotifyUtils は既に起動している。このプロセスは終了する" }
+        return
+      end
+
       Log.info { "KxNotifyUtils #{VERSION} を起動する: #{Runtime::Paths.executable_path}" }
 
+      # トレイを先に立てる。
+      # 通知アクセスの誘導など、設定の読み込みの途中で利用者へ伝えたいことがあるためである。
+      start_tray
       register_validators
       load_config
       build_sources
       build_sinks
-      start_tray
       start_ui
       start_steamvr
-      @relay.start
       main_loop
     ensure
       shutdown
+    end
+
+    private def single_instance? : Bool
+      {% if flag?(:windows) %}
+        Runtime::Win32.acquire_single_instance("Local\\KxNotifyUtils")
+      {% else %}
+        true
+      {% end %}
     end
 
     # sources と sinks の各セクションは、そのアダプタ自身に検証させる。
@@ -108,21 +127,33 @@ module KxNotifyUtils
     private def apply(root : ::Config::Root) : Nil
       Runtime::Logging.setup(@log_backend, root.log_level)
       @relay.config = root
-      @win_source.settings = WinNotification::Settings.from_section(root.source(WinNotification::SOURCE_ID))
       @icons.clear
+      build_sources(root)
       rebuild_sinks(root)
     end
 
     # 設定の sources セクションから監視対象を組み立てる。
-    private def build_sources : Nil
-      settings = WinNotification::Settings.from_section(@config.current.source(WinNotification::SOURCE_ID))
+    #
+    # 有効と無効の切り替えは設定の保存や再読み込みでも起きるため、
+    # 起動時だけでなく反映のたびに、追加と開始、停止と削除まで行う。
+    private def build_sources(root : ::Config::Root = @config.current) : Nil
+      settings = WinNotification::Settings.from_section(root.source(WinNotification::SOURCE_ID))
       @win_source.settings = settings
-      return unless settings.enabled
 
-      @relay.sources << @win_source
-      @errors.guard("Windows 通知ソースの初期化") do
-        @win_source.start
-        guide_notification_access unless @win_source.access_status.allowed?
+      if settings.enabled && !@source_started
+        # 初期化に失敗したソースを並べると毎周期ポーリングに失敗し続けるため、
+        # 開始できたものだけを中継の対象にする。
+        @errors.guard("Windows 通知ソースの初期化") do
+          @win_source.start
+          @source_started = true
+          @relay.sources << @win_source unless @relay.sources.includes?(@win_source)
+          guide_notification_access unless @win_source.access_status.allowed?
+        end
+      elsif !settings.enabled && @source_started
+        @relay.sources.delete(@win_source)
+        @errors.guard("Windows 通知ソースの停止") { @win_source.stop }
+        @source_started = false
+        Log.info { "Windows 通知ソースを無効にした" }
       end
     end
 
@@ -198,10 +229,7 @@ module KxNotifyUtils
     private def start_steamvr : Nil
       @errors.guard("SteamVR の初期化") do
         if @openvr.open
-          if @first_run
-            @first_run = false
-            register_steamvr
-          end
+          register_steamvr unless @config.current.steamvr.auto_launch_configured
           sync_steamvr
         end
         update_tray_state
@@ -225,7 +253,7 @@ module KxNotifyUtils
     private def unregister_steamvr : Nil
       @errors.guard("SteamVR 登録の解除") do
         next unless @steamvr.unregister
-        @config.save(@config.current.with_steamvr(false, ""))
+        @config.save(@config.current.with_steamvr(false, "", configured: true))
         update_tray_state
       end
     end
@@ -330,9 +358,11 @@ module KxNotifyUtils
       @errors.handle("設定ウィンドウの処理", exception)
     end
 
+    # アダプタの生存期間は composition root が持つ。
     private def shutdown : Nil
       Log.info { "KxNotifyUtils を終了する" }
-      @relay.stop rescue nil
+      @sinks.each { |sink| sink.stop rescue nil }
+      @win_source.stop rescue nil if @source_started
       @tray.stop rescue nil
       @openvr.close rescue nil
       UIng.uninit rescue nil

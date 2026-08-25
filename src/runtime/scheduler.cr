@@ -19,7 +19,7 @@ module Runtime
     end
 
     # 主ループから繰り返し呼ぶ 1 拍。
-    def step(now : Time = Time.utc) : Nil
+    def step(now : Time::Span = Time.monotonic) : Nil
       @errors.guard("通知の中継") { @relay.tick(now) }
       poll_steamvr
     end

@@ -54,6 +54,8 @@ module Runtime
 
     SW_SHOWNORMAL = 1_i32
 
+    ERROR_ALREADY_EXISTS = 183_u32
+
     struct Point
       x : Int32
       y : Int32
@@ -104,6 +106,7 @@ module Runtime
     end
 
     fun get_module_handle_w = GetModuleHandleW(module_name : UInt16*) : Handle
+    fun create_mutex_w = CreateMutexW(attributes : Void*, initial_owner : Int32, name : UInt16*) : Handle
     fun get_last_error = GetLastError : UInt32
 
     fun register_class_ex_w = RegisterClassExW(wnd_class : WndClassEx*) : UInt16
@@ -154,6 +157,20 @@ module Runtime
     # HWND_MESSAGE。画面に出さないメッセージ専用ウィンドウの親に指定する。
     def self.hwnd_message : LibWin32::Handle
       Pointer(Void).new(-3.to_u64!)
+    end
+
+    # 名前付きミューテックスを取り、このプロセスが最初の 1 つかを返す。
+    #
+    # ハンドルはプロセスが終わるまで保持する。
+    # 閉じるとミューテックスが解放され、二重起動を防げなくなるためである。
+    @@single_instance : LibWin32::Handle?
+
+    def self.acquire_single_instance(name : String) : Bool
+      handle = LibWin32.create_mutex_w(Pointer(Void).null, 0, utf16(name).to_unsafe)
+      return false if handle.null?
+
+      @@single_instance = handle
+      LibWin32.get_last_error != LibWin32::ERROR_ALREADY_EXISTS
     end
 
     # 画面ごとの DPI に追従させる。Windows 10 バージョン 1703 以降で有効になる。

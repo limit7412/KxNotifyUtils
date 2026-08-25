@@ -88,6 +88,16 @@ describe Config::Root do
       root.steamvr.auto_launch_registered.should be_false
       root.steamvr.last_exe_path.should eq ""
     end
+
+    it "登録について決着がついたことを記録する" do
+      root = Config::Root.default
+      root.steamvr.auto_launch_configured.should be_false
+
+      # 解除も決着の 1 つであり、次回起動時に自動で登録し直さない印になる。
+      unregistered = root.with_steamvr(false, "")
+      unregistered.steamvr.auto_launch_configured.should be_true
+      unregistered.steamvr.auto_launch_registered.should be_false
+    end
   end
 end
 

@@ -3,7 +3,10 @@ require "../spec_helper"
 private def usecase(stored : String? = nil, existing_files = [] of String)
   repository = Fakes::ConfigRepository.new(stored)
   repository.existing_files = existing_files
-  {Config::Usecase.new(repository), repository}
+  target = Config::Usecase.new(repository)
+  # composition root と同じく、組み立てられるシンクの検証を登録する。
+  target.register_validator("sinks.xsoverlay") { |section| XSOverlay::Settings.validate(section) }
+  {target, repository}
 end
 
 describe Config::Usecase do
@@ -100,6 +103,15 @@ describe Config::Usecase do
       target.validate(Config::Root.from_json("{}")).should_not be_empty
     end
 
+    it "組み立てられないシンクだけが有効な設定を弾く" do
+      target, _ = usecase
+      root = Config::Root.from_json(<<-JSON)
+        {"sinks": {"xsoverlay": {"enabled": false}, "discord_webhook": {"enabled": true}}}
+        JSON
+
+      target.validate(root).map(&.section).should contain "通知先"
+    end
+
     it "数値範囲を外れた項目を弾く" do
       target, _ = usecase
       root = Config::Root.default
@@ -149,10 +161,27 @@ describe Config::Usecase do
 
     it "アダプタが登録した検証をセクションごとに呼ぶ" do
       target, _ = usecase
-      target.register_validator("sinks.xsoverlay") { |section| XSOverlay::Settings.validate(section) }
       root = Config::Root.from_json(%({"sinks": {"xsoverlay": {"enabled": true, "websocket_port": 0}}}))
 
       target.validate(root).map(&.message).any?(&.includes?("websocket_port")).should be_true
+    end
+
+    it "dynamic_timeout の上下限が正でない設定を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.defaults.dynamic_timeout = Config::DynamicTimeout.new(base: 2.0, reading_speed: 12.0, min: -10.0, max: -5.0)
+
+      messages = target.validate(root).map(&.message)
+      messages.any?(&.includes?("dynamic_timeout.min")).should be_true
+      messages.any?(&.includes?("dynamic_timeout.max")).should be_true
+    end
+
+    it "max_body_length が上限を超えた設定を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.defaults.max_body_length = Config::MAX_BODY_LENGTH_RANGE.end + 1
+
+      target.validate(root).map(&.message).any?(&.includes?("max_body_length")).should be_true
     end
 
     it "未知の log_level を弾く" do
