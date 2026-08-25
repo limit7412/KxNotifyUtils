@@ -13,3 +13,4 @@
 *.ilk
 *.exe
 lib/
+res/*.res

@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # 型検査と単体テストを先に回して、Windows ランナーを待たずに壊れているとわかるようにする。
+  check:
+    name: 型検査と単体テスト (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.14.0
+
+      - name: 依存 shard を取得する
+        run: shards install
+
+      - name: 書式を確かめる
+        run: crystal tool format --check src spec
+
+      - name: 単体テストを実行する
+        run: crystal spec
+
+      # 実際に配布するのは Windows 版であり、
+      # Windows 向けのコード（FFI 宣言、トレイ、設定ウィンドウ）はここでしか型検査されない。
+      - name: Windows 向けの型検査を行う
+        run: crystal build --cross-compile --target x86_64-pc-windows-msvc src/main.cr -o kx
+
+  build:
+    name: ビルド (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.14.0
+
+      - name: 依存 shard を取得する
+        run: shards install
+
+      - name: NotifListenerShim をビルドする
+        run: |
+          cmake -S shim -B shim/build -A x64
+          cmake --build shim/build --config Release
+
+      - name: シムのテストハーネスを動かす
+        # 通知アクセスが許可されない環境でも、初期化と JSON の組み立てが壊れていないことは確かめられる。
+        run: ./shim/build/Release/shim_harness.exe
+        continue-on-error: true
+
+      - name: 単体テストを実行する
+        # FFI 宣言のコンパイル確認を兼ねて Windows でも実行する。
+        run: crystal spec
+
+      - name: リソースをコンパイルする
+        run: rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
+
+      - name: 本体をビルドする
+        run: |
+          crystal build src/main.cr -o KxNotifyUtils.exe --release `
+            --link-flags "/LIBPATH:${{ github.workspace }}\shim\build\Release ${{ github.workspace }}\res\kxnotifyutils.res"
+
+      - name: 成果物を保存する
+        uses: actions/upload-artifact@v4
+        with:
+          name: KxNotifyUtils
+          path: KxNotifyUtils.exe

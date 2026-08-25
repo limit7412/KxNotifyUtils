@@ -66,6 +66,9 @@ module KxNotifyUtils
 
     def run : Nil
       Runtime::Logging.setup
+      {% if flag?(:windows) %}
+        Runtime::Win32.enable_per_monitor_dpi_awareness
+      {% end %}
       Log.info { "KxNotifyUtils #{VERSION} を起動する: #{Runtime::Paths.executable_path}" }
 
       register_validators

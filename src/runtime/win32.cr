@@ -132,6 +132,12 @@ module Runtime
     fun get_cursor_pos = GetCursorPos(point : Point*) : Int32
     fun set_foreground_window = SetForegroundWindow(hwnd : Handle) : Int32
 
+    # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2。
+    # マニフェストではなく起動時の呼び出しで設定する。
+    # libui-ng 側が Common Controls v6 のマニフェストを埋め込むため、
+    # 同じ RT_MANIFEST リソースを本体からも足すと衝突するからである。
+    fun set_process_dpi_awareness_context = SetProcessDpiAwarenessContext(context : Void*) : Int32
+
     fun shell_notify_icon_w = Shell_NotifyIconW(message : UInt32, data : NotifyIconData*) : Int32
     fun shell_execute_w = ShellExecuteW(
       hwnd : Handle, operation : UInt16*, file : UInt16*,
@@ -148,6 +154,11 @@ module Runtime
     # HWND_MESSAGE。画面に出さないメッセージ専用ウィンドウの親に指定する。
     def self.hwnd_message : LibWin32::Handle
       Pointer(Void).new(-3.to_u64!)
+    end
+
+    # 画面ごとの DPI に追従させる。Windows 10 バージョン 1703 以降で有効になる。
+    def self.enable_per_monitor_dpi_awareness : Nil
+      LibWin32.set_process_dpi_awareness_context(Pointer(Void).new(-4.to_u64!))
     end
 
     def self.utf16(value : String) : Slice(UInt16)
