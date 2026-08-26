@@ -70,6 +70,9 @@ module KxNotifyUtils
       @steamvr_sync_pending = false
       # 設定へ書けなかった SteamVR の記録。書ける機会に書き直すために持つ。
       @steamvr_record_pending = nil.as({Bool, String}?)
+      # 設定を書く役目を別のプロセスへ渡したか（issue #10 第 2 段階）。
+      # 渡した後は書かない。同じ一時ファイルを 2 つのプロセスが使うことになる。
+      @config_handed_over = false
       # 置き換えに失敗して実行ファイルが正規のパスに無いか（issue #10 第 2 段階）。
       # 復旧は利用者が手で行うため、常駐している間は下がらない。
       @update_broken = false
@@ -594,8 +597,17 @@ module KxNotifyUtils
       return HandOver::None unless staged
       return HandOver::Failed unless @installer.apply(staged)
 
+      # 保留している記録は渡す前に書き切る。
+      #
+      # 渡した後は、子が起動の途中で SteamVR の同期から設定を書き始める。
+      # こちらの終了処理にも flush_records があり、そちらと重なると、
+      # 同じ config.json.tmp を 2 つのプロセスが使うことになる。
+      # 書きかけが混ざったものがそのまま設定として置かれる。
+      retry_records
+
       Runtime::Win32.release_single_instance
       if launch_replacement
+        @config_handed_over = true
         Log.info { "置き換えた実行ファイルへ渡した: #{staged.tag}" }
         return HandOver::Handed
       end
@@ -607,6 +619,8 @@ module KxNotifyUtils
       # そのまま続けると、同じ通知を 2 つのプロセスが中継することになる。
       # 抑止そのものが避けようとしている状態であり、こちらが引く。
       unless reacquire_single_instance
+        # 常駐は別のプロセスのものになった。設定を書く役目もそちらへ渡っている。
+        @config_handed_over = true
         Log.error { "抑止を取り直せなかった。別のプロセスが常駐しているため、こちらは終わる" }
         return HandOver::Superseded
       end
@@ -1062,6 +1076,10 @@ module KxNotifyUtils
     #
     # 例外は握る。終了の途中であり、ここで抜けると残りの後始末が走らない。
     private def flush_records : Nil
+      # 設定を書く役目を渡した後は書かない。
+      # 渡す前に書き切ってあり、ここで書くと常駐している側と重なる。
+      return if @config_handed_over
+
       retry_records
     rescue exception
       Log.error(exception: exception) { "終了時の記録の書き戻しに失敗した" }
