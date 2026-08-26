@@ -254,6 +254,24 @@ describe Update::Installer do
     end
   end
 
+  describe "#discard" do
+    # まとめて 1 つの rescue で括ると、先の 1 つが消せなかったときに
+    # もう片方を試さないまま抜ける。両方が残ると staged の照合をまた通ってしまう。
+    it "片方を消せなくてももう片方は消す" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+
+        # 実体をディレクトリに差し替えて、消せない状態を作る。
+        File.delete(fixture.installer.staged_path)
+        Dir.mkdir(fixture.installer.staged_path)
+
+        fixture.installer.discard
+
+        File.exists?(fixture.installer.metadata_path).should be_false
+      end
+    end
+  end
+
   describe "#discard_incomplete" do
     # 取得の最中に終了すると、記録を書く前に書きかけだけが残る。
     it "記録の無い書きかけを片付ける" do

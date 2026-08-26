@@ -139,13 +139,20 @@ module Update
 
     # 取得しておいたものを消す。
     #
-    # 消せなくても投げない。呼ぶのは失敗した後の後始末の場面であり、
-    # ここで投げると、元の失敗を伝える経路まで落ちる。
+    # 片方ずつ消す。まとめて 1 つの rescue で括ると、先の 1 つが消せなかったときに
+    # もう片方を試さないまま抜ける。両方が残ると staged の照合をまた通り、
+    # 取り直しを案内した直後から同じものが適用できてしまう。
     def discard : Nil
-      File.delete?(@staged_path)
-      File.delete?(metadata_path)
+      delete_quietly(@staged_path)
+      delete_quietly(metadata_path)
+    end
+
+    # 消せなくても投げない。
+    # 呼ぶのは失敗した後の後始末の場面であり、ここで投げると元の失敗を伝える経路まで落ちる。
+    private def delete_quietly(path : String) : Nil
+      File.delete?(path)
     rescue exception : IO::Error
-      Log.warn(exception: exception) { "取得しておいたものを消せなかった: #{@staged_path}" }
+      Log.warn(exception: exception) { "消せなかった: #{path}" }
     end
 
     # 片方だけ残った取得を片付ける。
@@ -216,11 +223,7 @@ module Update
       # 投げると、置き換えが成功したのに失敗として扱われ、
       # 新しい実行ファイルを起動しないまま終わることになる。
       # 消せずに残っても、次の起動で discard_incomplete が片方だけの状態として片付ける。
-      begin
-        File.delete?(metadata_path)
-      rescue exception : IO::Error
-        Log.warn(exception: exception) { "置き換えた後の記録を消せなかった: #{metadata_path}" }
-      end
+      delete_quietly(metadata_path)
 
       Log.info { "実行ファイルを #{record.tag} へ置き換えた" }
       true
