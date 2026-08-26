@@ -275,6 +275,24 @@ describe Config::Usecase do
       end
     end
 
+    it "未知の update.channel を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.update.channel = "nightly"
+
+      target.validate(root).map(&.message).any?(&.includes?("update.channel")).should be_true
+    end
+
+    it "stable と test の update.channel は通す" do
+      target, _ = usecase
+      root = Config::Root.default
+
+      %w[stable test].each do |channel|
+        root.update.channel = channel
+        target.validate(root).should be_empty
+      end
+    end
+
     it "未知の log_level を弾く" do
       target, _ = usecase
       root = Config::Root.default

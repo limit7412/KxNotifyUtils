@@ -18,15 +18,16 @@ module Runtime
 
     # メニュー項目。数値はメニューの項目 ID として使う。
     enum Command
-      TogglePause       = 1
-      SendTestMessage   = 2
-      OpenSettings      = 3
-      OpenConfigFile    = 4
-      ReloadConfig      = 5
-      RegisterSteamVR   = 6
-      UnregisterSteamVR = 7
-      OpenLogDirectory  = 8
-      Quit              = 9
+      TogglePause       =  1
+      SendTestMessage   =  2
+      OpenSettings      =  3
+      OpenConfigFile    =  4
+      ReloadConfig      =  5
+      RegisterSteamVR   =  6
+      UnregisterSteamVR =  7
+      OpenLogDirectory  =  8
+      CheckUpdate       =  9
+      Quit              = 10
     end
 
     # メニューが選ばれたときに呼ぶフック。
@@ -100,14 +101,18 @@ module Runtime
     end
 
     # バルーン通知。許可の誘導とエラーの通知に使う。
-    def show_balloon(title : String, body : String, level : UInt32 = LibWin32::NIIF_INFO) : Nil
-      return unless @added
+    # 出せたかどうかを返す。
+    # アイコンを登録できていなければ何も出ない。Explorer の再起動後に
+    # 登録し直せなかった場合がこれにあたる。
+    # 出たことにして進む呼び出し側があるため、黙って戻らない（issue #10）。
+    def show_balloon(title : String, body : String, level : UInt32 = LibWin32::NIIF_INFO) : Bool
+      return false unless @added
 
       data = notify_icon_data(LibWin32::NIF_INFO)
       Win32.copy_utf16(data.info_title.to_unsafe, 64, title)
       Win32.copy_utf16(data.info.to_unsafe, 256, body)
       data.info_flags = level
-      LibWin32.shell_notify_icon_w(LibWin32::NIM_MODIFY, pointerof(data))
+      LibWin32.shell_notify_icon_w(LibWin32::NIM_MODIFY, pointerof(data)) != 0
     end
 
     private def register_window_class : Nil
@@ -192,6 +197,7 @@ module Runtime
           append(menu, Command::RegisterSteamVR, I18n.t("tray.menu.register_steamvr"), enabled: @steamvr_available)
         end
         append(menu, Command::OpenLogDirectory, I18n.t("tray.menu.open_logs"))
+        append(menu, Command::CheckUpdate, I18n.t("tray.menu.check_update"))
         separator(menu)
         append(menu, Command::Quit, I18n.t("tray.menu.quit"))
 

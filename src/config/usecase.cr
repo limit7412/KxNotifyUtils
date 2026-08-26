@@ -22,10 +22,11 @@ module Config
   class Usecase
     Log = ::Log.for("config")
 
-    BUILTIN_ICONS  = %w[default warning error]
-    BUILTIN_SOUNDS = %w[default warning error]
-    LOG_LEVELS     = %w[trace debug info notice warn error fatal none]
-    LANGUAGES      = %w[auto ja en]
+    BUILTIN_ICONS   = %w[default warning error]
+    BUILTIN_SOUNDS  = %w[default warning error]
+    LOG_LEVELS      = %w[trace debug info notice warn error fatal none]
+    LANGUAGES       = %w[auto ja en]
+    UPDATE_CHANNELS = %w[stable test]
 
     # 検証を通った設定を各 usecase へ流すためのフック。
     # composition root がスナップショットの差し替えを登録する。
@@ -186,6 +187,12 @@ module Config
       end
       unless LANGUAGES.includes?(root.language)
         errors << ValidationError.new("全般", "language は #{LANGUAGES.join(" / ")} のいずれかで指定する")
+      end
+      unless UPDATE_CHANNELS.includes?(root.update.channel)
+        errors << ValidationError.new(
+          "全般",
+          "update.channel は #{UPDATE_CHANNELS.join(" / ")} のいずれかで指定する",
+        )
       end
     end
 

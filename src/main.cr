@@ -19,6 +19,9 @@ require "./runtime/win32"
 require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
+require "./update/models"
+require "./update/repository"
+require "./update/usecase"
 require "./win_notification/ffi_client"
 require "./win_notification/models"
 require "./win_notification/repository"
@@ -71,6 +74,21 @@ module KxNotifyUtils
         Runtime::Paths.manifest_path,
         Runtime::Paths.executable_path,
       )
+      # User-Agent の無い要求を GitHub API は拒む。実行中の版が分かる形にしておく。
+      @update = Update::Usecase.new(
+        Update::GitHubRepository.new("KxNotifyUtils/#{VERSION}"))
+      # 確認が走っている間か。押し直しや周期の重なりで多重に投げないために持つ。
+      @update_checking = false
+      # 確認の最中に来た要求。終わってから改めて確認するために覚える。
+      @update_recheck = false
+      @update_recheck_manual = false
+      # 直近の確認の結末（抑止前）。
+      # 保留していた手動の要求へ、確認を投げ直さずに応えるために持つ。
+      @update_last_result = nil.as(Update::CheckResult?)
+      # 直近の確認でバルーンを出せたか。押した側への応答が済んでいるかの判断に使う。
+      @update_last_notified = false
+      # 覚えてある結末がどのチャンネルのものか。今の設定と突き合わせるために持つ。
+      @update_last_channel = nil.as(String?)
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
       @settings_window = nil.as(Runtime::SettingsWindow?)
       @stopping = false
@@ -139,6 +157,10 @@ module KxNotifyUtils
       # 設定を読めなかった場合は既定値の "auto" が使われ、OS の表示言語に従う。
       Runtime::I18n.locale = Runtime::I18n.resolve(@config.current.language)
 
+      # 知らせ済みの版を復元してから最初の確認を行う。
+      # 先に確認すると、前回知らせた版をもう一度知らせてしまう。
+      @update.notified_tag = @config.current.update.notified_version
+
       unless errors.empty?
         Log.error { "設定の検証エラー: #{errors.join(" / ")}" }
         # 読めなかった設定は既定値で置き換わる。
@@ -158,6 +180,9 @@ module KxNotifyUtils
       @icons.clear
       build_sources(root)
       rebuild_sinks(root)
+      # チャンネルを変えたら確かめ直す。
+      # 直前の結果は別のチャンネルのものであり、次の確認まで表示に残すわけにはいかない。
+      check_update unless @update.checked?(root.update.channel)
     end
 
     # 設定の sources セクションから監視対象を組み立てる。
@@ -264,11 +289,186 @@ module KxNotifyUtils
         VERSION,
         access_status: -> { access_status_label },
         steamvr_status: -> { steamvr_status_label },
+        update_status: -> { update_status_label },
+        update_url: -> { @update.available(@config.current.update.channel).try(&.url) },
       )
       window.on_request_steamvr_register = -> { register_steamvr }
       window.on_request_steamvr_unregister = -> { unregister_steamvr }
       window.on_open_notification_settings = -> { open_notification_settings }
       window
+    end
+
+    # 更新の確認（issue #10）。
+    #
+    # HTTP の応答待ちは別のファイバで行う。
+    # 主ループの中で待つと、その間は通知の中継も WebSocket の接続維持も止まる。
+    # ファイバは主ループの Fiber.yield で進むため、待っている間も常駐は動き続ける。
+    #
+    # 手動の確認は check_enabled を無視する。
+    # 自動の確認を切っている利用者でも、押したときは確かめたいはずである。
+    #
+    # 逆に、切っている間はチャンネルを変えても確かめ直さない。
+    # 「こちらから見に行かない」という指定であり、選択を変えたことは
+    # それ自体では確認の要求ではないためである。
+    # このとき情報タブは別のチャンネルの結果を出さず、確認が無効である旨を表示する。
+    private def check_update(manual : Bool = false) : Nil
+      return unless manual || @config.current.update.check_enabled
+
+      # 確認の最中に来た要求は捨てずに保留する。
+      # チャンネルを変えた直後がこれにあたり、捨てると新しいチャンネルは
+      # 次の 24 時間の周期まで未確認のままになる。
+      if @update_checking
+        @update_recheck = true
+        @update_recheck_manual ||= manual
+        return
+      end
+
+      @update_checking = true
+      channel = @config.current.update.channel
+      spawn do
+        begin
+          # 抑止前の結末を覚える。保留していた手動の要求へはこちらを返す。
+          # 自動のために UpToDate へ倒した結末を返すと、情報タブに新しい版が
+          # 出ているのにバルーンだけ「最新である」と言うことになる。
+          result = @update.check(VERSION, channel)
+
+          if channel == @config.current.update.channel
+            @update_last_channel = channel
+            @update_last_result = result
+            @update_last_notified =
+              notify_update(manual ? result : @update.suppress_notified(result), manual)
+          else
+            # 覚えてある結末は今のチャンネルのものではなくなった。
+            # 保留した要求へこれを返すわけにはいかない。
+            @update_last_channel = nil
+            # 確認の最中にチャンネルが変わっていた。この結果は今の設定のものではない。
+            # stable を選び直した利用者へプレリリースのバルーンを出すわけにはいかない。
+            #
+            # 捨てるだけでは足りない。check は checked_channel を旧チャンネルへ
+            # 書き換えており、今のチャンネルは未確認の扱いに変わっている。
+            # 予約しないと、次の 24 時間の周期まで戻らない。
+            @update_recheck = true
+            @update_recheck_manual ||= manual
+          end
+        rescue exception
+          @errors.handle("error.update_check", exception)
+        ensure
+          @update_checking = false
+          flush_pending_update_check
+        end
+      end
+    end
+
+    # 確認の最中に来ていた要求をここで片付ける。
+    private def flush_pending_update_check : Nil
+      return unless @update_recheck
+
+      @update_recheck = false
+      manual = @update_recheck_manual
+      @update_recheck_manual = false
+
+      # 走っていた確認が今のチャンネルのものだったかで判断する。
+      # Usecase#checked? では判断できない。あれは「これまでに確認できたか」であり、
+      # 今しがた走った確認とは別のことを言う。
+      # 失敗した確認は checked_channel を書き換えないため、チャンネルを変えて戻した後に
+      # 失敗が返ると、古い確認の checked? が真のまま残って取り直しを飛ばしてしまう。
+      unless @update_last_channel == @config.current.update.channel
+        check_update(manual: manual)
+        return
+      end
+
+      # 今のチャンネルの確認が終わっている。保留していたのは手動の要求だけなので、
+      # 同じ確認をもう一度投げずに、終わった結果をそのまま知らせる。
+      return unless manual
+
+      # 待っている間にバルーンが出ていれば、押した側への応答は済んでいる。
+      # 結末が Available かどうかでは判断できない。
+      # 既に知らせた版は自動の側で抑止され、バルーンが出ないまま Available で残る。
+      return if @update_last_notified
+
+      result = @update_last_result
+      return unless result
+
+      @update_last_notified = notify_update(result, manual: true)
+    end
+
+    # 自動の確認は、新しい版が出ていたときだけ知らせる。
+    # 手動で押したときは結末をそのまま返す。黙ると無反応と区別が付かないためである。
+    #
+    # バルーンを出せたかどうかを返す。
+    # 保留していた手動の要求へ応答が済んでいるかの判断に使う。
+    private def notify_update(result : Update::CheckResult, manual : Bool) : Bool
+      case result.outcome
+      in .available?
+        release = result.release
+        return false unless release
+        shown = @errors.notify(
+          Runtime::I18n.t("notify.update_available.title"),
+          Runtime::I18n.t("notify.update_available.body", {"version" => release.tag}),
+        )
+        # 出せたときだけ覚える。
+        # 出ていない版を覚えると、利用者が一度も見ないまま以後の確認で抑止される。
+        # 自動と手動のどちらの経路でも、覚えるのはここだけである。
+        return false unless shown
+        @update.mark_notified(release)
+        remember_notified_update
+        true
+      in .up_to_date?
+        return false unless manual
+        @errors.notify(
+          Runtime::I18n.t("notify.update_none.title"),
+          Runtime::I18n.t("notify.update_none.body"),
+        )
+      in .unreachable?
+        return false unless manual
+        @errors.notify(
+          Runtime::I18n.t("notify.update_failed.title"),
+          Runtime::I18n.t("notify.update_failed.body"),
+        )
+      in .incomplete?
+        # 自動の確認は黙る。押されたときだけ、言い切れないことを返す。
+        return false unless manual
+        @errors.notify(
+          Runtime::I18n.t("notify.update_unsure.title"),
+          Runtime::I18n.t("notify.update_unsure.body"),
+        )
+      in .unknown?
+        # 手元ビルドでは比べる相手が無い。押しても何も言わない。
+        Log.info { "実行中の版を比べられないため確認しない: #{VERSION}" }
+        false
+      end
+    end
+
+    # 見つけた版を先に見る。
+    # check_enabled が false でも手動の確認はできるため、
+    # 無効の表示を先に返すと、見つけた版とリリースページのボタンだけが出て文言が食い違う。
+    # 知らせた版を設定へ残す。
+    # 本体は SteamVR の自動起動で立ち上がるため、覚えておかないと
+    # VR を始めるたびに同じ更新のバルーンが出る。
+    private def remember_notified_update : Nil
+      tag = @update.notified_tag
+      return if tag.empty? || tag == @config.current.update.notified_version
+
+      errors = @config.save(@config.current.with_update_notified(tag))
+      return if errors.empty?
+
+      # 書けなくても常駐は続ける。次の起動で同じ版をもう一度知らせるだけである。
+      Log.warn { "知らせ済みの版を設定へ残せなかった: #{errors.join(" / ")}" }
+    end
+
+    private def update_status_label : String
+      settings = @config.current.update
+      if release = @update.available(settings.channel)
+        return Runtime::I18n.t("settings.about.update_available", {"version" => release.tag})
+      end
+      if @update.checked?(settings.channel)
+        # 集めきれていない確認では「最新である」と言い切らない。
+        return Runtime::I18n.t("settings.about.update_unsure") unless @update.complete?
+        return Runtime::I18n.t("settings.about.update_latest")
+      end
+      return Runtime::I18n.t("settings.about.update_disabled") unless settings.check_enabled
+
+      Runtime::I18n.t("settings.about.update_unchecked")
     end
 
     # SteamVR が起動していない状態で手動起動された場合も常駐を続け、scheduler が再試行する。
@@ -349,6 +549,8 @@ module KxNotifyUtils
         unregister_steamvr
       in .open_log_directory?
         open_with_shell(Runtime::Paths.log_directory)
+      in .check_update?
+        check_update(manual: true)
       in .quit?
         @stopping = true
       end
@@ -428,6 +630,7 @@ module KxNotifyUtils
       step_ui
       retry_source if @source_enabled && !@source_started
       retry_steamvr if steamvr_retry_needed?
+      check_update if @scheduler.check_update?
       @scheduler.step
       # 他のファイバへ実行を渡す。WebSocket の接続維持はここで進む。
       Fiber.yield

@@ -1,0 +1,368 @@
+require "../spec_helper"
+require "../../src/update/usecase"
+
+private class FakeRepository < Update::Repository
+  property releases : Array(Update::Release)
+  property error : Exception?
+  getter calls = 0
+
+  def initialize(@releases = [] of Update::Release, @error = nil)
+  end
+
+  # 直近に渡されたチャンネル。stable と test でエンドポイントが分かれることの確認に使う。
+  getter last_channel : String? = nil
+
+  # 候補を集めきれたか。取得の上限に掛かった場合を真似る。
+  property complete : Bool = true
+
+  def fetch_releases(channel : String) : Update::Catalog
+    @calls += 1
+    @last_channel = channel
+    if error = @error
+      raise error
+    end
+    Update::Catalog.new(@releases, @complete)
+  end
+end
+
+# composition root の流れを真似る。
+# 確認して、新しい版ならバルーンを出し、出せたときだけ覚える。
+# 覚えるのは usecase ではなく知らせた側の仕事である（issue #10）。
+private def check_and_notify(
+  usecase : Update::Usecase, current : String, channel : String, shown : Bool = true
+) : Update::CheckResult
+  result = check_suppressed(usecase, current, channel)
+  release = result.release
+  usecase.mark_notified(release) if result.available? && release && shown
+  result
+end
+
+# 自動の確認と同じ経路で抑止だけを見る。知らせたことにはしない。
+private def check_suppressed(
+  usecase : Update::Usecase, current : String, channel : String
+) : Update::CheckResult
+  usecase.suppress_notified(usecase.check(current, channel))
+end
+
+private def release(tag : String, prerelease : Bool = false) : Update::Release
+  version = Update::Version.parse?(tag).not_nil!
+  Update::Release.new(version, tag, "https://example.test/#{tag}", prerelease)
+end
+
+describe Update::Usecase do
+  describe "#check" do
+    it "新しい安定版を見つける" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("0.0.1"), release("1.0.0")]))
+
+      result = usecase.check("0.0.1", "stable")
+
+      result.outcome.should eq Update::Outcome::Available
+      result.release.try(&.tag).should eq "1.0.0"
+      usecase.available("stable").try(&.tag).should eq "1.0.0"
+    end
+
+    it "実行中が最新なら UpToDate を返す" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("1.0.0")]))
+
+      usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+      usecase.available("stable").should be_nil
+    end
+
+    # GitHub が latest とするのは作成順で最も新しい安定版であり、版番号の最大ではない。
+    # 2.0.0 の後に保守版の 1.5.1 を出した場合がこれにあたる。
+    it "作成順が新しいだけの安定版に引きずられない" do
+      usecase = Update::Usecase.new(
+        FakeRepository.new([release("2.0.0"), release("1.5.1")]))
+
+      result = usecase.check("1.6.0", "stable")
+
+      result.outcome.should eq Update::Outcome::Available
+      result.release.try(&.tag).should eq "2.0.0"
+    end
+
+    # 応答の並び順に頼らない。GitHub は作成順に返すが、タグの新しさとは限らない。
+    it "並び順ではなく版の新しさで選ぶ" do
+      usecase = Update::Usecase.new(
+        FakeRepository.new([release("1.0.0"), release("2.0.0"), release("1.5.0")]))
+
+      usecase.check("1.0.0", "stable").release.try(&.tag).should eq "2.0.0"
+    end
+
+    describe "チャンネル" do
+      it "stable はプレリリースを拾わない" do
+        usecase = Update::Usecase.new(
+          FakeRepository.new([release("1.0.0"), release("1.0.1-test1", prerelease: true)]))
+
+        usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+      end
+
+      it "test はプレリリースも拾う" do
+        usecase = Update::Usecase.new(
+          FakeRepository.new([release("1.0.0"), release("1.0.1-test1", prerelease: true)]))
+
+        result = usecase.check("1.0.0", "test")
+        result.outcome.should eq Update::Outcome::Available
+        result.release.try(&.tag).should eq "1.0.1-test1"
+      end
+    end
+
+    # 手元ビルドは運用しているタグの綴りから外れており、比べる相手が決まらない。
+    it "版を読めない実行中の版では一覧すら取りに行かない" do
+      repository = FakeRepository.new([release("1.0.0")])
+      usecase = Update::Usecase.new(repository)
+
+      usecase.check("0.1.0-dev", "stable").outcome.should eq Update::Outcome::Unknown
+      repository.calls.should eq 0
+    end
+
+    # 回線が無い環境で起動するたびに知らせても対処のしようがない（issue #10）。
+    it "一覧を取れなければ Unreachable を返し、確認済みにしない" do
+      usecase = Update::Usecase.new(
+        FakeRepository.new(error: Exception.new("つながらない")))
+
+      usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::Unreachable
+      usecase.checked?("stable").should be_false
+    end
+
+    # 集めきれていないのに「最新である」と言うと、押し出された範囲に残っている
+    # 版を見落としたまま利用者へ伝えることになる。
+    it "候補を集めきれていなければ最新だと言い切らない" do
+      repository = FakeRepository.new([release("1.0.0")])
+      repository.complete = false
+      usecase = Update::Usecase.new(repository)
+
+      usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::Incomplete
+      usecase.complete?.should be_false
+    end
+
+    # 見つかったものは確かに存在する。集めきれていなくても知らせてよい。
+    it "集めきれていなくても新しい版が見つかれば知らせる" do
+      repository = FakeRepository.new([release("2.0.0")])
+      repository.complete = false
+      usecase = Update::Usecase.new(repository)
+
+      usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::Available
+    end
+
+    it "集めきれていれば complete? は真である" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("1.0.0")]))
+
+      usecase.check("1.0.0", "stable")
+
+      usecase.complete?.should be_true
+    end
+
+    it "一覧が空なら UpToDate を返す" do
+      usecase = Update::Usecase.new(FakeRepository.new)
+
+      usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+      usecase.checked?("stable").should be_true
+    end
+
+    # 新しい版を見つけた後で取り下げられることがある。表示に残し続けない。
+    it "新しい版が消えたら available も下ろす" do
+      repository = FakeRepository.new([release("2.0.0")])
+      usecase = Update::Usecase.new(repository)
+      usecase.check("1.0.0", "stable")
+      usecase.available("stable").should_not be_nil
+
+      repository.releases = [release("1.0.0")]
+      usecase.check("1.0.0", "stable")
+
+      usecase.available("stable").should be_nil
+    end
+  end
+
+  # 設定を変えた直後に、別のチャンネルで確かめた結果が残っていてはならない。
+  describe "チャンネルをまたいだ結果" do
+    it "確認したチャンネルでしか結果を返さない" do
+      usecase = Update::Usecase.new(
+        FakeRepository.new([release("1.0.0"), release("1.0.1-test1", prerelease: true)]))
+      usecase.check("1.0.0", "test")
+
+      usecase.available("test").try(&.tag).should eq "1.0.1-test1"
+      usecase.available("stable").should be_nil
+    end
+
+    # test で確かめただけの状態を stable の「最新である」と読ませない。
+    it "確認していないチャンネルは未確認として扱う" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("1.0.0")]))
+      usecase.check("1.0.0", "stable")
+
+      usecase.checked?("stable").should be_true
+      usecase.checked?("test").should be_false
+    end
+
+    it "チャンネルを渡し直せば結果も入れ替わる" do
+      usecase = Update::Usecase.new(
+        FakeRepository.new([release("1.0.0"), release("1.0.1-test1", prerelease: true)]))
+      usecase.check("1.0.0", "test")
+      usecase.check("1.0.0", "stable")
+
+      usecase.available("test").should be_nil
+      usecase.checked?("stable").should be_true
+    end
+
+    # 確認が終わると checked_channel はそのチャンネルへ移る。
+    # 応答を待つ間に設定が元へ戻っていると、戻した側が未確認の扱いに変わる。
+    # composition root はこれを見て取り直しを予約する。
+    it "確認が終わると前のチャンネルは未確認へ戻る" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("1.0.0")]))
+      usecase.check("1.0.0", "stable")
+      usecase.checked?("stable").should be_true
+
+      usecase.check("1.0.0", "test")
+
+      usecase.checked?("stable").should be_false
+      usecase.checked?("test").should be_true
+    end
+
+    # 安定版と test でエンドポイントが分かれるため、repository へそのまま渡す。
+    it "チャンネルを repository へ渡す" do
+      repository = FakeRepository.new([release("1.0.0")])
+      usecase = Update::Usecase.new(repository)
+
+      usecase.check("0.9.0", "test")
+
+      repository.last_channel.should eq "test"
+    end
+  end
+
+  describe "知らせ済みの版" do
+    # 本体は SteamVR の自動起動で立ち上がる。
+    # 覚えておかないと VR を始めるたびに同じ更新のバルーンが出る。
+    it "復元すると同じ版を知らせ直さない" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      usecase.notified_tag = "2.0.0"
+
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+    end
+
+    it "知らせた版をタグとして取り出せる" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      usecase.notified_tag.should eq ""
+
+      check_and_notify(usecase, "1.0.0", "stable")
+
+      usecase.notified_tag.should eq "2.0.0"
+    end
+
+    # バルーンを出せないことがある（Explorer の再起動でアイコンを登録し直せない場合など）。
+    # 確認の側で覚えてしまうと、利用者が一度も見ないまま以後の確認で抑止される。
+    it "確認そのものでは覚えない" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+
+      check_and_notify(usecase, "1.0.0", "stable", shown: false)
+
+      usecase.notified_tag.should eq ""
+      # 出せていないので、次の確認でも知らせる対象のままである。
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
+    end
+
+    # 設定を手で壊された場合。記録が無いものとして扱い、確認そのものは続ける。
+    it "版として読めない記録は無視する" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      usecase.notified_tag = "こわれている"
+
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
+    end
+
+    # 手動の確認は check を通る。知らせた側が覚えないと、
+    # 直後の自動確認や再起動で同じ版をもう一度知らせる。
+    it "mark_notified で覚えた版は自動の確認が知らせ直さない" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      result = usecase.check("1.0.0", "stable")
+      release = result.release.not_nil!
+
+      usecase.mark_notified(release)
+
+      usecase.notified_tag.should eq "2.0.0"
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+    end
+
+    # チャンネルを往復すると記録が入れ替わる。
+    # 等値で見ていると、往復のたびに同じ安定版を知らせ直すことになる。
+    it "知らせた版より古い版は知らせ直さない" do
+      repository = FakeRepository.new([release("2.0.0"), release("2.1.0-test1", prerelease: true)])
+      usecase = Update::Usecase.new(repository)
+
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      check_and_notify(usecase, "1.0.0", "test").outcome.should eq Update::Outcome::Available
+
+      # stable へ戻す。2.0.0 は 2.1.0-test1 より古いので知らせ直さない。
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+    end
+
+    it "mark_notified は記録より古い版で上書きしない" do
+      repository = FakeRepository.new([release("2.1.0-test1", prerelease: true)])
+      usecase = Update::Usecase.new(repository)
+      check_and_notify(usecase, "1.0.0", "test")
+
+      older = release("2.0.0")
+      usecase.mark_notified(older)
+
+      usecase.notified_tag.should eq "2.1.0-test1"
+    end
+
+    # 抑止は自動の確認だけのものである。
+    # 抑止した結末を手動へ返すと、情報タブに新しい版が出ているのに
+    # バルーンだけ「最新である」と言うことになる。
+    it "抑止するのは自動の確認だけで、check は Available のままである" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      check_and_notify(usecase, "1.0.0", "stable")
+
+      raw = usecase.check("1.0.0", "stable")
+      raw.outcome.should eq Update::Outcome::Available
+
+      # 同じ結末を自動の側へ通すと抑止される。
+      usecase.suppress_notified(raw).outcome.should eq Update::Outcome::UpToDate
+    end
+
+    # 抑止した結末も release を持ち続ける。情報タブはこれを出す。
+    it "抑止しても見つけた版は残る" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      check_and_notify(usecase, "1.0.0", "stable")
+
+      suppressed = check_suppressed(usecase, "1.0.0", "stable")
+
+      suppressed.outcome.should eq Update::Outcome::UpToDate
+      suppressed.release.try(&.tag).should eq "2.0.0"
+      usecase.available("stable").try(&.tag).should eq "2.0.0"
+    end
+
+    it "復元した版より新しい版は知らせる" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("3.0.0")]))
+      usecase.notified_tag = "2.0.0"
+
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
+    end
+  end
+
+  describe "自動の確認での抑止" do
+    # 24 時間ごとの確認で同じ版を繰り返し知らせると、利用者の手が止まる。
+    it "同じ版は一度しか Available にしない" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+    end
+
+    it "さらに新しい版が出たら改めて知らせる" do
+      repository = FakeRepository.new([release("2.0.0")])
+      usecase = Update::Usecase.new(repository)
+      check_and_notify(usecase, "1.0.0", "stable")
+
+      repository.releases = [release("3.0.0")]
+
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
+    end
+
+    # 手動の確認は知らせ済みでも結末を返す。押して黙るのは無反応と区別が付かない。
+    it "知らせ済みでも check は Available を返す" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      check_and_notify(usecase, "1.0.0", "stable")
+
+      usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::Available
+    end
+  end
+end
