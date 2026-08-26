@@ -123,6 +123,124 @@ module Config
       errors
     end
 
+    # アプリ自身が書き込む記録だけを書き戻す（issue #15）。
+    #
+    # 利用者が設定画面から保存する save とは分けてある。
+    # あちらは全項目を画面で確かめたうえでの明示的な上書きであり、外部変更の警告も出す。
+    # こちらは SteamVR の同期や更新の確認から、利用者の操作を伴わずに走る。
+    # メモリ上のスナップショットで全体を置き換えると、その間の手編集を警告なしに失う。
+    #
+    # 渡すブロックは、書き戻す元になる設定を受け取って、記録を載せ替えたものを返す。
+    # 記録がディスクへ書けたかを返す。書けなかった場合、呼び出し側は次の機会に呼び直せる。
+    #
+    # 書き戻す元は、そのつどディスクから読む。
+    # メモリ上の設定がディスクと一致しているかを更新時刻から判断することはできない。
+    # 内容と更新時刻は別々の呼び出しで得るものであり、その隙間に書かれると食い違う。
+    # 読んでから書くまでは短く、隙間は書き出す直前の見直しで狭められる。
+    # 一方、読み込みから次の書き戻しまでを一致していると見なすと、その間ずっと食い違いうる。
+    #
+    # 読んだ内容は動作へ反映しない。current へ載せるのは記録だけである。
+    # 利用者が「設定を再読み込み」を押す前に、編集の途中のものへ勝手に切り替わるのを避ける。
+    # 読んだ内容はディスクへ書いた側に残っているので、次の読み込みで揃う。
+    #
+    # 記録そのものは、書けたかどうかに関わらず動作へ反映する。
+    # 反映しないと、たとえば自動起動の登録が決着しないままになり、
+    # 再試行の条件が成立し続けて 60 秒ごとに登録し直すことになる。
+    def record(& : Root -> Root) : Bool
+      before = @repository.modified_at
+
+      base = read_for_record
+      unless base
+        apply_record(yield @current)
+        return false
+      end
+
+      root = yield base
+      errors = validate(root)
+      unless errors.empty?
+        # 読んだ設定が検証を通らない。記録だけを載せて書き戻すと、
+        # 利用者が直している途中のファイルを不正なまま固定してしまう。
+        Log.warn { "書き戻す元の設定が検証を通らないため記録の書き戻しを見送る: #{errors.join(" / ")}" }
+        apply_record(yield @current)
+        return false
+      end
+
+      # 読んでから書くまでの間に編集されていないかを見る。
+      # ここで防げるのは読み取りと書き出しの隙間だけであり、
+      # 書き出しそのものと同時の編集は防げない。それでも、
+      # この record が守ろうとしている手編集の消失を、同じ処理の中で
+      # 起こさないだけの意味はある。
+      if changed_since?(before)
+        Log.warn { "書き出す直前に設定ファイルが変更されたため記録の書き戻しを見送る: #{@repository.path}" }
+        apply_record(yield @current)
+        return false
+      end
+
+      begin
+        @repository.save(root)
+      rescue ex : IO::Error | JSON::Error
+        # 書き出せなかった。読み取り専用、容量の不足、一時的なロックがこれにあたる。
+        # ここで抜けると、記録が動作へ反映されないまま呼び出し側にも伝わらない。
+        # 自動起動の登録なら決着がつかず 60 秒ごとの登録し直しが続き、
+        # 更新の通知なら書き直しの保留も立たない。書けなかった経路へ畳む。
+        Log.warn(exception: ex) { "設定ファイルへ書き出せなかったため反映だけを行う: #{@repository.path}" }
+        apply_record(yield @current)
+        return false
+      end
+
+      apply_record(yield @current)
+      true
+    end
+
+    # 書き戻す元になる設定をディスクから読む。読めなければ nil を返す。
+    #
+    # 起動時に読めなかったファイルも、ここでは読み直す。
+    # 利用者が直せば、そのまま記録を書き戻せるようになる。
+    # 読み直さずに readable? だけを見ると、直っていても
+    # 「設定を再読み込み」を押すまで記録が一度も残らない。
+    #
+    # 読めないものへ記録を載せることはできない。
+    # 全体を上書きすれば書けるが、それでは利用者のルールごと失う。
+    private def read_for_record : Root?
+      @repository.load
+    rescue ex : JSON::Error | File::Error
+      Log.warn(exception: ex) { "設定ファイルを読めなかったため記録の書き戻しを見送る: #{@repository.path}" }
+      nil
+    end
+
+    # 読み取りの時点から設定ファイルが変わっているか。
+    # どちらかの更新時刻を取れない場合は、変わっていないものとして進める。
+    # 取れないことを理由に書き戻しを止めると、更新時刻を持たない環境で
+    # 記録が一度も残らなくなる。
+    private def changed_since?(before : Time?) : Bool
+      return false unless before
+
+      now = @repository.modified_at
+      return false unless now
+
+      now != before
+    end
+
+    # 記録を載せた設定を動作へ反映する。
+    #
+    # on_apply は呼ばない。あれは設定全体を各 usecase へ配り直すものであり、
+    # ログ水準の設定、監視対象とシンクの組み立て直し、チャンネルを変えたときの
+    # 更新の確認までを行う。record が触るのは steamvr と update.notified_version、
+    # すなわちどれもそこで配られない項目だけである。
+    #
+    # 呼ぶと実害がある。記録が書けない間は 60 秒ごとに書き直しを試みるため、
+    # そのたびに設定全体の再適用が走り、未確認のチャンネルがあれば
+    # 24 時間ごとのはずの更新の確認まで毎分走ることになる。
+    private def apply_record(root : Root) : Nil
+      errors = validate(root)
+      unless errors.empty?
+        Log.warn { "記録を載せた設定が検証を通らないため反映しない: #{errors.join(" / ")}" }
+        return
+      end
+
+      @current = root
+    end
+
     def validate(root : Root) : Array(ValidationError)
       errors = [] of ValidationError
       validate_sinks(root, errors)

@@ -60,6 +60,8 @@ module KxNotifyUtils
       @source_start_notified = false
       # SteamVR の同期が必要だったのに終わっていないか。再試行の判断に使う。
       @steamvr_sync_pending = false
+      # 設定へ書けなかった SteamVR の記録。書ける機会に書き直すために持つ。
+      @steamvr_record_pending = nil.as({Bool, String}?)
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -87,6 +89,8 @@ module KxNotifyUtils
       @update_last_result = nil.as(Update::CheckResult?)
       # 直近の確認でバルーンを出せたか。押した側への応答が済んでいるかの判断に使う。
       @update_last_notified = false
+      # 知らせた版を設定へ書けていないか。書けた機会に書き直すために持つ。
+      @update_record_pending = false
       # 覚えてある結末がどのチャンネルのものか。今の設定と突き合わせるために持つ。
       @update_last_channel = nil.as(String?)
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
@@ -439,23 +443,27 @@ module KxNotifyUtils
       end
     end
 
-    # 見つけた版を先に見る。
-    # check_enabled が false でも手動の確認はできるため、
-    # 無効の表示を先に返すと、見つけた版とリリースページのボタンだけが出て文言が食い違う。
     # 知らせた版を設定へ残す。
     # 本体は SteamVR の自動起動で立ち上がるため、覚えておかないと
     # VR を始めるたびに同じ更新のバルーンが出る。
+    #
+    # 書けなかった場合は覚えておき、後で書き直す。
+    # 知らせたことはメモリ上では記録済みであり、以後の確認は抑止される。
+    # ここで諦めると、利用者が設定を直しても書かれないまま次の起動を迎える。
     private def remember_notified_update : Nil
       tag = @update.notified_tag
-      return if tag.empty? || tag == @config.current.update.notified_version
+      if tag.empty?
+        @update_record_pending = false
+        return
+      end
 
-      errors = @config.save(@config.current.with_update_notified(tag))
-      return if errors.empty?
-
-      # 書けなくても常駐は続ける。次の起動で同じ版をもう一度知らせるだけである。
-      Log.warn { "知らせ済みの版を設定へ残せなかった: #{errors.join(" / ")}" }
+      # 見送った理由は record が記録する。
+      @update_record_pending = !@config.record(&.with_update_notified(tag))
     end
 
+    # 見つけた版を先に見る。
+    # check_enabled が false でも手動の確認はできるため、
+    # 無効の表示を先に返すと、見つけた版とリリースページのボタンだけが出て文言が食い違う。
     private def update_status_label : String
       settings = @config.current.update
       if release = @update.available(settings.channel)
@@ -494,13 +502,13 @@ module KxNotifyUtils
 
       section = result.section
       return unless section
-      @config.save(@config.current.with_steamvr(section.auto_launch_registered, section.last_exe_path))
+      record_steamvr(section.auto_launch_registered, section.last_exe_path)
     end
 
     private def register_steamvr : Nil
       @errors.guard("error.steamvr_register") do
         next unless @steamvr.register
-        @config.save(@config.current.with_steamvr(true, Runtime::Paths.executable_path))
+        record_steamvr(true, Runtime::Paths.executable_path)
         update_tray_state
       end
     end
@@ -513,7 +521,7 @@ module KxNotifyUtils
         # 自動起動を無効にできた時点で設定へ書き戻す。
         # マニフェストの登録解除だけが失敗した場合に「登録済み」を残すと、
         # 次回起動時の同期が自動起動を有効に戻してしまう。
-        @config.save(@config.current.with_steamvr(false, "", configured: true))
+        record_steamvr(false, "")
         update_tray_state
 
         if result.auto_launch_only?
@@ -523,6 +531,40 @@ module KxNotifyUtils
           )
         end
       end
+    end
+
+    # SteamVR の決着を設定へ書き戻す。
+    #
+    # 書けなかった場合は内容を覚えておき、後で書き直す。
+    # 記録そのものは record が動作へ反映しているため、
+    # 常駐している間は保留のままでも表示や再試行の判断は正しい。
+    # 落とすと次回の起動でディスク側の古い決着を読むことになり、
+    # 登録を解除した直後であれば、同期がそれを登録の消失と読んで有効に戻す。
+    #
+    # 自動起動の決着（auto_launch_configured）は、この経路ではつねに真である。
+    # 登録も解除も同期も、SteamVR 側の操作が済んだ後にだけここへ来る。
+    private def record_steamvr(registered : Bool, exe_path : String) : Nil
+      if @config.record(&.with_steamvr(registered, exe_path))
+        @steamvr_record_pending = nil
+        return
+      end
+
+      # 見送った理由は record が記録する。
+      @steamvr_record_pending = {registered, exe_path}
+    end
+
+    # 書けなかった記録を書き直す。
+    #
+    # SteamVR 側の操作はやり直さない。登録も解除も済んでおり、
+    # 残っているのは決着を設定へ残すことだけである。
+    # 書けなかった原因は外部の編集や一時的な書き込みの失敗であり、
+    # 利用者が直したり、編集が終わったりすれば次の機会に書ける。
+    private def retry_records : Nil
+      if pending = @steamvr_record_pending
+        record_steamvr(pending[0], pending[1])
+      end
+
+      remember_notified_update if @update_record_pending
     end
 
     private def handle(command : Runtime::Tray::Command) : Nil
@@ -630,6 +672,7 @@ module KxNotifyUtils
       step_ui
       retry_source if @source_enabled && !@source_started
       retry_steamvr if steamvr_retry_needed?
+      retry_records if @scheduler.retry_record?
       check_update if @scheduler.check_update?
       @scheduler.step
       # 他のファイバへ実行を渡す。WebSocket の接続維持はここで進む。
@@ -666,6 +709,19 @@ module KxNotifyUtils
       start_steamvr
     end
 
+    # 書けていない記録を終了の前に書き切る。
+    #
+    # 周期の書き直しは 60 秒ごとであり、その間に終了されると記録はメモリごと消える。
+    # 登録を解除した記録であれば、次の起動でディスク側の古い「登録済み」を読んだ
+    # 同期が自動起動を有効に戻す。更新の通知であれば同じ版のバルーンがまた出る。
+    #
+    # 例外は握る。終了の途中であり、ここで抜けると残りの後始末が走らない。
+    private def flush_records : Nil
+      retry_records
+    rescue exception
+      Log.error(exception: exception) { "終了時の記録の書き戻しに失敗した" }
+    end
+
     private def step_ui : Nil
       window = @settings_window
       return unless window
@@ -678,6 +734,7 @@ module KxNotifyUtils
     # アダプタの生存期間は composition root が持つ。
     private def shutdown : Nil
       Log.info { "KxNotifyUtils を終了する" }
+      flush_records
       @sinks.each { |sink| sink.stop rescue nil }
       @win_source.stop rescue nil if @source_started
       @tray.stop rescue nil

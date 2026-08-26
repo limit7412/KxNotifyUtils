@@ -301,4 +301,253 @@ describe Config::Usecase do
       target.validate(root).map(&.message).any?(&.includes?("log_level")).should be_true
     end
   end
+
+  # アプリ自身が書き込む記録（SteamVR の登録、知らせ済みの版）の書き戻し。
+  # 利用者の操作を伴わずに走るため、外部の編集を巻き込まないことが要る（issue #15）。
+  describe "#record" do
+    it "記録を書き戻して動作へ反映する" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      stored.steamvr.auto_launch_registered.should be_true
+      target.current.steamvr.last_exe_path.should eq "D:/tools/KxNotifyUtils.exe"
+    end
+
+    # 読み込んでから書き戻すまでの間に手で編集されると、
+    # メモリ上のスナップショットで全体を置き換えて編集を失う。
+    it "外部の編集を読み直してから記録を載せる" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_externally(edited.to_json)
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      # 記録は入っている。
+      stored.steamvr.auto_launch_registered.should be_true
+      # 外部の編集も残っている。
+      stored.log_level.should eq "debug"
+    end
+
+    # 記録のついでに、利用者が編集の途中のものへ動作を切り替えるわけにはいかない。
+    # 反映は「設定を再読み込み」を押したときに行う。
+    it "読み直した内容は動作へ反映しない" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_externally(edited.to_json)
+
+      target.record(&.with_steamvr(true, ""))
+
+      target.current.log_level.should eq "info"
+    end
+
+    # 読み直せないものへ記録だけを載せることはできない。
+    # 全体を上書きすれば書けるが、それでは外部の編集を失う。
+    it "読み直せなければ書き戻しを見送る" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+      repository.edit_externally("{}")
+      repository.unreadable = true
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, ""))
+
+      repository.save_count.should eq before
+    end
+
+    # 直している途中のファイルを、記録を載せて不正なまま固定しない。
+    it "読み直した設定が検証を通らなければ見送る" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      broken = Config::Root.default
+      broken.log_level = "verbose"
+      repository.edit_externally(broken.to_json)
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, ""))
+
+      repository.save_count.should eq before
+    end
+
+    # 反映しないまま同期済みとして扱うと、次の record が古い current を基準にする。
+    # 一度守った手編集が、次の書き戻しで結局は消える。
+    it "反映しなかった後の書き戻しでも手編集が残る" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_externally(edited.to_json)
+
+      # 1 回目。読み直して記録を載せる（反映はしない）。
+      target.record(&.with_steamvr(true, "D:/one.exe"))
+      # 2 回目。SteamVR の再試行や更新の確認で続けて走る場合にあたる。
+      target.record(&.with_steamvr(true, "D:/two.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      stored.log_level.should eq "debug"
+      stored.steamvr.last_exe_path.should eq "D:/two.exe"
+    end
+
+    # 読めていない設定へ書き戻すと、利用者のルールごとファイルを失う。
+    it "設定を読めていなければ書き戻さない" do
+      target, repository = usecase(%({"log_level": "verbose"}))
+      target.load
+      target.readable?.should be_false
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, ""))
+
+      repository.save_count.should eq before
+    end
+
+    # 読み直した設定そのものは反映しないが、記録を落とすと登録が決着しない。
+    # steamvr_retry_needed? が成立し続け、60 秒ごとに登録し直すことになる。
+    it "外部の編集を反映しない場合でも記録は current へ載せる" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_externally(edited.to_json)
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      # 記録は反映されている。
+      target.current.steamvr.auto_launch_configured.should be_true
+      # 外部の編集は反映されていない。
+      target.current.log_level.should eq "info"
+    end
+
+    # 読んでから書くまでの隙間に編集されると、その編集を書き潰す。
+    # 隙間そのものは消せないが、record の中で起こす分は防ぐ。
+    it "読んだ後に変更されていたら書き戻しを見送る" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+      # 更新時刻を読んだ後、書き出しの前に編集される状況を真似る。
+      repository.edit_after_next_check = %({"log_level": "debug"})
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, ""))
+
+      repository.save_count.should eq before
+      Config::Root.from_json(repository.stored.not_nil!).log_level.should eq "debug"
+    end
+
+    it "書けたかどうかを返す" do
+      target, _ = usecase(Config::Root.default.to_json)
+      target.load
+
+      target.record(&.with_steamvr(true, "")).should be_true
+    end
+
+    it "書けなかった場合は偽を返す" do
+      target, _ = usecase(%({"log_level": "verbose"}))
+      target.load
+
+      target.record(&.with_steamvr(true, "")).should be_false
+    end
+
+    # 書き出さないことと反映しないことは別である。
+    # 反映しないと自動起動の登録が決着せず、再試行の条件が成立し続ける。
+    it "設定を読めていなくても記録は動作へ反映する" do
+      target, _ = usecase(%({"log_level": "verbose"}))
+      target.load
+      target.readable?.should be_false
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      target.current.steamvr.auto_launch_registered.should be_true
+      target.current.steamvr.auto_launch_configured.should be_true
+    end
+
+    # 書き出せない状況でも、記録は動作へ反映して呼び出し側へ失敗を返す。
+    # 例外で抜けると、反映も戻り値も落ちて、登録が決着しないまま再試行が止まらない。
+    it "書き出せなかった場合は反映だけを行って偽を返す" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+      repository.unwritable = true
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe")).should be_false
+
+      target.current.steamvr.auto_launch_registered.should be_true
+      target.current.steamvr.auto_launch_configured.should be_true
+    end
+
+    # 読み終えた直後に編集されると、current は読んだ内容のままで更新時刻だけが進む。
+    # これを同期済みとして覚えると、次の記録が後から書かれたほうを読み直さずに潰す。
+    it "読み込みの直後に編集されていたら、記録の前に読み直す" do
+      target, repository = usecase(Config::Root.default.to_json)
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_after_next_load = edited.to_json
+      target.load
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      stored.log_level.should eq "debug"
+      stored.steamvr.auto_launch_registered.should be_true
+    end
+
+    # 起動時に読めなかったファイルを利用者が直しても、readable? だけを見ていると
+    # 「設定を再読み込み」を押すまで記録が一度も残らない。
+    it "読めなかった設定が直っていれば記録を書き戻す" do
+      target, repository = usecase(%({"log_level": "verbose"}))
+      target.load
+      target.readable?.should be_false
+
+      repository.edit_externally(Config::Root.default.to_json)
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe")).should be_true
+
+      repository.save_count.should eq before + 1
+      Config::Root.from_json(repository.stored.not_nil!).steamvr.auto_launch_registered.should be_true
+    end
+
+    # record が触るのは on_apply が配らない項目だけである。
+    # 呼ぶと、記録が書けない間の書き直しのたびに設定全体の再適用が走り、
+    # 未確認のチャンネルがあれば 24 時間ごとのはずの更新の確認まで毎分走る。
+    it "設定全体の再適用は行わない" do
+      target, _ = usecase(Config::Root.default.to_json)
+      target.load
+      applied = 0
+      target.on_apply = ->(_root : Config::Root) do
+        applied += 1
+        nil
+      end
+
+      target.record(&.with_steamvr(true, ""))
+
+      applied.should eq 0
+    end
+
+    it "再読み込みの直後に編集されていたら、記録の前に読み直す" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_after_next_load = edited.to_json
+      target.reload
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      stored.log_level.should eq "debug"
+      stored.steamvr.auto_launch_registered.should be_true
+    end
+  end
 end

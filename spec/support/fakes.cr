@@ -131,6 +131,12 @@ module Fakes
     # PNG として扱うファイル。指定が無ければ existing_files をすべて PNG とみなす。
     property png_files : Array(String)? = nil
     property save_count : Int32 = 0
+    # 更新時刻。外部からの編集を真似るために手で進める（issue #15）。
+    property modified : Time? = Time.unix(0)
+    # load が失敗する状況を真似る。
+    property unreadable : Bool = false
+    # save が失敗する状況を真似る。読み取り専用や容量不足にあたる。
+    property unwritable : Bool = false
 
     def initialize(@stored : String? = nil)
     end
@@ -144,12 +150,27 @@ module Fakes
     end
 
     def load : Config::Root
-      Config::Root.from_json(@stored || "{}")
+      raise JSON::ParseException.new("壊れている", 1, 1) if @unreadable
+      root = Config::Root.from_json(@stored || "{}")
+      if json = @edit_after_next_load
+        @edit_after_next_load = nil
+        edit_externally(json)
+      end
+      root
     end
 
     def save(root : Config::Root) : Nil
+      raise File::Error.new("書けない", file: path) if @unwritable
       @stored = root.to_json
       @save_count += 1
+      # 書き出せば更新時刻も進む。
+      @modified = @modified.try(&.+(1.second))
+    end
+
+    # 外部エディタでの編集を真似る。中身と更新時刻の両方を変える。
+    def edit_externally(json : String) : Nil
+      @stored = json
+      @modified = @modified.try(&.+(1.second))
     end
 
     def file_exists?(path : String) : Bool
@@ -164,8 +185,21 @@ module Fakes
       end
     end
 
+    # 読み込みが終わった直後に外部から編集される状況を真似る。
+    # 読んだ内容と更新時刻が食い違う隙間の確認に使う（issue #15）。
+    property edit_after_next_load : String? = nil
+
+    # 更新時刻を読んだ直後に外部から編集される状況を真似る。
+    # 読み取りと書き出しの隙間を突く編集の確認に使う（issue #15）。
+    property edit_after_next_check : String? = nil
+
     def modified_at : Time?
-      nil
+      current = @modified
+      if json = @edit_after_next_check
+        @edit_after_next_check = nil
+        edit_externally(json)
+      end
+      current
     end
   end
 
