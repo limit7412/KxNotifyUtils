@@ -41,6 +41,7 @@ module Update
 
     def initialize(
       @repository : Repository,
+      @running_version : String,
       @executable_path : String,
       @staged_path : String,
       @previous_path : String,
@@ -78,6 +79,16 @@ module Update
       return nil unless File.exists?(metadata_path) && File.exists?(@staged_path)
 
       record = Staged.from_json(File.read(metadata_path))
+
+      # 実行中より新しいものだけを置く。
+      # 取得してから起動しないまま日が経ち、その間に手で新しい版へ入れ替えられていると、
+      # 取っておいた古いほうへ引き戻すことになる。
+      unless newer_than_running?(record.tag)
+        Log.info { "取得しておいた #{record.tag} は実行中の #{@running_version} より新しくないため捨てる" }
+        discard
+        return nil
+      end
+
       return record if verified?(record)
 
       Log.warn { "取得しておいた実行ファイルが記録と合わないため捨てる: #{@staged_path}" }
@@ -126,6 +137,19 @@ module Update
       File.delete?(metadata_path)
       Log.info { "実行ファイルを #{record.tag} へ置き換えた" }
       true
+    end
+
+    # 取得しておいたものが実行中より新しいか。
+    #
+    # どちらかが版として読めなければ新しいものとして扱う。
+    # 手元ビルド（0.1.0-dev）がこれにあたるが、そこへ辿り着くのは
+    # 利用者が明示的に取得を押した場合だけであり、その意図を優先する。
+    private def newer_than_running?(tag : String) : Bool
+      running = Version.parse?(@running_version)
+      staged = Version.parse?(tag)
+      return true unless running && staged
+
+      staged > running
     end
 
     # 記録された大きさと digest の両方を見る。

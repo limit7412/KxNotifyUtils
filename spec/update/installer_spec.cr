@@ -27,7 +27,7 @@ private record Fixture,
   repository : FakeRepository,
   executable : String
 
-private def with_installer(& : Fixture -> Nil) : Nil
+private def with_installer(running : String = "0.0.1", & : Fixture -> Nil) : Nil
   directory = File.join(Dir.tempdir, "kxnotifyutils-spec-#{Random::Secure.hex(8)}")
   Dir.mkdir_p(directory)
   begin
@@ -36,6 +36,7 @@ private def with_installer(& : Fixture -> Nil) : Nil
     repository = FakeRepository.new
     installer = Update::Installer.new(
       repository,
+      running,
       executable,
       "#{executable}.new",
       "#{executable}.old",

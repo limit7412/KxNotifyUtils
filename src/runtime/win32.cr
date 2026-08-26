@@ -108,6 +108,7 @@ module Runtime
 
     fun get_module_handle_w = GetModuleHandleW(module_name : UInt16*) : Handle
     fun create_mutex_w = CreateMutexW(attributes : Void*, initial_owner : Int32, name : UInt16*) : Handle
+    fun close_handle = CloseHandle(handle : Handle) : Int32
     # タスクバーの再作成を知るためのブロードキャストメッセージ ID を得る。
     fun register_window_message_w = RegisterWindowMessageW(name : UInt16*) : UInt32
     fun get_user_default_ui_language = GetUserDefaultUILanguage : UInt16
@@ -173,6 +174,20 @@ module Runtime
 
       @@single_instance = handle
       LibWin32.get_last_error != LibWin32::ERROR_ALREADY_EXISTS
+    end
+
+    # 多重起動の抑止を解く（issue #10 第 2 段階）。
+    #
+    # 置き換えて新しい exe を起動するときに使う。
+    # 握ったまま起動すると、新しい側が「既に起動している」と判断して終わってしまう。
+    # 解いた後に起動が失敗した場合は取り直せるよう、握っていたかどうかを返す。
+    def self.release_single_instance : Bool
+      handle = @@single_instance
+      return false unless handle
+
+      @@single_instance = nil
+      LibWin32.close_handle(handle)
+      true
     end
 
     # 画面ごとの DPI に追従させる。Windows 10 バージョン 1703 以降で有効になる。

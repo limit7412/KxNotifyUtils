@@ -55,6 +55,8 @@ module Runtime
     property on_request_steamvr_register : Proc(Nil) = -> { }
     property on_request_steamvr_unregister : Proc(Nil) = -> { }
     property on_open_notification_settings : Proc(Nil) = -> { }
+    # 情報タブの取得・適用のボタンを押したとき（issue #10 第 2 段階）。
+    property on_request_update_action : Proc(Nil) = -> { }
 
     def initialize(
       @config : ::Config::Usecase,
@@ -66,6 +68,9 @@ module Runtime
       # 版の比較は update コンテキストが持つため、結果だけを受け取る。
       @update_status : Proc(String) = -> { I18n.t("settings.about.update_unchecked") },
       @update_url : Proc(String?) = -> { nil.as(String?) },
+      # 取得と適用の操作（issue #10 第 2 段階）。
+      # 押せるものが無いときは nil を返す。何を押せるかは composition root が決める。
+      @update_action : Proc(String?) = -> { nil.as(String?) },
     )
       @window = nil.as(UIng::Window?)
       @draft = @config.current.dup_snapshot
@@ -83,6 +88,7 @@ module Runtime
       @steamvr_label = nil.as(UIng::Label?)
       @update_label = nil.as(UIng::Label?)
       @update_button = nil.as(UIng::Button?)
+      @update_action_button = nil.as(UIng::Button?)
       # 未保存の変更があるまま閉じようとしたことを覚えておく。
       # 一度警告を出し、続けてもう一度閉じる操作をしたときに破棄する。
       @close_warned = false
@@ -396,6 +402,13 @@ module Runtime
       update_button.disable
       @update_button = update_button
       box.append(update_button, false)
+
+      # 取得と適用。押せるものが無いうちは表示を残したまま押せなくする。
+      # 隠して出し直すと、押そうとした瞬間にボタンの位置が動く。
+      action_button = button(I18n.t("settings.about.update_download")) { @on_request_update_action.call }
+      action_button.disable
+      @update_action_button = action_button
+      box.append(action_button, false)
 
       box.append(UIng::Label.new(I18n.t("settings.about.licenses")), false)
 
@@ -722,6 +735,15 @@ module Runtime
       @update_label.try { |label| label.text = @update_status.call }
       @update_button.try do |control|
         @update_url.call.nil? ? control.disable : control.enable
+      end
+      @update_action_button.try do |control|
+        label = @update_action.call
+        if label
+          control.text = label
+          control.enable
+        else
+          control.disable
+        end
       end
     end
 
