@@ -143,5 +143,7 @@
   "notify.update_relaunch_failed.title": "The update was applied",
   "notify.update_relaunch_failed.body": "The executable was replaced but could not be relaunched. The new version will run the next time you start the app.",
   "settings.dialog.update_unsaved_body": "Applying the update restarts the app. Save your changes or close the settings window, then press the button again.",
-  "settings.about.update_broken": "The executable is missing from its original path (see the log for recovery steps)"
+  "settings.about.update_broken": "The executable is missing from its original path (see the log for recovery steps)",
+  "notify.update_postponed.title": "The update was not applied",
+  "notify.update_postponed.body": "Some records could not be written to the settings file. Make it writable and try again."
 }

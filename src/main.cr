@@ -518,6 +518,9 @@ module KxNotifyUtils
     # 知らせたことはメモリ上では記録済みであり、以後の確認は抑止される。
     # ここで諦めると、利用者が設定を直しても書かれないまま次の起動を迎える。
     private def remember_notified_update : Nil
+      # 設定を書く役目を渡した後は書かない。常駐している側と重なる。
+      return if @config_handed_over
+
       tag = @update.notified_tag
       if tag.empty?
         @update_record_pending = false
@@ -575,6 +578,8 @@ module KxNotifyUtils
       Failed
       # 退避を戻せなかった。実行ファイルが正規のパスに無い。
       Broken
+      # 書き切れていない記録があるため見送った。取得しておいたものは残っている。
+      Postponed
       # 抑止を取り直せず、別のプロセスが常駐に入った。このプロセスは終わる。
       Superseded
 
@@ -605,9 +610,27 @@ module KxNotifyUtils
       # 書きかけが混ざったものがそのまま設定として置かれる。
       retry_records
 
+      # 書き切れなかった記録を抱えたまま渡さない。
+      #
+      # 渡した後はこちらが書かないため、その記録は失われる。
+      # 登録解除の記録であれば、子はディスクの古い「登録済み」を読んで自動起動を戻す。
+      # 置き換えは取りやめる。取得しておいたものはそのまま残るので、
+      # 設定を書ける状態にしてから押し直せばよい。
+      if records_pending?
+        Log.error { "保留している記録を書き切れないため置き換えを見送る" }
+        return HandOver::Postponed
+      end
+
+      # ここから先は設定を書かない。
+      #
+      # 待ちの間も、この プロセスのファイバは進む。起動時の更新の確認がこれにあたり、
+      # 新しい版を見つけて知らせると、知らせた版の記録を設定へ書きに行く。
+      # 子はその頃には起動して SteamVR の同期から設定を書き始めており、
+      # 同じ config.json.tmp を 2 つのプロセスが使うことになる。
+      @config_handed_over = true
+
       Runtime::Win32.release_single_instance
       if launch_replacement
-        @config_handed_over = true
         Log.info { "置き換えた実行ファイルへ渡した: #{staged.tag}" }
         return HandOver::Handed
       end
@@ -619,12 +642,13 @@ module KxNotifyUtils
       # そのまま続けると、同じ通知を 2 つのプロセスが中継することになる。
       # 抑止そのものが避けようとしている状態であり、こちらが引く。
       unless reacquire_single_instance
-        # 常駐は別のプロセスのものになった。設定を書く役目もそちらへ渡っている。
-        @config_handed_over = true
+        # 常駐は別のプロセスのものになった。設定を書く役目もそちらへ渡ったままにする。
         Log.error { "抑止を取り直せなかった。別のプロセスが常駐しているため、こちらは終わる" }
         return HandOver::Superseded
       end
 
+      # 常駐を続ける。子は落ちているので、設定を書く役目も戻る。
+      @config_handed_over = false
       Log.error { "置き換えた実行ファイルを起動できなかった。次の起動から新しい版になる" }
       HandOver::Replaced
     rescue exception : Update::Installer::RollbackFailed
@@ -693,6 +717,11 @@ module KxNotifyUtils
         )
       in .broken?
         # 復旧の案内は hand_over_to_staged が出している。重ねない。
+      in .postponed?
+        @errors.notify(
+          Runtime::I18n.t("notify.update_postponed.title"),
+          Runtime::I18n.t("notify.update_postponed.body"),
+        )
       in .none?
         Log.info { "取得しておいた更新が無いため適用しない" }
       end
@@ -898,6 +927,9 @@ module KxNotifyUtils
     # 自動起動の決着（auto_launch_configured）は、この経路ではつねに真である。
     # 登録も解除も同期も、SteamVR 側の操作が済んだ後にだけここへ来る。
     private def record_steamvr(registered : Bool, exe_path : String) : Nil
+      # 設定を書く役目を渡した後は書かない。常駐している側と重なる。
+      return if @config_handed_over
+
       if @config.record(&.with_steamvr(registered, exe_path))
         @steamvr_record_pending = nil
         return
@@ -913,6 +945,11 @@ module KxNotifyUtils
     # 残っているのは決着を設定へ残すことだけである。
     # 書けなかった原因は外部の編集や一時的な書き込みの失敗であり、
     # 利用者が直したり、編集が終わったりすれば次の機会に書ける。
+    # 書き切れていない記録があるか。
+    private def records_pending? : Bool
+      !@steamvr_record_pending.nil? || @update_record_pending
+    end
+
     private def retry_records : Nil
       if pending = @steamvr_record_pending
         record_steamvr(pending[0], pending[1])
