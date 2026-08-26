@@ -117,7 +117,11 @@ module Notify
 
     # 設定 GUI とトレイメニューから呼ぶ疎通確認用の送信。
     # 実際の中継と同じ整形を通すため、見た目と音をそのまま確認できる。
-    def send_test(settings : ::Config::Resolved, source_id : String = "windows") : Nil
+    # 件名と本文は呼び出し側から受け取る。
+    # このアプリが利用者へ向けて作る文言であり、選択言語で出す必要がある（issue #4）。
+    # 辞書は runtime 側にあり、ここから参照すると層が逆さになる。
+    def send_test(settings : ::Config::Resolved, title : String, body : String,
+                  source_id : String = "windows") : Nil
       builder = @builders[source_id]? || @builders.first_value?
       return unless builder
 
@@ -125,8 +129,8 @@ module Notify
         source: builder.source_id,
         app_id: "kairo.kxnotifyutils",
         app_name: "KxNotifyUtils",
-        title: "テスト通知",
-        body: "この表示と音で通知が届く。",
+        title: title,
+        body: body,
       )
       deliver(builder.build(incoming, settings))
     end

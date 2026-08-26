@@ -8,6 +8,7 @@ require "./error/usecase"
 require "./notify/models"
 require "./notify/repository"
 require "./notify/usecase"
+require "./runtime/i18n"
 require "./runtime/icon_repository"
 require "./runtime/logging"
 require "./runtime/paths"
@@ -132,12 +133,18 @@ module KxNotifyUtils
 
     private def load_config : Nil
       errors = @config.load
+
+      # UI の言語は起動時に一度だけ決める。
+      # 画面は起動時に組み立てるため、動作中の設定変更には追従させない（issue #4）。
+      # 設定を読めなかった場合は既定値の "auto" が使われ、OS の表示言語に従う。
+      Runtime::I18n.locale = Runtime::I18n.resolve(@config.current.language)
+
       unless errors.empty?
         Log.error { "設定の検証エラー: #{errors.join(" / ")}" }
         # 読めなかった設定は既定値で置き換わる。
         # 黙って始めると、たとえば whitelist が壊れていた場合に、
         # 除外していたはずの通知が流れ始めたことへ利用者が気付けない。
-        @errors.notify("設定を読めなかった", errors.map(&.to_s).join("\n"))
+        @errors.notify(Runtime::I18n.t("notify.config_invalid.title"), errors.map(&.to_s).join("\n"))
       end
       @config.on_apply = ->(root : ::Config::Root) { apply(root) }
       apply(@config.current)
@@ -175,15 +182,15 @@ module KxNotifyUtils
           # 開始できるまで一定間隔で試し直すため、知らせるのは最初の 1 回だけとする。
           # 同じ失敗のたびにトレイ通知を出すと、利用者の手が止まる。
           if @source_start_notified
-            Log.error(exception: exception) { "Windows 通知ソースの初期化" }
+            Log.error(exception: exception) { Runtime::I18n.log_text("error.source_start") }
           else
             @source_start_notified = true
-            @errors.handle("Windows 通知ソースの初期化", exception)
+            @errors.handle("error.source_start", exception)
           end
         end
       elsif !settings.enabled && @source_started
         @relay.sources.delete(@win_source)
-        @errors.guard("Windows 通知ソースの停止") { @win_source.stop }
+        @errors.guard("error.source_stop") { @win_source.stop }
         @source_started = false
         Log.info { "Windows 通知ソースを無効にした" }
       end
@@ -193,8 +200,8 @@ module KxNotifyUtils
     # 失敗したときは Windows の設定画面へ誘導する。
     private def guide_notification_access : Nil
       @errors.notify(
-        "通知へのアクセスが許可されていない",
-        "Windows の設定 > プライバシーとセキュリティ > 通知 から、KxNotifyUtils に許可する。",
+        Runtime::I18n.t("notify.access_denied.title"),
+        Runtime::I18n.t("notify.access_denied.body"),
       )
       {% if flag?(:windows) %}
         Runtime::Win32.open_with_shell("ms-settings:privacy-notifications")
@@ -232,6 +239,8 @@ module KxNotifyUtils
       @tray.on_command = ->(command : Runtime::Tray::Command) { handle(command) }
       @tray.start
       @errors.notifier = ->(title : String, body : String) { @tray.show_balloon(title, body) }
+      @errors.log_text = ->(key : String) { Runtime::I18n.log_text(key) }
+      @errors.display_text = ->(key : String) { Runtime::I18n.t(key) }
       true
     rescue exception
       # notifier をまだ登録していないため、ここで伝えられるのはログだけである。
@@ -264,7 +273,7 @@ module KxNotifyUtils
 
     # SteamVR が起動していない状態で手動起動された場合も常駐を続け、scheduler が再試行する。
     private def start_steamvr : Nil
-      @errors.guard("SteamVR の初期化") do
+      @errors.guard("error.steamvr_start") do
         if @openvr.open
           register_steamvr unless @config.current.steamvr.auto_launch_configured
           sync_steamvr
@@ -289,7 +298,7 @@ module KxNotifyUtils
     end
 
     private def register_steamvr : Nil
-      @errors.guard("SteamVR への登録") do
+      @errors.guard("error.steamvr_register") do
         next unless @steamvr.register
         @config.save(@config.current.with_steamvr(true, Runtime::Paths.executable_path))
         update_tray_state
@@ -297,7 +306,7 @@ module KxNotifyUtils
     end
 
     private def unregister_steamvr : Nil
-      @errors.guard("SteamVR 登録の解除") do
+      @errors.guard("error.steamvr_unregister") do
         result = @steamvr.unregister
         next if result.failed?
 
@@ -309,8 +318,8 @@ module KxNotifyUtils
 
         if result.auto_launch_only?
           @errors.notify(
-            "SteamVR の登録解除が途中で止まった",
-            "自動起動は無効にした。vrmanifest の登録解除に失敗したため、SteamVR 側にアプリの登録が残っている。",
+            Runtime::I18n.t("notify.steamvr_unregister_partial.title"),
+            Runtime::I18n.t("notify.steamvr_unregister_partial.body"),
           )
         end
       end
@@ -323,7 +332,11 @@ module KxNotifyUtils
         update_tray_state
         Log.info { @relay.paused ? "中継を一時停止した" : "中継を再開した" }
       in .send_test_message?
-        @relay.send_test(@config.current.defaults.to_resolved)
+        @relay.send_test(
+          @config.current.defaults.to_resolved,
+          Runtime::I18n.t("notify.test.title"),
+          Runtime::I18n.t("notify.test.body"),
+        )
       in .open_settings?
         @settings_window.try(&.open)
       in .open_config_file?
@@ -340,15 +353,18 @@ module KxNotifyUtils
         @stopping = true
       end
     rescue exception
-      @errors.handle("トレイの操作", exception)
+      @errors.handle("error.tray_action", exception)
     end
 
     private def reload_config : Nil
       errors = @config.reload
       if errors.empty?
-        @errors.notify("設定を再読み込みした", "編集した設定を反映した。")
+        @errors.notify(
+          Runtime::I18n.t("notify.config_reloaded.title"),
+          Runtime::I18n.t("notify.config_reloaded.body"),
+        )
       else
-        @errors.notify("設定を読めなかった", errors.map(&.to_s).join("\n"))
+        @errors.notify(Runtime::I18n.t("notify.config_invalid.title"), errors.map(&.to_s).join("\n"))
       end
       @settings_window.try(&.notify_external_change)
     end
@@ -373,16 +389,16 @@ module KxNotifyUtils
 
     private def access_status_label : String
       case @win_source.access_status
-      in WinNotification::AccessStatus::Allowed     then "許可されている"
-      in WinNotification::AccessStatus::Denied      then "拒否されている"
-      in WinNotification::AccessStatus::Unspecified then "未設定"
-      in WinNotification::AccessStatus::Unknown     then "不明"
+      in WinNotification::AccessStatus::Allowed     then Runtime::I18n.t("status.access.allowed")
+      in WinNotification::AccessStatus::Denied      then Runtime::I18n.t("status.access.denied")
+      in WinNotification::AccessStatus::Unspecified then Runtime::I18n.t("status.access.unspecified")
+      in WinNotification::AccessStatus::Unknown     then Runtime::I18n.t("status.access.unknown")
       end
     end
 
     private def steamvr_status_label : String
-      return "SteamVR に接続していない" unless @openvr.opened?
-      @steamvr.registered? ? "登録済み" : "未登録"
+      return Runtime::I18n.t("status.steamvr.disconnected") unless @openvr.opened?
+      Runtime::I18n.t(@steamvr.registered? ? "status.steamvr.registered" : "status.steamvr.unregistered")
     end
 
     # 常駐の主ループ。
@@ -396,7 +412,7 @@ module KxNotifyUtils
       @tray.on_idle = -> { background_step }
 
       until @stopping
-        @errors.guard("トレイのメッセージ処理") { @tray.pump }
+        @errors.guard("error.tray_pump") { @tray.pump }
         break if @tray.quit_requested?
 
         background_step
@@ -453,7 +469,7 @@ module KxNotifyUtils
       UIng.main_step(false)
       window.tick
     rescue exception
-      @errors.handle("設定ウィンドウの処理", exception)
+      @errors.handle("error.settings_window", exception)
     end
 
     # アダプタの生存期間は composition root が持つ。

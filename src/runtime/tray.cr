@@ -1,4 +1,5 @@
 require "log"
+require "./i18n"
 require "./win32"
 
 module Runtime
@@ -178,21 +179,21 @@ module Runtime
 
       @menu_open = true
       begin
-        append(menu, Command::TogglePause, @paused ? "中継を再開" : "中継を一時停止", checked: @paused)
-        append(menu, Command::SendTestMessage, "テスト通知を送信")
+        append(menu, Command::TogglePause, I18n.t(@paused ? "tray.menu.resume" : "tray.menu.pause"), checked: @paused)
+        append(menu, Command::SendTestMessage, I18n.t("tray.menu.send_test"))
         separator(menu)
-        append(menu, Command::OpenSettings, "設定")
-        append(menu, Command::OpenConfigFile, "設定ファイルを開く")
-        append(menu, Command::ReloadConfig, "設定を再読み込み")
+        append(menu, Command::OpenSettings, I18n.t("tray.menu.settings"))
+        append(menu, Command::OpenConfigFile, I18n.t("tray.menu.open_config"))
+        append(menu, Command::ReloadConfig, I18n.t("tray.menu.reload_config"))
         separator(menu)
         if @steamvr_registered
-          append(menu, Command::UnregisterSteamVR, "SteamVR 自動起動を解除", enabled: @steamvr_available)
+          append(menu, Command::UnregisterSteamVR, I18n.t("tray.menu.unregister_steamvr"), enabled: @steamvr_available)
         else
-          append(menu, Command::RegisterSteamVR, "SteamVR 自動起動を登録", enabled: @steamvr_available)
+          append(menu, Command::RegisterSteamVR, I18n.t("tray.menu.register_steamvr"), enabled: @steamvr_available)
         end
-        append(menu, Command::OpenLogDirectory, "ログフォルダを開く")
+        append(menu, Command::OpenLogDirectory, I18n.t("tray.menu.open_logs"))
         separator(menu)
-        append(menu, Command::Quit, "終了")
+        append(menu, Command::Quit, I18n.t("tray.menu.quit"))
 
         point = uninitialized LibWin32::Point
         LibWin32.get_cursor_pos(pointerof(point))

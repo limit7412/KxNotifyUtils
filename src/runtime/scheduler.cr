@@ -23,7 +23,7 @@ module Runtime
 
     # 主ループから繰り返し呼ぶ 1 拍。
     def step(now : Time::Span = Time.monotonic) : Nil
-      @errors.guard("通知の中継") { @relay.tick(now) }
+      @errors.guard("error.relay") { @relay.tick(now) }
       poll_steamvr
     end
 
@@ -32,7 +32,7 @@ module Runtime
       return if monotonic < @next_quit_poll
       @next_quit_poll = monotonic + QUIT_POLL_INTERVAL
 
-      @errors.guard("SteamVR のイベント確認") do
+      @errors.guard("error.steamvr_poll") do
         @quit_requested = true if @steamvr.quit_requested?
       end
     end

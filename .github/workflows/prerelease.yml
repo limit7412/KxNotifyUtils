@@ -101,7 +101,7 @@ jobs:
               case "$FILE" in
                 spec/*)
                   ;;
-                src/*|shim/*|res/*|shard.yml|shard.lock|THIRD-PARTY-NOTICES.md|.github/actions/*)
+                src/*|shim/*|res/*|locales/*|shard.yml|shard.lock|THIRD-PARTY-NOTICES.md|.github/actions/*)
                   echo "exe の中身が変わる変更: $FILE"
                   RELEVANT=true
                   ;;

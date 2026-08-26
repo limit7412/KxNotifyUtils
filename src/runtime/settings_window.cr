@@ -1,5 +1,6 @@
 require "log"
 require "uing"
+require "./i18n"
 require "../config/models"
 require "../config/usecase"
 require "../notify/usecase"
@@ -27,6 +28,7 @@ module Runtime
     FILTER_MODES  = %w[blacklist whitelist]
     TRANSPORTS    = %w[websocket udp]
     LOG_LEVELS    = %w[trace debug info notice warn error fatal none]
+    LANGUAGES     = %w[auto ja en]
 
     # rules の 1 項目で上書きできるフィールドのうち、単独の値を持つもの。
     # どれも「上書きするか」のチェックと入力欄の組で編集するため、同じ形で扱う。
@@ -57,8 +59,8 @@ module Runtime
       @config : ::Config::Usecase,
       @relay : Notify::RelayUsecase,
       @version : String,
-      @access_status : Proc(String) = -> { "不明" },
-      @steamvr_status : Proc(String) = -> { "不明" },
+      @access_status : Proc(String) = -> { I18n.t("status.unknown") },
+      @steamvr_status : Proc(String) = -> { I18n.t("status.unknown") },
     )
       @window = nil.as(UIng::Window?)
       @draft = @config.current.dup_snapshot
@@ -143,23 +145,23 @@ module Runtime
       end
 
       @external_change_label.try do |label|
-        label.text = "設定ファイルが変更されています。編集中の内容を保存すると上書きされます。"
+        label.text = I18n.t("settings.external_change")
       end
     end
 
     private def build_window : UIng::Window
-      window = UIng::Window.new("KxNotifyUtils の設定", 640, 560, false)
+      window = UIng::Window.new(I18n.t("settings.window_title"), 640, 560, false)
       window.margined = true
 
       root = UIng::Box.new(:vertical, padded: true)
       tab = UIng::Tab.new
-      tab.append("全般", build_general_tab)
-      tab.append("監視対象", build_sources_tab)
-      tab.append("通知先", build_sinks_tab)
-      tab.append("既定の通知設定", build_defaults_tab)
-      tab.append("アプリ別ルール", build_rules_tab)
+      tab.append(I18n.t("settings.tab.general"), build_general_tab)
+      tab.append(I18n.t("settings.tab.sources"), build_sources_tab)
+      tab.append(I18n.t("settings.tab.sinks"), build_sinks_tab)
+      tab.append(I18n.t("settings.tab.defaults"), build_defaults_tab)
+      tab.append(I18n.t("settings.tab.rules"), build_rules_tab)
       tab.append("SteamVR", build_steamvr_tab)
-      tab.append("情報", build_about_tab)
+      tab.append(I18n.t("settings.tab.about"), build_about_tab)
       tab.num_pages.times { |index| tab.set_margined(index, true) }
       root.append(tab, true)
 
@@ -179,18 +181,18 @@ module Runtime
     private def build_footer(window : UIng::Window) : UIng::Box
       footer = UIng::Box.new(:horizontal, padded: true)
 
-      test = UIng::Button.new("テスト通知を送信")
+      test = UIng::Button.new(I18n.t("settings.footer.send_test"))
       test.on_clicked { send_test(window) }
       footer.append(test, false)
 
       spacer = UIng::Label.new("")
       footer.append(spacer, true)
 
-      save = UIng::Button.new("保存")
+      save = UIng::Button.new(I18n.t("settings.footer.save"))
       save.on_clicked { save(window) }
       footer.append(save, false)
 
-      close = UIng::Button.new("閉じる")
+      close = UIng::Button.new(I18n.t("settings.footer.close"))
       close.on_clicked { request_close(window) }
       footer.append(close, false)
       footer
@@ -199,27 +201,30 @@ module Runtime
     private def build_general_tab : UIng::Box
       box = UIng::Box.new(:vertical, padded: true)
       form = UIng::Form.new(padded: true)
-      form.append("ログレベル", combo("log_level", LOG_LEVELS), false)
+      form.append(I18n.t("settings.general.log_level"), combo("log_level", LOG_LEVELS), false)
+      form.append(I18n.t("settings.general.language"), combo("language", LANGUAGES), false)
       box.append(form, false)
+      box.append(UIng::Label.new(I18n.t("settings.general.language_note")), false)
       box
     end
 
     private def build_sources_tab : UIng::Box
       box = UIng::Box.new(:vertical, padded: true)
 
-      group = UIng::Group.new("Windows 通知", margined: true)
+      group = UIng::Group.new(I18n.t("settings.sources.windows_group"), margined: true)
       inner = UIng::Box.new(:vertical, padded: true)
-      inner.append(check("sources.windows.enabled", "このソースを有効にする"), false)
+      inner.append(check("sources.windows.enabled", I18n.t("settings.sources.enable")), false)
 
       form = UIng::Form.new(padded: true)
-      form.append("ポーリング間隔 (ms)", spin("sources.windows.polling_interval_ms", 100, 5000), false)
+      form.append(I18n.t("settings.sources.polling_interval"), spin("sources.windows.polling_interval_ms", 100, 5000), false)
       inner.append(form, false)
 
-      access_label = UIng::Label.new("通知アクセスの許可状態: 不明")
+      access_label = UIng::Label.new(
+        I18n.t("settings.sources.access_status", {"status" => I18n.t("status.unknown")}))
       @access_label = access_label
       inner.append(access_label, false)
 
-      open_settings = UIng::Button.new("Windows の通知設定を開く")
+      open_settings = UIng::Button.new(I18n.t("settings.sources.open_windows_settings"))
       open_settings.on_clicked { @on_open_notification_settings.call }
       inner.append(open_settings, false)
 
@@ -233,12 +238,12 @@ module Runtime
 
       group = UIng::Group.new("XSOverlay", margined: true)
       inner = UIng::Box.new(:vertical, padded: true)
-      inner.append(check("sinks.xsoverlay.enabled", "このシンクを有効にする"), false)
+      inner.append(check("sinks.xsoverlay.enabled", I18n.t("settings.sinks.enable")), false)
 
       form = UIng::Form.new(padded: true)
-      form.append("送信経路", combo("sinks.xsoverlay.transport", TRANSPORTS), false)
-      form.append("WebSocket ポート", spin("sinks.xsoverlay.websocket_port", 1, 65535), false)
-      form.append("UDP ポート (レガシー)", spin("sinks.xsoverlay.udp_port", 1, 65535), false)
+      form.append(I18n.t("settings.sinks.transport"), combo("sinks.xsoverlay.transport", TRANSPORTS), false)
+      form.append(I18n.t("settings.sinks.websocket_port"), spin("sinks.xsoverlay.websocket_port", 1, 65535), false)
+      form.append(I18n.t("settings.sinks.udp_port"), spin("sinks.xsoverlay.udp_port", 1, 65535), false)
       inner.append(form, false)
 
       group.child = inner
@@ -251,30 +256,28 @@ module Runtime
 
       form = UIng::Form.new(padded: true)
       form.append(
-        "表示時間の決め方",
+        I18n.t("settings.defaults.timeout_mode"),
         combo("defaults.timeout_mode", TIMEOUT_MODES, -> { update_timeout_inputs }),
         false,
       )
-      form.append("固定の表示時間 (秒)", entry("defaults.timeout"), false)
-      form.append("dynamic: 基準 (秒)", entry("defaults.dynamic_timeout.base"), false)
-      form.append("dynamic: 読字速度 (文字/秒)", entry("defaults.dynamic_timeout.reading_speed"), false)
-      form.append("dynamic: 下限 (秒)", entry("defaults.dynamic_timeout.min"), false)
-      form.append("dynamic: 上限 (秒)", entry("defaults.dynamic_timeout.max"), false)
+      form.append(I18n.t("settings.defaults.timeout"), entry("defaults.timeout"), false)
+      form.append(I18n.t("settings.defaults.dynamic_base"), entry("defaults.dynamic_timeout.base"), false)
+      form.append(I18n.t("settings.defaults.dynamic_reading_speed"), entry("defaults.dynamic_timeout.reading_speed"), false)
+      form.append(I18n.t("settings.defaults.dynamic_min"), entry("defaults.dynamic_timeout.min"), false)
+      form.append(I18n.t("settings.defaults.dynamic_max"), entry("defaults.dynamic_timeout.max"), false)
       form.append(
-        "本文の最大文字数",
+        I18n.t("settings.defaults.max_body_length"),
         spin("defaults.max_body_length", ::Config::MAX_BODY_LENGTH_RANGE.begin, ::Config::MAX_BODY_LENGTH_RANGE.end),
         false,
       )
-      form.append("title テンプレート", entry("defaults.title_template"), false)
-      form.append("アイコン", entry("defaults.icon"), false)
-      form.append("透明度 (0.0 から 1.0)", entry("defaults.opacity"), false)
-      form.append("音量 (0.0 から 1.0)", entry("defaults.volume"), false)
-      form.append("通知音", entry("defaults.sound"), false)
+      form.append(I18n.t("settings.defaults.title_template"), entry("defaults.title_template"), false)
+      form.append(I18n.t("settings.defaults.icon"), entry("defaults.icon"), false)
+      form.append(I18n.t("settings.defaults.opacity"), entry("defaults.opacity"), false)
+      form.append(I18n.t("settings.defaults.volume"), entry("defaults.volume"), false)
+      form.append(I18n.t("settings.defaults.sound"), entry("defaults.sound"), false)
       box.append(form, false)
 
-      box.append(UIng::Label.new(
-        "アイコンは app / default / warning / error か PNG のパスを指定する。" \
-        "通知音は default / warning / error か音声ファイルのパスで、空欄はミュートになる。"), false)
+      box.append(UIng::Label.new(I18n.t("settings.defaults.note")), false)
       box
     end
 
@@ -282,7 +285,7 @@ module Runtime
       box = UIng::Box.new(:horizontal, padded: true)
 
       left = UIng::Box.new(:vertical, padded: true)
-      left.append(UIng::Label.new("ルール（上にあるものが優先される）"), false)
+      left.append(UIng::Label.new(I18n.t("settings.rules.list_label")), false)
       rule_list = UIng::Combobox.new
       @rule_list = rule_list
       rule_list.on_selected do |index|
@@ -298,31 +301,31 @@ module Runtime
         else
           # 読めない入力を持ったまま切り替えると、その入力が失われる。
           # 選択を戻し、直してもらう。
-          @window.try(&.msg_box_error("ルールを切り替えられない", errors.join("\n")))
+          @window.try(&.msg_box_error(I18n.t("settings.rules.cannot_switch"), errors.join("\n")))
           restore_rule_selection
         end
       end
       left.append(rule_list, false)
 
       buttons = UIng::Box.new(:horizontal, padded: true)
-      buttons.append(button("追加") { add_rule }, false)
-      buttons.append(button("削除") { remove_rule }, false)
-      buttons.append(button("上へ") { move_rule(-1) }, false)
-      buttons.append(button("下へ") { move_rule(1) }, false)
+      buttons.append(button(I18n.t("settings.rules.add")) { add_rule }, false)
+      buttons.append(button(I18n.t("settings.rules.remove")) { remove_rule }, false)
+      buttons.append(button(I18n.t("settings.rules.move_up")) { move_rule(-1) }, false)
+      buttons.append(button(I18n.t("settings.rules.move_down")) { move_rule(1) }, false)
       left.append(buttons, false)
 
-      left.append(UIng::Label.new("観測した app_id"), false)
+      left.append(UIng::Label.new(I18n.t("settings.rules.observed")), false)
       observed = UIng::Combobox.new
       @observed = observed
       left.append(observed, false)
-      left.append(button("選択した app_id を条件にする") { apply_observed_app }, false)
+      left.append(button(I18n.t("settings.rules.apply_observed")) { apply_observed_app }, false)
 
-      filter_group = UIng::Group.new("フィルタ", margined: true)
+      filter_group = UIng::Group.new(I18n.t("settings.rules.filter_group"), margined: true)
       filter_box = UIng::Box.new(:vertical, padded: true)
       filter_form = UIng::Form.new(padded: true)
-      filter_form.append("判定", combo("filter.mode", FILTER_MODES), false)
+      filter_form.append(I18n.t("settings.rules.filter_mode"), combo("filter.mode", FILTER_MODES), false)
       filter_box.append(filter_form, false)
-      filter_box.append(UIng::Label.new("対象の app_id（1 行に 1 つ、前方一致）"), false)
+      filter_box.append(UIng::Label.new(I18n.t("settings.rules.filter_apps")), false)
       filter_apps = UIng::MultilineEntry.new
       # 他の入力部品と同じく、編集したら閉じる確認をやり直す。
       filter_apps.on_changed { mark_dirty }
@@ -338,13 +341,13 @@ module Runtime
 
     private def build_rule_form : UIng::Box
       right = UIng::Box.new(:vertical, padded: true)
-      right.append(UIng::Label.new("選択中のルール"), false)
+      right.append(UIng::Label.new(I18n.t("settings.rules.selected")), false)
 
       form = UIng::Form.new(padded: true)
-      form.append("match_app_id（前方一致）", entry("rule.match_app_id"), false)
+      form.append(I18n.t("settings.rules.match_app_id"), entry("rule.match_app_id"), false)
       right.append(form, false)
 
-      right.append(UIng::Label.new("チェックを外した項目は既定の通知設定を継承する"), false)
+      right.append(UIng::Label.new(I18n.t("settings.rules.inherit_note")), false)
       RULE_OVERRIDE_ROWS.each do |field|
         row = UIng::Box.new(:horizontal, padded: true)
         row.append(check("rule.override.#{field}", field, -> { update_rule_field_state(field) }), false)
@@ -356,25 +359,25 @@ module Runtime
 
     private def build_steamvr_tab : UIng::Box
       box = UIng::Box.new(:vertical, padded: true)
-      steamvr_label = UIng::Label.new("登録状態: 不明")
+      steamvr_label = UIng::Label.new(
+        I18n.t("settings.steamvr.status", {"status" => I18n.t("status.unknown")}))
       @steamvr_label = steamvr_label
       box.append(steamvr_label, false)
 
       buttons = UIng::Box.new(:horizontal, padded: true)
-      buttons.append(button("自動起動を登録") { @on_request_steamvr_register.call; refresh_status }, false)
-      buttons.append(button("自動起動を解除") { @on_request_steamvr_unregister.call; refresh_status }, false)
+      buttons.append(button(I18n.t("settings.steamvr.register")) { @on_request_steamvr_register.call; refresh_status }, false)
+      buttons.append(button(I18n.t("settings.steamvr.unregister")) { @on_request_steamvr_unregister.call; refresh_status }, false)
       box.append(buttons, false)
 
-      box.append(UIng::Label.new(
-        "実行ファイルを移動した場合は、次回の起動時に vrmanifest を作り直して登録し直す。"), false)
+      box.append(UIng::Label.new(I18n.t("settings.steamvr.note")), false)
       box
     end
 
     private def build_about_tab : UIng::Box
       box = UIng::Box.new(:vertical, padded: true)
       box.append(UIng::Label.new("KxNotifyUtils #{@version}"), false)
-      box.append(button("リポジトリを開く: #{REPOSITORY_URL}") { open_repository }, false)
-      box.append(UIng::Label.new("サードパーティライセンス表記"), false)
+      box.append(button(I18n.t("settings.about.open_repository", {"url" => REPOSITORY_URL})) { open_repository }, false)
+      box.append(UIng::Label.new(I18n.t("settings.about.licenses")), false)
 
       notices = UIng::MultilineEntry.new
       notices.text = THIRD_PARTY_NOTICES
@@ -386,6 +389,7 @@ module Runtime
     # 編集中の下書きを画面へ流し込む。
     private def load_draft : Nil
       set_combo("log_level", LOG_LEVELS, @draft.log_level)
+      set_combo("language", LANGUAGES, @draft.language)
 
       windows = WinNotification::Settings.from_section(@draft.source(WinNotification::SOURCE_ID))
       set_check("sources.windows.enabled", windows.enabled)
@@ -427,7 +431,7 @@ module Runtime
       @suppress_rule_selection = true
       rule_list.clear
       @rules.each_with_index do |rule, index|
-        label = rule.match_app_id.empty? ? "(未設定)" : rule.match_app_id
+        label = rule.match_app_id.empty? ? I18n.t("settings.rules.unset") : rule.match_app_id
         rule_list.append("#{index + 1}. #{label}")
       end
       rule_list.selected = @selected_rule if @selected_rule >= 0 && @selected_rule < @rules.size
@@ -449,7 +453,7 @@ module Runtime
       flush_rule_form(errors)
       return true if errors.empty?
 
-      @window.try(&.msg_box_error("入力を直す必要がある", errors.join("\n")))
+      @window.try(&.msg_box_error(I18n.t("settings.rules.fix_input"), errors.join("\n")))
       false
     end
 
@@ -679,8 +683,12 @@ module Runtime
 
     private def refresh_status : Nil
       return unless @window
-      @access_label.try { |label| label.text = "通知アクセスの許可状態: #{@access_status.call}" }
-      @steamvr_label.try { |label| label.text = "登録状態: #{@steamvr_status.call}" }
+      @access_label.try do |label|
+        label.text = I18n.t("settings.sources.access_status", {"status" => @access_status.call})
+      end
+      @steamvr_label.try do |label|
+        label.text = I18n.t("settings.steamvr.status", {"status" => @steamvr_status.call})
+      end
     end
 
     # 画面の入力から設定スナップショットを組み立てる。
@@ -691,6 +699,7 @@ module Runtime
 
       root = @draft.dup_snapshot
       root.log_level = selected_value("log_level", LOG_LEVELS)
+      root.language = selected_value("language", LANGUAGES)
 
       root.sources = root.sources.dup
       root.sources[WinNotification::SOURCE_ID] = JSON.parse({
@@ -738,7 +747,7 @@ module Runtime
     private def save(window : UIng::Window) : Nil
       root, parse_errors = collect
       unless root
-        window.msg_box_error("保存できない", parse_errors.join("\n"))
+        window.msg_box_error(I18n.t("settings.dialog.cannot_save"), parse_errors.join("\n"))
         return
       end
 
@@ -751,9 +760,9 @@ module Runtime
         @close_warned = false
         @dirty = false
         @external_change_label.try { |label| label.text = "" }
-        window.msg_box("保存した", "設定を保存し、動作に反映した。")
+        window.msg_box(I18n.t("settings.dialog.saved"), I18n.t("settings.dialog.saved_body"))
       else
-        window.msg_box_error("保存できない", errors.map(&.to_s).join("\n"))
+        window.msg_box_error(I18n.t("settings.dialog.cannot_save"), errors.map(&.to_s).join("\n"))
       end
     end
 
@@ -763,17 +772,21 @@ module Runtime
     private def send_test(window : UIng::Window) : Nil
       root, parse_errors = collect
       unless root
-        window.msg_box_error("テスト通知を送れない", parse_errors.join("\n"))
+        window.msg_box_error(I18n.t("settings.dialog.cannot_send_test"), parse_errors.join("\n"))
         return
       end
 
       errors = @config.validate(root)
       unless errors.empty?
-        window.msg_box_error("テスト通知を送れない", errors.map(&.to_s).join("\n"))
+        window.msg_box_error(I18n.t("settings.dialog.cannot_send_test"), errors.map(&.to_s).join("\n"))
         return
       end
 
-      @relay.send_test(root.defaults.to_resolved)
+      @relay.send_test(
+        root.defaults.to_resolved,
+        I18n.t("notify.test.title"),
+        I18n.t("notify.test.body"),
+      )
     end
 
     # 未保存の変更があるまま閉じようとしたときは、一度警告を出して操作をやり直させる。
@@ -785,11 +798,7 @@ module Runtime
 
       if changed && !@close_warned
         @close_warned = true
-        window.msg_box(
-          "未保存の変更がある",
-          "保存していない変更がある。破棄してよければもう一度「閉じる」を押す。" \
-          "残す場合は「保存」を押す。",
-        )
+        window.msg_box(I18n.t("settings.dialog.unsaved"), I18n.t("settings.dialog.unsaved_body"))
         return
       end
 

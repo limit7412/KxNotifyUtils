@@ -110,6 +110,7 @@ module Runtime
     fun create_mutex_w = CreateMutexW(attributes : Void*, initial_owner : Int32, name : UInt16*) : Handle
     # タスクバーの再作成を知るためのブロードキャストメッセージ ID を得る。
     fun register_window_message_w = RegisterWindowMessageW(name : UInt16*) : UInt32
+    fun get_user_default_ui_language = GetUserDefaultUILanguage : UInt16
     fun get_last_error = GetLastError : UInt32
 
     fun register_class_ex_w = RegisterClassExW(wnd_class : WndClassEx*) : UInt16
