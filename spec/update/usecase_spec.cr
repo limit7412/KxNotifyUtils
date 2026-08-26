@@ -28,10 +28,17 @@ end
 private def check_and_notify(
   usecase : Update::Usecase, current : String, channel : String, shown : Bool = true
 ) : Update::CheckResult
-  result = usecase.check_quietly(current, channel)
+  result = check_suppressed(usecase, current, channel)
   release = result.release
   usecase.mark_notified(release) if result.available? && release && shown
   result
+end
+
+# 自動の確認と同じ経路で抑止だけを見る。知らせたことにはしない。
+private def check_suppressed(
+  usecase : Update::Usecase, current : String, channel : String
+) : Update::CheckResult
+  usecase.suppress_notified(usecase.check(current, channel))
 end
 
 private def release(tag : String, prerelease : Bool = false) : Update::Release
@@ -153,6 +160,20 @@ describe Update::Usecase do
       usecase.checked?("stable").should be_true
     end
 
+    # 確認が終わると checked_channel はそのチャンネルへ移る。
+    # 応答を待つ間に設定が元へ戻っていると、戻した側が未確認の扱いに変わる。
+    # composition root はこれを見て取り直しを予約する。
+    it "確認が終わると前のチャンネルは未確認へ戻る" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("1.0.0")]))
+      usecase.check("1.0.0", "stable")
+      usecase.checked?("stable").should be_true
+
+      usecase.check("1.0.0", "test")
+
+      usecase.checked?("stable").should be_false
+      usecase.checked?("test").should be_true
+    end
+
     # 安定版と test でエンドポイントが分かれるため、repository へそのまま渡す。
     it "チャンネルを repository へ渡す" do
       repository = FakeRepository.new([release("1.0.0")])
@@ -171,7 +192,7 @@ describe Update::Usecase do
       usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
       usecase.notified_tag = "2.0.0"
 
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
     end
 
     it "知らせた版をタグとして取り出せる" do
@@ -192,7 +213,7 @@ describe Update::Usecase do
 
       usecase.notified_tag.should eq ""
       # 出せていないので、次の確認でも知らせる対象のままである。
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
     end
 
     # 設定を手で壊された場合。記録が無いものとして扱い、確認そのものは続ける。
@@ -200,12 +221,12 @@ describe Update::Usecase do
       usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
       usecase.notified_tag = "こわれている"
 
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
     end
 
     # 手動の確認は check を通る。知らせた側が覚えないと、
     # 直後の自動確認や再起動で同じ版をもう一度知らせる。
-    it "mark_notified で覚えた版は check_quietly が知らせ直さない" do
+    it "mark_notified で覚えた版は自動の確認が知らせ直さない" do
       usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
       result = usecase.check("1.0.0", "stable")
       release = result.release.not_nil!
@@ -213,7 +234,7 @@ describe Update::Usecase do
       usecase.mark_notified(release)
 
       usecase.notified_tag.should eq "2.0.0"
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
     end
 
     # チャンネルを往復すると記録が入れ替わる。
@@ -240,15 +261,41 @@ describe Update::Usecase do
       usecase.notified_tag.should eq "2.1.0-test1"
     end
 
+    # 抑止は自動の確認だけのものである。
+    # 抑止した結末を手動へ返すと、情報タブに新しい版が出ているのに
+    # バルーンだけ「最新である」と言うことになる。
+    it "抑止するのは自動の確認だけで、check は Available のままである" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      check_and_notify(usecase, "1.0.0", "stable")
+
+      raw = usecase.check("1.0.0", "stable")
+      raw.outcome.should eq Update::Outcome::Available
+
+      # 同じ結末を自動の側へ通すと抑止される。
+      usecase.suppress_notified(raw).outcome.should eq Update::Outcome::UpToDate
+    end
+
+    # 抑止した結末も release を持ち続ける。情報タブはこれを出す。
+    it "抑止しても見つけた版は残る" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      check_and_notify(usecase, "1.0.0", "stable")
+
+      suppressed = check_suppressed(usecase, "1.0.0", "stable")
+
+      suppressed.outcome.should eq Update::Outcome::UpToDate
+      suppressed.release.try(&.tag).should eq "2.0.0"
+      usecase.available("stable").try(&.tag).should eq "2.0.0"
+    end
+
     it "復元した版より新しい版は知らせる" do
       usecase = Update::Usecase.new(FakeRepository.new([release("3.0.0")]))
       usecase.notified_tag = "2.0.0"
 
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      check_suppressed(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
     end
   end
 
-  describe "#check_quietly" do
+  describe "自動の確認での抑止" do
     # 24 時間ごとの確認で同じ版を繰り返し知らせると、利用者の手が止まる。
     it "同じ版は一度しか Available にしない" do
       usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))

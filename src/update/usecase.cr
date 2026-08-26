@@ -88,8 +88,11 @@ module Update
       @checked_channel == channel
     end
 
-    # 自動の確認。
-    # 知らせた版と同じか、それより古い版なら UpToDate として返し、二度は知らせない。
+    # 既に知らせた版なら UpToDate へ倒す。自動の確認だけがこれを通す。
+    #
+    # 手動で押したときの結末には使わない。抑止した結末をそのまま返すと、
+    # 情報タブに新しい版が出ているのにバルーンだけ「最新である」と言うことになる。
+    # 押した人へは抑止前の結末を返す。
     #
     # 等値で見るわけにはいかない。チャンネルを往復すると記録が入れ替わるためである。
     # stable の 2.0.0 を知らせた後に test の 2.1.0-test1 を知らせて stable へ戻すと、
@@ -98,8 +101,7 @@ module Update
     #
     # ここでは覚えない。覚えるのは mark_notified であり、呼ぶのはバルーンを
     # 出せた後である。ここで覚えると、出せなかった版まで以後の確認で抑止される。
-    def check_quietly(current : String, channel : String) : CheckResult
-      result = check(current, channel)
+    def suppress_notified(result : CheckResult) : CheckResult
       release = result.release
       return result unless result.available? && release
 

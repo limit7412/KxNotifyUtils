@@ -82,8 +82,11 @@ module KxNotifyUtils
       # 確認の最中に来た要求。終わってから改めて確認するために覚える。
       @update_recheck = false
       @update_recheck_manual = false
-      # 直近の確認の結末。保留していた手動の要求へ、確認を投げ直さずに応えるために持つ。
+      # 直近の確認の結末（抑止前）。
+      # 保留していた手動の要求へ、確認を投げ直さずに応えるために持つ。
       @update_last_result = nil.as(Update::CheckResult?)
+      # 直近の確認でバルーンを出せたか。押した側への応答が済んでいるかの判断に使う。
+      @update_last_notified = false
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
       @settings_window = nil.as(Runtime::SettingsWindow?)
       @stopping = false
@@ -317,14 +320,24 @@ module KxNotifyUtils
       channel = @config.current.update.channel
       spawn do
         begin
-          result = check_result(manual, channel)
+          # 抑止前の結末を覚える。保留していた手動の要求へはこちらを返す。
+          # 自動のために UpToDate へ倒した結末を返すと、情報タブに新しい版が
+          # 出ているのにバルーンだけ「最新である」と言うことになる。
+          result = @update.check(VERSION, channel)
 
-          # 確認の最中にチャンネルが変わっていたら、この結果は今の設定のものではない。
-          # stable を選び直した利用者へプレリリースのバルーンを出すわけにはいかない。
-          # 保留した確認が今のチャンネルで取り直す。
           if channel == @config.current.update.channel
             @update_last_result = result
-            notify_update(result, manual)
+            @update_last_notified =
+              notify_update(manual ? result : @update.suppress_notified(result), manual)
+          else
+            # 確認の最中にチャンネルが変わっていた。この結果は今の設定のものではない。
+            # stable を選び直した利用者へプレリリースのバルーンを出すわけにはいかない。
+            #
+            # 捨てるだけでは足りない。check は checked_channel を旧チャンネルへ
+            # 書き換えており、今のチャンネルは未確認の扱いに変わっている。
+            # 予約しないと、次の 24 時間の周期まで戻らない。
+            @update_recheck = true
+            @update_recheck_manual ||= manual
           end
         rescue exception
           @errors.handle("error.update_check", exception)
@@ -352,31 +365,28 @@ module KxNotifyUtils
       # 今のチャンネルの確認は終わっている。保留していたのは手動の要求だけなので、
       # 同じ確認をもう一度投げずに、終わった結果をそのまま知らせる。
       return unless manual
+
+      # 待っている間にバルーンが出ていれば、押した側への応答は済んでいる。
+      # 結末が Available かどうかでは判断できない。
+      # 既に知らせた版は自動の側で抑止され、バルーンが出ないまま Available で残る。
+      return if @update_last_notified
+
       result = @update_last_result
       return unless result
 
-      # 終わった確認が既に知らせていれば重ねない。
-      # 待っている間にバルーンが出ているため、押した側への応答は済んでいる。
-      return if result.available?
-
-      notify_update(result, manual: true)
-    end
-
-    private def check_result(manual : Bool, channel : String) : Update::CheckResult
-      if manual
-        @update.check(VERSION, channel)
-      else
-        @update.check_quietly(VERSION, channel)
-      end
+      @update_last_notified = notify_update(result, manual: true)
     end
 
     # 自動の確認は、新しい版が出ていたときだけ知らせる。
     # 手動で押したときは結末をそのまま返す。黙ると無反応と区別が付かないためである。
-    private def notify_update(result : Update::CheckResult, manual : Bool) : Nil
+    #
+    # バルーンを出せたかどうかを返す。
+    # 保留していた手動の要求へ応答が済んでいるかの判断に使う。
+    private def notify_update(result : Update::CheckResult, manual : Bool) : Bool
       case result.outcome
       in .available?
         release = result.release
-        return unless release
+        return false unless release
         shown = @errors.notify(
           Runtime::I18n.t("notify.update_available.title"),
           Runtime::I18n.t("notify.update_available.body", {"version" => release.tag}),
@@ -384,17 +394,18 @@ module KxNotifyUtils
         # 出せたときだけ覚える。
         # 出ていない版を覚えると、利用者が一度も見ないまま以後の確認で抑止される。
         # 自動と手動のどちらの経路でも、覚えるのはここだけである。
-        return unless shown
+        return false unless shown
         @update.mark_notified(release)
         remember_notified_update
+        true
       in .up_to_date?
-        return unless manual
+        return false unless manual
         @errors.notify(
           Runtime::I18n.t("notify.update_none.title"),
           Runtime::I18n.t("notify.update_none.body"),
         )
       in .unreachable?
-        return unless manual
+        return false unless manual
         @errors.notify(
           Runtime::I18n.t("notify.update_failed.title"),
           Runtime::I18n.t("notify.update_failed.body"),
@@ -402,6 +413,7 @@ module KxNotifyUtils
       in .unknown?
         # 手元ビルドでは比べる相手が無い。押しても何も言わない。
         Log.info { "実行中の版を比べられないため確認しない: #{VERSION}" }
+        false
       end
     end
 
