@@ -77,7 +77,7 @@ describe Update::Installer do
       with_installer do |fixture|
         fixture.installer.download(release("1.0.0", fixture.repository.body)).should be_true
 
-        staged = fixture.installer.staged.not_nil!
+        staged = fixture.installer.staged("test").not_nil!
         staged.tag.should eq "1.0.0"
         File.read(fixture.installer.staged_path).should eq fixture.repository.body
       end
@@ -99,7 +99,7 @@ describe Update::Installer do
   describe "#staged" do
     it "取得していなければ nil を返す" do
       with_installer do |fixture|
-        fixture.installer.staged.should be_nil
+        fixture.installer.staged("test").should be_nil
       end
     end
 
@@ -110,7 +110,7 @@ describe Update::Installer do
         fixture.installer.download(release("1.0.0", fixture.repository.body))
         File.write(fixture.installer.staged_path, "書き換えられた中身")
 
-        fixture.installer.staged.should be_nil
+        fixture.installer.staged("test").should be_nil
         File.exists?(fixture.installer.staged_path).should be_false
         File.exists?(fixture.installer.metadata_path).should be_false
       end
@@ -121,7 +121,7 @@ describe Update::Installer do
         fixture.installer.download(release("1.0.0", fixture.repository.body))
         File.write(fixture.installer.metadata_path, "{ 壊れている")
 
-        fixture.installer.staged.should be_nil
+        fixture.installer.staged("test").should be_nil
         File.exists?(fixture.installer.staged_path).should be_false
       end
     end
@@ -132,7 +132,28 @@ describe Update::Installer do
         fixture.installer.download(release("1.0.0", fixture.repository.body))
         File.delete(fixture.installer.staged_path)
 
-        fixture.installer.staged.should be_nil
+        fixture.installer.staged("test").should be_nil
+      end
+    end
+
+    # 取得と置き換えの間には、設定を変えて再起動するだけの間がある。
+    # test で取ったプレリリースを取得済みのまま stable へ変えられると、
+    # 選び直した設定に反してプレリリースが入る。
+    it "今のチャンネルの対象でなければ捨てる" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.1-test1", fixture.repository.body))
+
+        fixture.installer.staged("stable").should be_nil
+        File.exists?(fixture.installer.staged_path).should be_false
+        File.exists?(fixture.installer.metadata_path).should be_false
+      end
+    end
+
+    it "test は安定版も対象にする" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+
+        fixture.installer.staged("test").should_not be_nil
       end
     end
   end
@@ -141,14 +162,14 @@ describe Update::Installer do
     it "実行中のものを退避して置き換える" do
       with_installer do |fixture|
         fixture.installer.download(release("1.0.0", fixture.repository.body))
-        staged = fixture.installer.staged.not_nil!
+        staged = fixture.installer.staged("test").not_nil!
 
         fixture.installer.apply(staged).should be_true
 
         File.read(fixture.executable).should eq fixture.repository.body
         File.read(fixture.installer.previous_path).should eq "実行中の実行ファイル"
         # 置き換えた後は取得済みとして残さない。次の起動でまた同じものを置かないためである。
-        fixture.installer.staged.should be_nil
+        fixture.installer.staged("test").should be_nil
       end
     end
 
@@ -158,7 +179,7 @@ describe Update::Installer do
         File.write(fixture.installer.previous_path, "前回の退避")
         fixture.installer.download(release("1.0.0", fixture.repository.body))
 
-        fixture.installer.apply(fixture.installer.staged.not_nil!).should be_true
+        fixture.installer.apply(fixture.installer.staged("test").not_nil!).should be_true
 
         File.read(fixture.executable).should eq fixture.repository.body
       end
@@ -173,7 +194,7 @@ describe Update::Installer do
     it "退避を戻せなければ通常の失敗と区別する" do
       with_installer(broken: true) do |fixture|
         fixture.installer.download(release("1.0.0", fixture.repository.body))
-        staged = fixture.installer.staged.not_nil!
+        staged = fixture.installer.staged("test").not_nil!
 
         expect_raises(Update::Installer::RollbackFailed) do
           fixture.installer.apply(staged)
@@ -190,7 +211,7 @@ describe Update::Installer do
     it "実行ファイルが無ければ置き換えに進まない" do
       with_installer do |fixture|
         fixture.installer.download(release("1.0.0", fixture.repository.body))
-        staged = fixture.installer.staged.not_nil!
+        staged = fixture.installer.staged("test").not_nil!
 
         File.rename(fixture.executable, fixture.installer.previous_path)
 
@@ -208,7 +229,7 @@ describe Update::Installer do
     it "置き換えた後の記録を消せなくても成功として返す" do
       with_installer do |fixture|
         fixture.installer.download(release("1.0.0", fixture.repository.body))
-        staged = fixture.installer.staged.not_nil!
+        staged = fixture.installer.staged("test").not_nil!
 
         # 記録をディレクトリに差し替えて、消せない状態を作る。
         File.delete(fixture.installer.metadata_path)
@@ -250,7 +271,7 @@ describe Update::Installer do
 
         fixture.installer.discard_incomplete
 
-        fixture.installer.staged.should_not be_nil
+        fixture.installer.staged("test").should_not be_nil
       end
     end
 

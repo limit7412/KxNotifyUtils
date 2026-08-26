@@ -850,6 +850,23 @@ module Runtime
     # 未保存の変更があるまま閉じようとしたときは、一度警告を出して操作をやり直させる。
     # libui-ng が持つのは確認のないメッセージ表示だけなので、
     # 「保存するか破棄するか」の選択は、警告のあとにもう一度閉じる操作をするかで表す。
+    # 未保存の編集があれば知らせて真を返す。
+    #
+    # 更新の適用のように、その場でアプリが終わる操作の前に呼ぶ。
+    # 閉じるときは警告しているのに、再起動だけ黙って下書きを捨てるわけにはいかない。
+    # 一度きりの警告にはしない。閉じる操作と違い、押し直しの意思表示が要る場面ではなく、
+    # 保存するか閉じるかを先に決めてもらう。
+    def warn_if_unsaved? : Bool
+      window = @window
+      return false unless window
+
+      root, _ = collect
+      return false unless root.nil? || root.to_json != @config.current.to_json
+
+      window.msg_box(I18n.t("settings.dialog.unsaved"), I18n.t("settings.dialog.update_unsaved_body"))
+      true
+    end
+
     private def request_close(window : UIng::Window) : Nil
       root, _ = collect
       changed = root.nil? || root.to_json != @config.current.to_json

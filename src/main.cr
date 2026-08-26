@@ -134,16 +134,6 @@ module KxNotifyUtils
         return
       end
 
-      # 取得しておいた更新があれば、ここで置き換えて新しい exe へ渡す（issue #10 第 2 段階）。
-      #
-      # 多重起動の抑止より後に置く。既に常駐しているプロセスがある状態で置き換えると、
-      # 起動した新しい側が抑止に当たって即座に終わり、置き換えだけが済んだ形になる。
-      # 抑止を通ってから、ミューテックスを手放して渡す。
-      #
-      # トレイより前に置く。この時点では設定もトレイも SteamVR も掴んでおらず、
-      # 実行ファイルを退避するのに都合がよい。
-      return if hand_over_to_staged.handed?
-
       Log.info { "KxNotifyUtils #{VERSION} を起動する: #{Runtime::Paths.executable_path}" }
 
       # トレイを先に立てる。
@@ -162,8 +152,19 @@ module KxNotifyUtils
       @installer.discard_incomplete
       register_validators
       load_config
+
+      # 取得しておいた更新があれば、ここで置き換えて新しい exe へ渡す（issue #10 第 2 段階）。
+      #
+      # 多重起動の抑止より後に置く。既に常駐しているプロセスがある状態で置き換えると、
+      # 起動した新しい側が抑止に当たって即座に終わり、置き換えだけが済んだ形になる。
+      # 抑止を通ってから、ミューテックスを手放して渡す。
+      #
+      # 設定を読んだ後に置く。取得しておいたものが今のチャンネルの対象かを見るためである。
+      # 取得と置き換えの間には、設定を変えて再起動するだけの間がある。
+      # トレイと設定を持っていても退避の妨げにはならない。どちらもファイルを開いたままにしない。
+      return if hand_over_to_staged.finished?
+
       # 置き換えに失敗して実行ファイルが無いままなら、ここで知らせる。
-      # トレイと言語の設定が揃うのを待ってから出す。
       notify_update_broken
       build_sources
       build_sinks
@@ -184,9 +185,12 @@ module KxNotifyUtils
 
     # 置き換えのために手放した抑止を取り直す。
     # 手放した後で新しい exe を起動できなかった場合に呼ぶ。
-    private def reacquire_single_instance : Nil
+    # 取り直せたかを返す。取れなければ別のプロセスが常駐に入っている。
+    private def reacquire_single_instance : Bool
       {% if flag?(:windows) %}
         Runtime::Win32.acquire_single_instance(SINGLE_INSTANCE_NAME)
+      {% else %}
+        true
       {% end %}
     end
 
@@ -559,6 +563,13 @@ module KxNotifyUtils
       Failed
       # 退避を戻せなかった。実行ファイルが正規のパスに無い。
       Broken
+      # 抑止を取り直せず、別のプロセスが常駐に入った。このプロセスは終わる。
+      Superseded
+
+      # このプロセスが常駐へ進まず終わるべきか。
+      def finished? : Bool
+        handed? || superseded?
+      end
     end
 
     # 取得しておいた更新を置き換えて、新しい実行ファイルへ渡す。
@@ -570,7 +581,7 @@ module KxNotifyUtils
     # 握ったまま起動すると、新しい側が「既に起動している」と判断して終わってしまう。
     # 一方、置き換えの前に手放すと、置き換えに失敗したときに抑止だけが解けた状態が残る。
     private def hand_over_to_staged : HandOver
-      staged = @installer.staged
+      staged = @installer.staged(@config.current.update.channel)
       return HandOver::None unless staged
       return HandOver::Failed unless @installer.apply(staged)
 
@@ -583,7 +594,14 @@ module KxNotifyUtils
       # 起動できなかった。置き換えそのものは済んでいるので、
       # 次に起動されるのは新しい実行ファイルである。壊れた状態は残らない。
       # 抑止だけが解けたまま常駐を続けるわけにはいかないので取り直す。
-      reacquire_single_instance
+      # 抑止を取り直せなければ、手放した隙に別のプロセスが常駐へ入っている。
+      # そのまま続けると、同じ通知を 2 つのプロセスが中継することになる。
+      # 抑止そのものが避けようとしている状態であり、こちらが引く。
+      unless reacquire_single_instance
+        Log.error { "抑止を取り直せなかった。別のプロセスが常駐しているため、こちらは終わる" }
+        return HandOver::Superseded
+      end
+
       Log.error { "置き換えた実行ファイルを起動できなかった。次の起動から新しい版になる" }
       HandOver::Replaced
     rescue exception : Update::Installer::RollbackFailed
@@ -631,8 +649,13 @@ module KxNotifyUtils
         return
       end
 
+      # 適用は再起動を伴う。設定ウィンドウに未保存の編集があれば、先に知らせて止める。
+      # 通常の終了では警告しているのに、更新の再起動だけ黙って捨てるわけにはいかない。
+      # トレイから押した場合も同じ経路を通る。
+      return if @settings_window.try(&.warn_if_unsaved?)
+
       case hand_over_to_staged
-      in .handed?
+      in .handed?, .superseded?
         @stopping = true
       in .replaced?
         # 置き換えは済んでいる。起動し直せなかっただけであり、取り直す必要は無い。
@@ -651,7 +674,7 @@ module KxNotifyUtils
         Log.info { "取得しておいた更新が無いため適用しない" }
       end
 
-      @update_staged_tag = @installer.staged.try(&.tag)
+      @update_staged_tag = @installer.staged(@config.current.update.channel).try(&.tag)
       update_tray_state
     end
 

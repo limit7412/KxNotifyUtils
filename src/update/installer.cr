@@ -86,14 +86,25 @@ module Update
       true
     end
 
-    # 取得済みで、記録と照合の通る実行ファイル。無ければ nil を返す。
+    # 取得済みで、今のチャンネルに合い、記録と照合の通る実行ファイル。無ければ nil を返す。
     #
     # 合わないものはその場で捨てる。残しておいても次の起動でまた同じ照合に落ちるだけであり、
     # 取り直しの機会を与えたほうがよい。
-    def staged : Staged?
+    def staged(channel : String) : Staged?
       return nil unless File.exists?(metadata_path) && File.exists?(@staged_path)
 
       record = Staged.from_json(File.read(metadata_path))
+
+      # 今のチャンネルが拾う版かを見る。
+      #
+      # 取得と置き換えの間には、設定を変えて再起動するだけの間がある。
+      # test で取ったプレリリースを取得済みのまま stable へ変えられると、
+      # 選び直した設定に反してプレリリースが入る。
+      unless covered_by?(record.tag, channel)
+        Log.info { "取得しておいた #{record.tag} は今のチャンネル（#{channel}）の対象ではないため捨てる" }
+        discard
+        return nil
+      end
 
       # 実行中より新しいものだけを置く。
       # 取得してから起動しないまま日が経ち、その間に手で新しい版へ入れ替えられていると、
@@ -211,6 +222,20 @@ module Update
     # spec ではここを差し替えて、戻しまで失敗する状況を作る。
     protected def move(from : String, to : String) : Nil
       File.rename(from, to)
+    end
+
+    # そのタグが、指定のチャンネルで拾う対象か。
+    #
+    # 見るのはタグの綴りだけである。GitHub のプレリリースの印は記録に持っていないが、
+    # 判断したいのは「今のチャンネルならこの版を見つけたか」であり、
+    # チャンネルの絞り込み（Usecase#newest_in）と同じ基準で足りる。
+    private def covered_by?(tag : String, channel : String) : Bool
+      return true if channel == "test"
+
+      version = Version.parse?(tag)
+      return true unless version
+
+      version.stable?
     end
 
     # 取得しておいたものが実行中より新しいか。
