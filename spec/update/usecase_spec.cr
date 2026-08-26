@@ -65,6 +65,18 @@ describe Update::Usecase do
       usecase.available("stable").should be_nil
     end
 
+    # GitHub が latest とするのは作成順で最も新しい安定版であり、版番号の最大ではない。
+    # 2.0.0 の後に保守版の 1.5.1 を出した場合がこれにあたる。
+    it "作成順が新しいだけの安定版に引きずられない" do
+      usecase = Update::Usecase.new(
+        FakeRepository.new([release("2.0.0"), release("1.5.1")]))
+
+      result = usecase.check("1.6.0", "stable")
+
+      result.outcome.should eq Update::Outcome::Available
+      result.release.try(&.tag).should eq "2.0.0"
+    end
+
     # 応答の並び順に頼らない。GitHub は作成順に返すが、タグの新しさとは限らない。
     it "並び順ではなく版の新しさで選ぶ" do
       usecase = Update::Usecase.new(

@@ -55,8 +55,36 @@ describe Update::GitHubRepository do
     end
   end
 
-  # stable のチャンネルは /releases/latest を使う。
-  # 一覧はプレリリースが 20 件積まれると安定版が 1 ページ目から落ちるためである。
+  # 一覧と /releases/latest を合わせて候補にする。
+  # 一覧だけでは範囲から落ちた安定版を拾えず、
+  # latest だけでは版番号が最大とは限らない（作成順で最も新しいものが返る）。
+  describe ".merge" do
+    it "一覧に無いものを足す" do
+      list = [
+        Update::Release.new(Update::Version.new(1, 5, 1), "1.5.1", "https://example.test/1.5.1"),
+      ]
+      latest = [
+        Update::Release.new(Update::Version.new(2, 0, 0), "2.0.0", "https://example.test/2.0.0"),
+      ]
+
+      Update::GitHubRepository.merge(list, latest).map(&.tag).should eq ["1.5.1", "2.0.0"]
+    end
+
+    it "同じタグは重ねない" do
+      release = Update::Release.new(
+        Update::Version.new(1, 0, 0), "1.0.0", "https://example.test/1.0.0")
+
+      Update::GitHubRepository.merge([release], [release]).map(&.tag).should eq ["1.0.0"]
+    end
+
+    it "足すものが無ければ一覧のままである" do
+      release = Update::Release.new(
+        Update::Version.new(1, 0, 0), "1.0.0", "https://example.test/1.0.0")
+
+      Update::GitHubRepository.merge([release], [] of Update::Release).size.should eq 1
+    end
+  end
+
   describe ".parse_one" do
     it "1 件の応答を読む" do
       releases = Update::GitHubRepository.parse_one(

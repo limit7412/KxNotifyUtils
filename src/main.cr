@@ -87,6 +87,8 @@ module KxNotifyUtils
       @update_last_result = nil.as(Update::CheckResult?)
       # 直近の確認でバルーンを出せたか。押した側への応答が済んでいるかの判断に使う。
       @update_last_notified = false
+      # 覚えてある結末がどのチャンネルのものか。今の設定と突き合わせるために持つ。
+      @update_last_channel = nil.as(String?)
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
       @settings_window = nil.as(Runtime::SettingsWindow?)
       @stopping = false
@@ -326,10 +328,14 @@ module KxNotifyUtils
           result = @update.check(VERSION, channel)
 
           if channel == @config.current.update.channel
+            @update_last_channel = channel
             @update_last_result = result
             @update_last_notified =
               notify_update(manual ? result : @update.suppress_notified(result), manual)
           else
+            # 覚えてある結末は今のチャンネルのものではなくなった。
+            # 保留した要求へこれを返すわけにはいかない。
+            @update_last_channel = nil
             # 確認の最中にチャンネルが変わっていた。この結果は今の設定のものではない。
             # stable を選び直した利用者へプレリリースのバルーンを出すわけにはいかない。
             #
@@ -356,13 +362,17 @@ module KxNotifyUtils
       manual = @update_recheck_manual
       @update_recheck_manual = false
 
-      # チャンネルが変わっていれば取り直す。
-      unless @update.checked?(@config.current.update.channel)
+      # 走っていた確認が今のチャンネルのものだったかで判断する。
+      # Usecase#checked? では判断できない。あれは「これまでに確認できたか」であり、
+      # 今しがた走った確認とは別のことを言う。
+      # 失敗した確認は checked_channel を書き換えないため、チャンネルを変えて戻した後に
+      # 失敗が返ると、古い確認の checked? が真のまま残って取り直しを飛ばしてしまう。
+      unless @update_last_channel == @config.current.update.channel
         check_update(manual: manual)
         return
       end
 
-      # 今のチャンネルの確認は終わっている。保留していたのは手動の要求だけなので、
+      # 今のチャンネルの確認が終わっている。保留していたのは手動の要求だけなので、
       # 同じ確認をもう一度投げずに、終わった結果をそのまま知らせる。
       return unless manual
 
