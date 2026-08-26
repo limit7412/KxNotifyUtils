@@ -139,5 +139,7 @@
   "error.update_apply": "更新の適用",
   "notify.update_available.body_release_page": "{version} が公開されている。情報タブからリリースページを開ける。",
   "notify.update_broken.title": "実行ファイルが元の場所に無い",
-  "notify.update_broken.body": "置き換えに失敗し、退避した実行ファイルも戻せなかった。復旧の手順をログに残した。"
+  "notify.update_broken.body": "置き換えに失敗し、退避した実行ファイルも戻せなかった。復旧の手順をログに残した。",
+  "notify.update_relaunch_failed.title": "更新は適用した",
+  "notify.update_relaunch_failed.body": "実行ファイルの置き換えは済んだが、起動し直せなかった。次に起動すると新しい版になる。"
 }

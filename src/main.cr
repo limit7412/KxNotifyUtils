@@ -142,7 +142,7 @@ module KxNotifyUtils
       #
       # トレイより前に置く。この時点では設定もトレイも SteamVR も掴んでおらず、
       # 実行ファイルを退避するのに都合がよい。
-      return if hand_over_to_staged
+      return if hand_over_to_staged.handed?
 
       Log.info { "KxNotifyUtils #{VERSION} を起動する: #{Runtime::Paths.executable_path}" }
 
@@ -543,23 +543,41 @@ module KxNotifyUtils
       Runtime::I18n.t("settings.about.update_unchecked")
     end
 
+    # 引き渡しの結末。
+    #
+    # 真偽で返していたが、それでは 3 つの失敗が同じ「偽」に潰れる。
+    # 置き換えは済んでいるのに「取得し直す」と案内したり、
+    # 復旧の案内を出した直後に、無効化した操作を勧めたりすることになる。
+    enum HandOver
+      # 取得しておいたものが無く、何もしなかった。
+      None
+      # 置き換えて新しい実行ファイルへ渡した。呼び出し側は終わる。
+      Handed
+      # 置き換えは済んだが起動できなかった。次の起動から新しい版になる。
+      Replaced
+      # 置き換えに失敗した。取得しておいたものは捨ててある。取り直せる。
+      Failed
+      # 退避を戻せなかった。実行ファイルが正規のパスに無い。
+      Broken
+    end
+
     # 取得しておいた更新を置き換えて、新しい実行ファイルへ渡す。
     #
-    # 渡せたときだけ真を返す。呼び出し側は自分の終わり方を決める。
+    # 結末を返す。呼び出し側は自分の終わり方と、利用者への伝え方を決める。
     # 起動時は常駐に入らずそのまま終わり、常駐中は主ループを抜ける。
     #
     # ミューテックスは置き換えが済んでから手放す。
     # 握ったまま起動すると、新しい側が「既に起動している」と判断して終わってしまう。
     # 一方、置き換えの前に手放すと、置き換えに失敗したときに抑止だけが解けた状態が残る。
-    private def hand_over_to_staged : Bool
+    private def hand_over_to_staged : HandOver
       staged = @installer.staged
-      return false unless staged
-      return false unless @installer.apply(staged)
+      return HandOver::None unless staged
+      return HandOver::Failed unless @installer.apply(staged)
 
       Runtime::Win32.release_single_instance
       if launch_replacement
         Log.info { "置き換えた実行ファイルへ渡した: #{staged.tag}" }
-        return true
+        return HandOver::Handed
       end
 
       # 起動できなかった。置き換えそのものは済んでいるので、
@@ -567,7 +585,7 @@ module KxNotifyUtils
       # 抑止だけが解けたまま常駐を続けるわけにはいかないので取り直す。
       reacquire_single_instance
       Log.error { "置き換えた実行ファイルを起動できなかった。次の起動から新しい版になる" }
-      false
+      HandOver::Replaced
     rescue exception : Update::Installer::RollbackFailed
       # 正規のパスに実行ファイルが無い。取得しておいたものは捨てない。
       # 捨てると復旧の材料が .old だけになり、そちらも戻せなかったからここへ来ている。
@@ -575,14 +593,14 @@ module KxNotifyUtils
       Log.error(exception: exception) { "置き換えに失敗し、退避した実行ファイルも戻せなかった" }
       @update_broken = true
       notify_update_broken
-      false
+      HandOver::Broken
     rescue exception
       # 置き換えに失敗しても常駐は続ける。
       # 退避したものは Installer が戻しており、実行ファイルは元のままである。
       # 取得しておいたものは捨てる。同じものでまた失敗するだけである。
       Log.error(exception: exception) { "取得しておいた更新を適用できなかった" }
       @installer.discard
-      false
+      HandOver::Failed
     end
 
     # 実行ファイルが正規のパスに無いことを利用者へ伝える。
@@ -602,6 +620,10 @@ module KxNotifyUtils
     end
 
     # 利用者の操作で、その場で置き換えて入れ替わる。
+    #
+    # 押した人へは結末に合うものだけを返す。
+    # 置き換えが済んでいるのに取り直しを勧めたり、
+    # 無効にした操作を勧めたりすると、その場で確かめようがない。
     private def apply_update_now : Nil
       if @update_broken
         Log.info { "実行ファイルが正規のパスに無いため適用しない" }
@@ -609,22 +631,26 @@ module KxNotifyUtils
         return
       end
 
-      unless @installer.staged
-        Log.info { "取得しておいた更新が無いため適用しない" }
-        @update_staged_tag = nil
-        update_tray_state
-        return
-      end
-
-      if hand_over_to_staged
+      case hand_over_to_staged
+      in .handed?
         @stopping = true
-        return
+      in .replaced?
+        # 置き換えは済んでいる。起動し直せなかっただけであり、取り直す必要は無い。
+        @errors.notify(
+          Runtime::I18n.t("notify.update_relaunch_failed.title"),
+          Runtime::I18n.t("notify.update_relaunch_failed.body"),
+        )
+      in .failed?
+        @errors.notify(
+          Runtime::I18n.t("notify.update_apply_failed.title"),
+          Runtime::I18n.t("notify.update_apply_failed.body"),
+        )
+      in .broken?
+        # 復旧の案内は hand_over_to_staged が出している。重ねない。
+      in .none?
+        Log.info { "取得しておいた更新が無いため適用しない" }
       end
 
-      @errors.notify(
-        Runtime::I18n.t("notify.update_apply_failed.title"),
-        Runtime::I18n.t("notify.update_apply_failed.body"),
-      )
       @update_staged_tag = @installer.staged.try(&.tag)
       update_tray_state
     end

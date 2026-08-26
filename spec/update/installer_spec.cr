@@ -202,6 +202,23 @@ describe Update::Installer do
         File.exists?(fixture.installer.staged_path).should be_true
       end
     end
+
+    # 置き換えは済んでいる。記録の掃除は後始末であり、失敗しても成否は変わらない。
+    # 投げると、成功した置き換えが失敗として扱われ、新しい実行ファイルを起動しないまま終わる。
+    it "置き換えた後の記録を消せなくても成功として返す" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+        staged = fixture.installer.staged.not_nil!
+
+        # 記録をディレクトリに差し替えて、消せない状態を作る。
+        File.delete(fixture.installer.metadata_path)
+        Dir.mkdir(fixture.installer.metadata_path)
+
+        fixture.installer.apply(staged).should be_true
+
+        File.read(fixture.executable).should eq fixture.repository.body
+      end
+    end
   end
 
   describe "#discard_incomplete" do

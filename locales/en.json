@@ -139,5 +139,7 @@
   "error.update_apply": "Applying the update",
   "notify.update_available.body_release_page": "{version} has been released. Open the release page from the About tab.",
   "notify.update_broken.title": "The executable is missing from its original path",
-  "notify.update_broken.body": "The replacement failed and the saved executable could not be restored. Recovery steps have been written to the log."
+  "notify.update_broken.body": "The replacement failed and the saved executable could not be restored. Recovery steps have been written to the log.",
+  "notify.update_relaunch_failed.title": "The update was applied",
+  "notify.update_relaunch_failed.body": "The executable was replaced but could not be relaunched. The new version will run the next time you start the app."
 }
