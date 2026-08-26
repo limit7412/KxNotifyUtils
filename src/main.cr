@@ -518,12 +518,19 @@ module KxNotifyUtils
     # 知らせたことはメモリ上では記録済みであり、以後の確認は抑止される。
     # ここで諦めると、利用者が設定を直しても書かれないまま次の起動を迎える。
     private def remember_notified_update : Nil
-      # 設定を書く役目を渡した後は書かない。常駐している側と重なる。
-      return if @config_handed_over
-
       tag = @update.notified_tag
       if tag.empty?
         @update_record_pending = false
+        return
+      end
+
+      # 設定を書く役目を渡した後は書かない。常駐している側と重なる。
+      #
+      # ただし保留には残す。知らせたことはメモリ上で記録済みであり、
+      # ここで落とすと、渡しに失敗して常駐を続けた場合に以後の確認が抑止され、
+      # ディスクへも残らないまま次の起動で同じ版をまた知らせることになる。
+      if @config_handed_over
+        @update_record_pending = true
         return
       end
 
@@ -600,9 +607,8 @@ module KxNotifyUtils
     private def hand_over_to_staged : HandOver
       staged = @installer.staged(@config.current.update.channel)
       return HandOver::None unless staged
-      return HandOver::Failed unless @installer.apply(staged)
 
-      # 保留している記録は渡す前に書き切る。
+      # 保留している記録は、置き換えより前に書き切る。
       #
       # 渡した後は、子が起動の途中で SteamVR の同期から設定を書き始める。
       # こちらの終了処理にも flush_records があり、そちらと重なると、
@@ -614,16 +620,19 @@ module KxNotifyUtils
       #
       # 渡した後はこちらが書かないため、その記録は失われる。
       # 登録解除の記録であれば、子はディスクの古い「登録済み」を読んで自動起動を戻す。
-      # 置き換えは取りやめる。取得しておいたものはそのまま残るので、
-      # 設定を書ける状態にしてから押し直せばよい。
+      #
+      # 判定は置き換えより前に行う。後に置くと、実行ファイルは入れ替わり
+      # 取得しておいたものも消えた後で「適用しなかった」と伝えることになる。
       if records_pending?
         Log.error { "保留している記録を書き切れないため置き換えを見送る" }
         return HandOver::Postponed
       end
 
+      return HandOver::Failed unless @installer.apply(staged)
+
       # ここから先は設定を書かない。
       #
-      # 待ちの間も、この プロセスのファイバは進む。起動時の更新の確認がこれにあたり、
+      # 待ちの間も、このプロセスのファイバは進む。起動時の更新の確認がこれにあたり、
       # 新しい版を見つけて知らせると、知らせた版の記録を設定へ書きに行く。
       # 子はその頃には起動して SteamVR の同期から設定を書き始めており、
       # 同じ config.json.tmp を 2 つのプロセスが使うことになる。
@@ -928,7 +937,13 @@ module KxNotifyUtils
     # 登録も解除も同期も、SteamVR 側の操作が済んだ後にだけここへ来る。
     private def record_steamvr(registered : Bool, exe_path : String) : Nil
       # 設定を書く役目を渡した後は書かない。常駐している側と重なる。
-      return if @config_handed_over
+      #
+      # ただし保留には残す。渡しに失敗して常駐を続けた場合、
+      # ここで落とすと決着がディスクへ残らないまま次の起動を迎える。
+      if @config_handed_over
+        @steamvr_record_pending = {registered, exe_path}
+        return
+      end
 
       if @config.record(&.with_steamvr(registered, exe_path))
         @steamvr_record_pending = nil
@@ -1053,6 +1068,10 @@ module KxNotifyUtils
 
       until @stopping
         @errors.guard("error.tray_pump") { @tray.pump }
+        # メニューから終わりを選ばれた後に 1 拍を回さない。
+        # 更新の適用がこれにあたり、この拍で中継すると、
+        # 既に常駐へ入っている子と同じ通知を 2 つのプロセスが送る。
+        break if @stopping
         break if @tray.quit_requested?
 
         background_step
