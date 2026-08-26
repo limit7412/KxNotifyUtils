@@ -223,6 +223,8 @@ module Config
     property rules : Array(Rule) = [] of Rule
     property steamvr : SteamVRSection = SteamVRSection.new
     property log_level : String = "info"
+    # UI の言語。"auto" は OS の表示言語に従う。反映は次回の起動時である（issue #4）。
+    property language : String = "auto"
 
     def initialize
     end

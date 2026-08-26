@@ -25,6 +25,7 @@ module Config
     BUILTIN_ICONS  = %w[default warning error]
     BUILTIN_SOUNDS = %w[default warning error]
     LOG_LEVELS     = %w[trace debug info notice warn error fatal none]
+    LANGUAGES      = %w[auto ja en]
 
     # 検証を通った設定を各 usecase へ流すためのフック。
     # composition root がスナップショットの差し替えを登録する。
@@ -182,6 +183,9 @@ module Config
     private def validate_general(root : Root, errors : Array(ValidationError)) : Nil
       unless LOG_LEVELS.includes?(root.log_level)
         errors << ValidationError.new("全般", "log_level は #{LOG_LEVELS.join(" / ")} のいずれかで指定する")
+      end
+      unless LANGUAGES.includes?(root.language)
+        errors << ValidationError.new("全般", "language は #{LANGUAGES.join(" / ")} のいずれかで指定する")
       end
     end
 

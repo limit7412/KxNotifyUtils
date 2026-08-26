@@ -257,6 +257,24 @@ describe Config::Usecase do
       messages.any?(&.includes?("dynamic_timeout.max")).should be_true
     end
 
+    it "未知の language を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.language = "fr"
+
+      target.validate(root).map(&.message).any?(&.includes?("language")).should be_true
+    end
+
+    it "auto と ja と en の language は通す" do
+      target, _ = usecase
+      root = Config::Root.default
+
+      %w[auto ja en].each do |language|
+        root.language = language
+        target.validate(root).should be_empty
+      end
+    end
+
     it "未知の log_level を弾く" do
       target, _ = usecase
       root = Config::Root.default
