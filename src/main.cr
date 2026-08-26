@@ -116,7 +116,6 @@ module KxNotifyUtils
       build_sinks
       start_ui
       start_steamvr
-      check_update
       main_loop
     ensure
       shutdown
@@ -148,6 +147,10 @@ module KxNotifyUtils
       # 設定を読めなかった場合は既定値の "auto" が使われ、OS の表示言語に従う。
       Runtime::I18n.locale = Runtime::I18n.resolve(@config.current.language)
 
+      # 知らせ済みの版を復元してから最初の確認を行う。
+      # 先に確認すると、前回知らせた版をもう一度知らせてしまう。
+      @update.notified_tag = @config.current.update.notified_version
+
       unless errors.empty?
         Log.error { "設定の検証エラー: #{errors.join(" / ")}" }
         # 読めなかった設定は既定値で置き換わる。
@@ -167,6 +170,9 @@ module KxNotifyUtils
       @icons.clear
       build_sources(root)
       rebuild_sinks(root)
+      # チャンネルを変えたら確かめ直す。
+      # 直前の結果は別のチャンネルのものであり、次の確認まで表示に残すわけにはいかない。
+      check_update unless @update.checked?(root.update.channel)
     end
 
     # 設定の sources セクションから監視対象を組み立てる。
@@ -274,7 +280,7 @@ module KxNotifyUtils
         access_status: -> { access_status_label },
         steamvr_status: -> { steamvr_status_label },
         update_status: -> { update_status_label },
-        update_url: -> { @update.available.try(&.url) },
+        update_url: -> { @update.available(@config.current.update.channel).try(&.url) },
       )
       window.on_request_steamvr_register = -> { register_steamvr }
       window.on_request_steamvr_unregister = -> { unregister_steamvr }
@@ -326,6 +332,7 @@ module KxNotifyUtils
           Runtime::I18n.t("notify.update_available.title"),
           Runtime::I18n.t("notify.update_available.body", {"version" => release.tag}),
         )
+        remember_notified_update
       in .up_to_date?
         return unless manual
         @errors.notify(
@@ -344,16 +351,32 @@ module KxNotifyUtils
       end
     end
 
-    private def update_status_label : String
-      return Runtime::I18n.t("settings.about.update_disabled") unless @config.current.update.check_enabled
+    # 見つけた版を先に見る。
+    # check_enabled が false でも手動の確認はできるため、
+    # 無効の表示を先に返すと、見つけた版とリリースページのボタンだけが出て文言が食い違う。
+    # 知らせた版を設定へ残す。
+    # 本体は SteamVR の自動起動で立ち上がるため、覚えておかないと
+    # VR を始めるたびに同じ更新のバルーンが出る。
+    private def remember_notified_update : Nil
+      tag = @update.notified_tag
+      return if tag.empty? || tag == @config.current.update.notified_version
 
-      if release = @update.available
-        Runtime::I18n.t("settings.about.update_available", {"version" => release.tag})
-      elsif @update.checked?
-        Runtime::I18n.t("settings.about.update_latest")
-      else
-        Runtime::I18n.t("settings.about.update_unchecked")
+      errors = @config.save(@config.current.with_update_notified(tag))
+      return if errors.empty?
+
+      # 書けなくても常駐は続ける。次の起動で同じ版をもう一度知らせるだけである。
+      Log.warn { "知らせ済みの版を設定へ残せなかった: #{errors.join(" / ")}" }
+    end
+
+    private def update_status_label : String
+      settings = @config.current.update
+      if release = @update.available(settings.channel)
+        return Runtime::I18n.t("settings.about.update_available", {"version" => release.tag})
       end
+      return Runtime::I18n.t("settings.about.update_latest") if @update.checked?(settings.channel)
+      return Runtime::I18n.t("settings.about.update_disabled") unless settings.check_enabled
+
+      Runtime::I18n.t("settings.about.update_unchecked")
     end
 
     # SteamVR が起動していない状態で手動起動された場合も常駐を続け、scheduler が再試行する。

@@ -217,6 +217,13 @@ module Config
     # 追うチャンネル。"stable" は安定版だけ、"test" はプレリリースも見る。
     property channel : String = "stable"
 
+    # バルーンで知らせ済みの版のタグ。
+    #
+    # アプリが書き込む記録であり、利用者が編集する項目ではない。
+    # 起動のたびに知らせ直さないために残す。本体は SteamVR の自動起動で立ち上がるため、
+    # 覚えておかないと VR を始めるたびに同じ更新のバルーンが出る。
+    property notified_version : String = ""
+
     def initialize
     end
   end
@@ -278,6 +285,13 @@ module Config
     # 反映はスナップショットの差し替えで行うため、部分的な書き換えは複製に対して行う（仕様書 4.8.2 節）。
     def dup_snapshot : Root
       Root.from_json(to_json)
+    end
+
+    # 知らせ済みの版の記録だけを差し替えた新しいスナップショットを返す。
+    def with_update_notified(tag : String) : Root
+      copy = dup_snapshot
+      copy.update.notified_version = tag
+      copy
     end
 
     # SteamVR 登録の記録だけを差し替えた新しいスナップショットを返す。
