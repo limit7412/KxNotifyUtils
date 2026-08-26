@@ -87,6 +87,8 @@ module KxNotifyUtils
       @update_last_result = nil.as(Update::CheckResult?)
       # 直近の確認でバルーンを出せたか。押した側への応答が済んでいるかの判断に使う。
       @update_last_notified = false
+      # 知らせた版を設定へ書けていないか。書けた機会に書き直すために持つ。
+      @update_record_pending = false
       # 覚えてある結末がどのチャンネルのものか。今の設定と突き合わせるために持つ。
       @update_last_channel = nil.as(String?)
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
@@ -327,6 +329,9 @@ module KxNotifyUtils
       channel = @config.current.update.channel
       spawn do
         begin
+          # 前回書けなかった記録があれば、設定が直っている機会に書き直す。
+          remember_notified_update if @update_record_pending
+
           # 抑止前の結末を覚える。保留していた手動の要求へはこちらを返す。
           # 自動のために UpToDate へ倒した結末を返すと、情報タブに新しい版が
           # 出ているのにバルーンだけ「最新である」と言うことになる。
@@ -445,13 +450,22 @@ module KxNotifyUtils
     # 知らせた版を設定へ残す。
     # 本体は SteamVR の自動起動で立ち上がるため、覚えておかないと
     # VR を始めるたびに同じ更新のバルーンが出る。
+    # 知らせた版を設定へ残す。
+    # 本体は SteamVR の自動起動で立ち上がるため、覚えておかないと
+    # VR を始めるたびに同じ更新のバルーンが出る。
+    #
+    # 書けなかった場合は覚えておき、次の確認で書き直す。
+    # 知らせたことはメモリ上では記録済みであり、以後の確認は抑止される。
+    # ここで諦めると、利用者が設定を直しても書かれないまま次の起動を迎える。
     private def remember_notified_update : Nil
       tag = @update.notified_tag
-      return if tag.empty? || tag == @config.current.update.notified_version
+      if tag.empty?
+        @update_record_pending = false
+        return
+      end
 
-      # 書けなくても常駐は続ける。次の起動で同じ版をもう一度知らせるだけである。
       # 見送った理由は record が記録する。
-      @config.record(&.with_update_notified(tag))
+      @update_record_pending = !@config.record(&.with_update_notified(tag))
     end
 
     private def update_status_label : String

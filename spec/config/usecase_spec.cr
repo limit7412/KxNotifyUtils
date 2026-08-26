@@ -411,6 +411,53 @@ describe Config::Usecase do
       repository.save_count.should eq before
     end
 
+    # 読み直した設定そのものは反映しないが、記録を落とすと登録が決着しない。
+    # steamvr_retry_needed? が成立し続け、60 秒ごとに登録し直すことになる。
+    it "外部の編集を反映しない場合でも記録は current へ載せる" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_externally(edited.to_json)
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      # 記録は反映されている。
+      target.current.steamvr.auto_launch_configured.should be_true
+      # 外部の編集は反映されていない。
+      target.current.log_level.should eq "info"
+    end
+
+    # 読んでから書くまでの隙間に編集されると、その編集を書き潰す。
+    # 隙間そのものは消せないが、record の中で起こす分は防ぐ。
+    it "読んだ後に変更されていたら書き戻しを見送る" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+      # 更新時刻を読んだ後、書き出しの前に編集される状況を真似る。
+      repository.edit_after_next_check = %({"log_level": "debug"})
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, ""))
+
+      repository.save_count.should eq before
+      Config::Root.from_json(repository.stored.not_nil!).log_level.should eq "debug"
+    end
+
+    it "書けたかどうかを返す" do
+      target, _ = usecase(Config::Root.default.to_json)
+      target.load
+
+      target.record(&.with_steamvr(true, "")).should be_true
+    end
+
+    it "書けなかった場合は偽を返す" do
+      target, _ = usecase(%({"log_level": "verbose"}))
+      target.load
+
+      target.record(&.with_steamvr(true, "")).should be_false
+    end
+
     # 書き出さないことと反映しないことは別である。
     # 反映しないと自動起動の登録が決着せず、再試行の条件が成立し続ける。
     it "設定を読めていなくても記録は動作へ反映する" do

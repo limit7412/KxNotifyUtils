@@ -177,8 +177,17 @@ module Fakes
       end
     end
 
+    # 更新時刻を読んだ直後に外部から編集される状況を真似る。
+    # 読み取りと書き出しの隙間を突く編集の確認に使う（issue #15）。
+    property edit_after_next_check : String? = nil
+
     def modified_at : Time?
-      @modified
+      current = @modified
+      if json = @edit_after_next_check
+        @edit_after_next_check = nil
+        edit_externally(json)
+      end
+      current
     end
   end
 
