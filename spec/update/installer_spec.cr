@@ -184,6 +184,64 @@ describe Update::Installer do
         File.exists?(fixture.installer.previous_path).should be_true
       end
     end
+
+    # 前回の失敗で実行ファイルが無いまま、もう一度押された場合を真似る。
+    # そのまま進むと先頭の delete? が .old を消し、復旧の材料を両方とも失う。
+    it "実行ファイルが無ければ置き換えに進まない" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+        staged = fixture.installer.staged.not_nil!
+
+        File.rename(fixture.executable, fixture.installer.previous_path)
+
+        expect_raises(Update::Installer::RollbackFailed) do
+          fixture.installer.apply(staged)
+        end
+
+        File.exists?(fixture.installer.previous_path).should be_true
+        File.exists?(fixture.installer.staged_path).should be_true
+      end
+    end
+  end
+
+  describe "#discard_incomplete" do
+    # 取得の最中に終了すると、記録を書く前に書きかけだけが残る。
+    it "記録の無い書きかけを片付ける" do
+      with_installer do |fixture|
+        File.write(fixture.installer.staged_path, "書きかけ")
+
+        fixture.installer.discard_incomplete
+
+        File.exists?(fixture.installer.staged_path).should be_false
+      end
+    end
+
+    it "実体の無い記録も片付ける" do
+      with_installer do |fixture|
+        File.write(fixture.installer.metadata_path, "{}")
+
+        fixture.installer.discard_incomplete
+
+        File.exists?(fixture.installer.metadata_path).should be_false
+      end
+    end
+
+    # 揃っているものは取得済みであり、次の起動で置き換える対象である。
+    it "揃っているものは残す" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+
+        fixture.installer.discard_incomplete
+
+        fixture.installer.staged.should_not be_nil
+      end
+    end
+
+    it "どちらも無ければ何もしない" do
+      with_installer do |fixture|
+        fixture.installer.discard_incomplete
+      end
+    end
   end
 
   describe "#discard_previous" do

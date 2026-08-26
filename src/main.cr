@@ -66,9 +66,11 @@ module KxNotifyUtils
       @steamvr_sync_pending = false
       # 設定へ書けなかった SteamVR の記録。書ける機会に書き直すために持つ。
       @steamvr_record_pending = nil.as({Bool, String}?)
-      # 置き換えに失敗して実行ファイルが正規のパスに無いか。
-      # 起動時に起きた場合、トレイを立てた後に知らせるために持つ（issue #10 第 2 段階）。
-      @update_recovery_needed = false
+      # 置き換えに失敗して実行ファイルが正規のパスに無いか（issue #10 第 2 段階）。
+      # 復旧は利用者が手で行うため、常駐している間は下がらない。
+      @update_broken = false
+      # その旨を知らせ済みか。起動時に起きた場合はトレイがまだ無いので、後で知らせ直す。
+      @update_broken_notified = false
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -154,12 +156,15 @@ module KxNotifyUtils
         Log.error { "トレイを作れなかった。操作する手立てが無いため起動を終える" }
         return
       end
-      # 置き換えに失敗して実行ファイルが無いままなら、トレイが立った今ここで知らせる。
-      notify_update_recovery
       # 置き換えたときに残る古い実行ファイルは、次の起動、つまりここで消す。
       @installer.discard_previous
+      # 取得の途中で終了した場合、片方だけが残る。ここで片付ける。
+      @installer.discard_incomplete
       register_validators
       load_config
+      # 置き換えに失敗して実行ファイルが無いままなら、ここで知らせる。
+      # トレイと言語の設定が揃うのを待ってから出す。
+      notify_update_broken
       build_sources
       build_sinks
       start_ui
@@ -568,8 +573,8 @@ module KxNotifyUtils
       # 捨てると復旧の材料が .old だけになり、そちらも戻せなかったからここへ来ている。
       # 常駐はメモリ上で続くが、次の起動には実行ファイルが要る。利用者へ伝える。
       Log.error(exception: exception) { "置き換えに失敗し、退避した実行ファイルも戻せなかった" }
-      @update_recovery_needed = true
-      notify_update_recovery
+      @update_broken = true
+      notify_update_broken
       false
     rescue exception
       # 置き換えに失敗しても常駐は続ける。
@@ -582,20 +587,28 @@ module KxNotifyUtils
 
     # 実行ファイルが正規のパスに無いことを利用者へ伝える。
     #
-    # 起動時に起きた場合、この時点ではトレイがまだ無い。
-    # 印だけ立てておき、トレイを立てた後に呼び直す。
-    private def notify_update_recovery : Nil
-      return unless @update_recovery_needed
+    # 起動時に起きた場合、この時点ではトレイも言語の設定もまだ無い。
+    # 印だけ立てておき、設定を読んだ後に呼び直す。
+    # 手で戻してもらう案内であり、選んだ言語で出す必要がある。
+    private def notify_update_broken : Nil
+      return unless @update_broken
+      return if @update_broken_notified
       return unless @errors.notify(
                       Runtime::I18n.t("notify.update_broken.title"),
                       Runtime::I18n.t("notify.update_broken.body"),
                     )
 
-      @update_recovery_needed = false
+      @update_broken_notified = true
     end
 
     # 利用者の操作で、その場で置き換えて入れ替わる。
     private def apply_update_now : Nil
+      if @update_broken
+        Log.info { "実行ファイルが正規のパスに無いため適用しない" }
+        notify_update_broken
+        return
+      end
+
       unless @installer.staged
         Log.info { "取得しておいた更新が無いため適用しない" }
         @update_staged_tag = nil
@@ -677,17 +690,21 @@ module KxNotifyUtils
       end
     end
 
-    # 情報タブのボタンに出す見出し。押せるものが無ければ nil を返す。
-    private def update_action_label : String?
+    # 情報タブのボタンに出す見出しと、押せるかどうか。
+    #
+    # 押せないときも見出しは返す。隠して出し直すと、
+    # 押そうとした瞬間にボタンの位置が動く。
+    private def update_action_label : {String, Bool}
       case update_progress
       in .available?
-        Runtime::I18n.t("settings.about.update_download")
+        {Runtime::I18n.t("settings.about.update_download"), true}
       in .staged?
-        Runtime::I18n.t("settings.about.update_apply")
+        {Runtime::I18n.t("settings.about.update_apply"), true}
       in .downloading?
-        Runtime::I18n.t("settings.about.update_downloading")
+        # 取得の最中は押せない。押しても何も起きないものを押せるように見せない。
+        {Runtime::I18n.t("settings.about.update_downloading"), false}
       in .none?
-        nil
+        {Runtime::I18n.t("settings.about.update_download"), false}
       end
     end
 
@@ -705,6 +722,10 @@ module KxNotifyUtils
 
     # トレイと情報タブに出す、更新の進み具合。
     private def update_progress : Runtime::Tray::UpdateState
+      # 実行ファイルが無い間は何も出さない。
+      # 取得済みは残っているが、もう一度適用させると apply の先頭で
+      # 退避しておいた .old を消すことになり、復旧の材料を両方とも失う。
+      return Runtime::Tray::UpdateState::None if @update_broken
       return Runtime::Tray::UpdateState::Downloading if @update_downloading
       return Runtime::Tray::UpdateState::Staged if @update_staged_tag
       release = @update.available(@config.current.update.channel)

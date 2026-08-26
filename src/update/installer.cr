@@ -121,6 +121,23 @@ module Update
       File.delete?(metadata_path)
     end
 
+    # 片方だけ残った取得を片付ける。
+    #
+    # 取得の最中に終了すると、書きかけの実行ファイルだけが残る。
+    # 記録は取得が終わってから書くためである。
+    # そのままでは最大で MAX_ASSET_SIZE 分の書きかけが次の取得まで居座る。
+    #
+    # 呼ぶのは起動時だけとする。取得の最中に呼ぶと、
+    # 書いている途中のものを消すことになる。
+    def discard_incomplete : Nil
+      staged = File.exists?(@staged_path)
+      metadata = File.exists?(metadata_path)
+      return if staged == metadata
+
+      Log.info { "途中で終わった取得を片付ける: #{@staged_path}" }
+      discard
+    end
+
     # 退避しておいた古い実行ファイルを消す。
     #
     # 置き換えた直後は、その exe がまだ走っているため消せない。
@@ -141,6 +158,13 @@ module Update
     # 通常の失敗とは別の例外にして呼び出し側へ伝える。
     # そちらでは取得しておいたものを捨ててはならない。復旧の材料になる。
     def apply(record : Staged) : Bool
+      # 実行ファイルが無ければ退避のしようがない。
+      # このまま進むと、下の delete? が前回の失敗で残した .old を消してしまう。
+      # 復旧の材料を減らすだけなので、置き換えの前に断る。
+      unless File.exists?(@executable_path)
+        raise RollbackFailed.new(@executable_path, @previous_path, @staged_path)
+      end
+
       File.delete?(@previous_path)
       move(@executable_path, @previous_path)
 

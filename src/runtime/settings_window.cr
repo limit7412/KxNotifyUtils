@@ -68,9 +68,9 @@ module Runtime
       # 版の比較は update コンテキストが持つため、結果だけを受け取る。
       @update_status : Proc(String) = -> { I18n.t("settings.about.update_unchecked") },
       @update_url : Proc(String?) = -> { nil.as(String?) },
-      # 取得と適用の操作（issue #10 第 2 段階）。
-      # 押せるものが無いときは nil を返す。何を押せるかは composition root が決める。
-      @update_action : Proc(String?) = -> { nil.as(String?) },
+      # 取得と適用の操作の、見出しと押せるかどうか（issue #10 第 2 段階）。
+      # 何を押せるかは composition root が決める。
+      @update_action : Proc({String, Bool}) = -> { {I18n.t("settings.about.update_download"), false} },
     )
       @window = nil.as(UIng::Window?)
       @draft = @config.current.dup_snapshot
@@ -737,13 +737,9 @@ module Runtime
         @update_url.call.nil? ? control.disable : control.enable
       end
       @update_action_button.try do |control|
-        label = @update_action.call
-        if label
-          control.text = label
-          control.enable
-        else
-          control.disable
-        end
+        label, enabled = @update_action.call
+        control.text = label
+        enabled ? control.enable : control.disable
       end
     end
 
