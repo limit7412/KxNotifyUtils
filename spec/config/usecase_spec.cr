@@ -379,6 +379,26 @@ describe Config::Usecase do
       repository.save_count.should eq before
     end
 
+    # 反映しないまま同期済みとして扱うと、次の record が古い current を基準にする。
+    # 一度守った手編集が、次の書き戻しで結局は消える。
+    it "反映しなかった後の書き戻しでも手編集が残る" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_externally(edited.to_json)
+
+      # 1 回目。読み直して記録を載せる（反映はしない）。
+      target.record(&.with_steamvr(true, "D:/one.exe"))
+      # 2 回目。SteamVR の再試行や更新の確認で続けて走る場合にあたる。
+      target.record(&.with_steamvr(true, "D:/two.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      stored.log_level.should eq "debug"
+      stored.steamvr.last_exe_path.should eq "D:/two.exe"
+    end
+
     # 読めていない設定へ書き戻すと、利用者のルールごとファイルを失う。
     it "設定を読めていなければ書き戻さない" do
       target, repository = usecase(%({"log_level": "verbose"}))
@@ -389,6 +409,19 @@ describe Config::Usecase do
       target.record(&.with_steamvr(true, ""))
 
       repository.save_count.should eq before
+    end
+
+    # 書き出さないことと反映しないことは別である。
+    # 反映しないと自動起動の登録が決着せず、再試行の条件が成立し続ける。
+    it "設定を読めていなくても記録は動作へ反映する" do
+      target, _ = usecase(%({"log_level": "verbose"}))
+      target.load
+      target.readable?.should be_false
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      target.current.steamvr.auto_launch_registered.should be_true
+      target.current.steamvr.auto_launch_configured.should be_true
     end
   end
 end

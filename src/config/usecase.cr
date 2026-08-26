@@ -140,14 +140,19 @@ module Config
     #
     # 渡すブロックは、書き戻す元になる設定を受け取って、記録を載せ替えたものを返す。
     def record(& : Root -> Root) : Nil
-      # 読めていない設定へ書き戻さない。save と同じ理由である。
+      # 読めていない設定へは書き出さない。save と同じ理由である。
       # current は既定値であり、書き戻すと利用者のルールごとファイルを失う。
+      #
+      # ただし記録そのものは動作へ反映する。save もそうしていた。
+      # 反映しないと、たとえば自動起動の登録が決着しないままになり、
+      # 再試行の条件が成立し続けて 60 秒ごとに登録し直すことになる。
       unless @readable
-        Log.warn { "設定ファイルを読めていないため記録の書き戻しを見送る: #{@repository.path}" }
+        Log.warn { "設定ファイルを読めていないため、書き出さずに反映だけを行う: #{@repository.path}" }
+        apply_record(yield @current)
         return
       end
 
-      base, adopt = base_for_record
+      base, reflect = base_for_record
       return unless base
 
       root = yield base
@@ -160,18 +165,33 @@ module Config
       end
 
       @repository.save(root)
-      @synced_at = @repository.modified_at
 
       # 外部の編集を読み直して書いた場合、その内容を動作へ反映はしない。
       # 利用者が「設定を再読み込み」を押す前に、編集の途中のものへ勝手に切り替わるのを避ける。
       # 記録はディスクへ残っているので、次の読み込みで揃う。
-      return unless adopt
+      #
+      # このとき synced_at も進めない。
+      # あれは「current がディスクと一致していた時点」を指すものであり、
+      # 反映しないまま進めると、次の record が古い current を基準にして、
+      # ここで守った手編集を結局は上書きしてしまう。
+      return unless reflect
+
+      @synced_at = @repository.modified_at
+      apply_record(root)
+    end
+
+    private def apply_record(root : Root) : Nil
+      errors = validate(root)
+      unless errors.empty?
+        Log.warn { "記録を載せた設定が検証を通らないため反映しない: #{errors.join(" / ")}" }
+        return
+      end
 
       @current = root
       @on_apply.call(@current)
     end
 
-    # 書き戻す元になる設定と、それを動作へ反映してよいかを返す。
+    # 書き戻す元になる設定と、書いた結果を動作へ反映してよいかを返す。
     #
     # 更新時刻が変わっていなければ current がディスクと一致しているので、そのまま使う。
     # 変わっていれば読み直す。読み直せない場合は書き込みそのものを見送る。
