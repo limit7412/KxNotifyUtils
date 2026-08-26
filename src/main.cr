@@ -306,6 +306,11 @@ module KxNotifyUtils
     #
     # 手動の確認は check_enabled を無視する。
     # 自動の確認を切っている利用者でも、押したときは確かめたいはずである。
+    #
+    # 逆に、切っている間はチャンネルを変えても確かめ直さない。
+    # 「こちらから見に行かない」という指定であり、選択を変えたことは
+    # それ自体では確認の要求ではないためである。
+    # このとき情報タブは別のチャンネルの結果を出さず、確認が無効である旨を表示する。
     private def check_update(manual : Bool = false) : Nil
       return unless manual || @config.current.update.check_enabled
 
