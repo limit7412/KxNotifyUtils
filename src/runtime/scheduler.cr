@@ -14,6 +14,8 @@ module Runtime
     SOURCE_RETRY_INTERVAL = 30.seconds
     # 更新を確認する間隔（issue #10）。起動時の 1 回目は composition root が行う。
     UPDATE_CHECK_INTERVAL = 24.hours
+    # 設定へ書けなかった記録を書き直す間隔（issue #15）。
+    RECORD_RETRY_INTERVAL = 60.seconds
 
     getter? quit_requested : Bool = false
 
@@ -22,6 +24,7 @@ module Runtime
       @next_quit_poll = Time.monotonic
       @next_source_retry = Time.monotonic + SOURCE_RETRY_INTERVAL
       @next_update_check = Time.monotonic + UPDATE_CHECK_INTERVAL
+      @next_record_retry = Time.monotonic + RECORD_RETRY_INTERVAL
     end
 
     # 主ループから繰り返し呼ぶ 1 拍。
@@ -55,6 +58,15 @@ module Runtime
       monotonic = Time.monotonic
       return false if monotonic < @next_update_check
       @next_update_check = monotonic + UPDATE_CHECK_INTERVAL
+      true
+    end
+
+    # 設定へ書けなかった記録を書き直すべき時刻になったかを返す。
+    # 書き直しそのものは composition root が行う。
+    def retry_record? : Bool
+      monotonic = Time.monotonic
+      return false if monotonic < @next_record_retry
+      @next_record_retry = monotonic + RECORD_RETRY_INTERVAL
       true
     end
 

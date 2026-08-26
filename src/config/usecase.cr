@@ -63,12 +63,13 @@ module Config
         return [] of ValidationError
       end
 
+      before = @repository.modified_at
       root = @repository.load
       errors = validate(root)
       if errors.empty?
         @current = root
         @readable = true
-        @synced_at = @repository.modified_at
+        sync_from(before)
         @on_apply.call(@current)
       else
         @readable = false
@@ -84,12 +85,13 @@ module Config
     # 手動編集後の取り込み（トレイメニューの「設定を再読み込み」）。
     # 不正な JSON を読んだ場合は直前の有効な設定で動作を続ける（仕様書 5 章）。
     def reload : Array(ValidationError)
+      before = @repository.modified_at
       root = @repository.load
       errors = validate(root)
       if errors.empty?
         @current = root
         @readable = true
-        @synced_at = @repository.modified_at
+        sync_from(before)
         @on_apply.call(@current)
         Log.info { "設定を再読み込みした" }
       else
@@ -180,7 +182,17 @@ module Config
         return false
       end
 
-      @repository.save(root)
+      begin
+        @repository.save(root)
+      rescue ex : IO::Error | JSON::Error
+        # 書き出せなかった。読み取り専用、容量の不足、一時的なロックがこれにあたる。
+        # ここで抜けると、記録が動作へ反映されないまま呼び出し側にも伝わらない。
+        # 自動起動の登録なら決着がつかず 60 秒ごとの登録し直しが続き、
+        # 更新の通知なら書き直しの保留も立たない。書けなかった経路へ畳む。
+        Log.warn(exception: ex) { "設定ファイルへ書き出せなかったため反映だけを行う: #{@repository.path}" }
+        apply_record(yield @current)
+        return false
+      end
 
       # 外部の編集を読み直して書いた場合、その内容は動作へ反映しない。
       # 利用者が「設定を再読み込み」を押す前に、編集の途中のものへ勝手に切り替わるのを避ける。
@@ -200,6 +212,21 @@ module Config
       @synced_at = @repository.modified_at
       apply_record(root)
       true
+    end
+
+    # 読み込みが終わった設定を、ディスクの中身として覚えてよいかを決める。
+    #
+    # 読み込みの前後で更新時刻が変わっていなければ、読んだ内容は今のファイルのものである。
+    # 変わっていれば、読み終えた後に外部から書かれている。
+    # このとき更新時刻だけを覚えると、current は読んだ内容のままなのに
+    # 「ディスクと一致している」ことになり、次の record が後から書かれたほうを
+    # 読み直さずに上書きしてしまう。一致させないでおけば、record は読み直す。
+    #
+    # 保存の側には同じ照合を置けない。書き出しと同時の編集は、
+    # どちらが後に残ったかを更新時刻からは決められないためである。
+    private def sync_from(before : Time?) : Nil
+      after = @repository.modified_at
+      @synced_at = before && after && before == after ? after : nil
     end
 
     # 読み取りの時点から設定ファイルが変わっているか。

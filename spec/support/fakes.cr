@@ -135,6 +135,8 @@ module Fakes
     property modified : Time? = Time.unix(0)
     # load が失敗する状況を真似る。
     property unreadable : Bool = false
+    # save が失敗する状況を真似る。読み取り専用や容量不足にあたる。
+    property unwritable : Bool = false
 
     def initialize(@stored : String? = nil)
     end
@@ -149,10 +151,16 @@ module Fakes
 
     def load : Config::Root
       raise JSON::ParseException.new("壊れている", 1, 1) if @unreadable
-      Config::Root.from_json(@stored || "{}")
+      root = Config::Root.from_json(@stored || "{}")
+      if json = @edit_after_next_load
+        @edit_after_next_load = nil
+        edit_externally(json)
+      end
+      root
     end
 
     def save(root : Config::Root) : Nil
+      raise File::Error.new("書けない", file: path) if @unwritable
       @stored = root.to_json
       @save_count += 1
       # 書き出せば更新時刻も進む。
@@ -176,6 +184,10 @@ module Fakes
         @existing_files.includes?(path)
       end
     end
+
+    # 読み込みが終わった直後に外部から編集される状況を真似る。
+    # 読んだ内容と更新時刻が食い違う隙間の確認に使う（issue #15）。
+    property edit_after_next_load : String? = nil
 
     # 更新時刻を読んだ直後に外部から編集される状況を真似る。
     # 読み取りと書き出しの隙間を突く編集の確認に使う（issue #15）。

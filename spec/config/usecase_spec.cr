@@ -470,5 +470,51 @@ describe Config::Usecase do
       target.current.steamvr.auto_launch_registered.should be_true
       target.current.steamvr.auto_launch_configured.should be_true
     end
+
+    # 書き出せない状況でも、記録は動作へ反映して呼び出し側へ失敗を返す。
+    # 例外で抜けると、反映も戻り値も落ちて、登録が決着しないまま再試行が止まらない。
+    it "書き出せなかった場合は反映だけを行って偽を返す" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+      repository.unwritable = true
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe")).should be_false
+
+      target.current.steamvr.auto_launch_registered.should be_true
+      target.current.steamvr.auto_launch_configured.should be_true
+    end
+
+    # 読み終えた直後に編集されると、current は読んだ内容のままで更新時刻だけが進む。
+    # これを同期済みとして覚えると、次の記録が後から書かれたほうを読み直さずに潰す。
+    it "読み込みの直後に編集されていたら、記録の前に読み直す" do
+      target, repository = usecase(Config::Root.default.to_json)
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_after_next_load = edited.to_json
+      target.load
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      stored.log_level.should eq "debug"
+      stored.steamvr.auto_launch_registered.should be_true
+    end
+
+    it "再読み込みの直後に編集されていたら、記録の前に読み直す" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_after_next_load = edited.to_json
+      target.reload
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      stored.log_level.should eq "debug"
+      stored.steamvr.auto_launch_registered.should be_true
+    end
   end
 end
