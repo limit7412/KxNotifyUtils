@@ -44,6 +44,10 @@ module KxNotifyUtils
     # 多重起動の抑止に使う名前付きミューテックス。
     SINGLE_INSTANCE_NAME = "Local\\KxNotifyUtils"
 
+    # 置き換えた実行ファイルが落ち着くのを待つ時間（issue #10 第 2 段階）。
+    # トレイを作るところまでは一瞬で着く。そこで落ちるものをここで拾う。
+    LAUNCH_SETTLE = 2.seconds
+
     def initialize
       @icons = Runtime::IconRepository.new
       @log_backend = Runtime::DailyFileBackend.new(Runtime::Paths.log_directory)
@@ -683,11 +687,23 @@ module KxNotifyUtils
       update_tray_state
     end
 
-    # 置き換えた実行ファイルを起動する。
-    # 待たない。こちらは終わる側であり、待つと入れ替わりが進まない。
+    # 置き換えた実行ファイルを起動し、すぐに落ちなかったことまでを見る。
+    #
+    # 起動そのものが通っても、新しい側がトレイを作れないなどで run の途中で終わることがある。
+    # そこでこちらも終わると、常駐するプロセスが 1 つも残らない。
+    # 落ちていれば偽を返し、呼び出し側が抑止を取り直して常駐を続ける。
+    #
+    # 見られるのはここまでである。新しい側が常駐へ入るのは SteamVR の初期化の後であり、
+    # あれは VR を立ち上げることもあって数秒では終わらない。
+    # そこまで見届けるには準備完了を伝え合う仕組みが要るが、
+    # この待ちで拾えるのはトレイの失敗のような、常駐に入る前の早い失敗である。
     private def launch_replacement : Bool
-      Process.new(Runtime::Paths.executable_path, [] of String)
-      true
+      process = Process.new(Runtime::Paths.executable_path, [] of String)
+      sleep LAUNCH_SETTLE
+      return true unless process.terminated?
+
+      Log.error { "置き換えた実行ファイルが起動の直後に終わった" }
+      false
     rescue exception
       Log.error(exception: exception) { "置き換えた実行ファイルを起動できなかった" }
       false
