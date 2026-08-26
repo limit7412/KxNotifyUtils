@@ -18,15 +18,16 @@ module Runtime
 
     # メニュー項目。数値はメニューの項目 ID として使う。
     enum Command
-      TogglePause       = 1
-      SendTestMessage   = 2
-      OpenSettings      = 3
-      OpenConfigFile    = 4
-      ReloadConfig      = 5
-      RegisterSteamVR   = 6
-      UnregisterSteamVR = 7
-      OpenLogDirectory  = 8
-      Quit              = 9
+      TogglePause       =  1
+      SendTestMessage   =  2
+      OpenSettings      =  3
+      OpenConfigFile    =  4
+      ReloadConfig      =  5
+      RegisterSteamVR   =  6
+      UnregisterSteamVR =  7
+      OpenLogDirectory  =  8
+      CheckUpdate       =  9
+      Quit              = 10
     end
 
     # メニューが選ばれたときに呼ぶフック。
@@ -192,6 +193,7 @@ module Runtime
           append(menu, Command::RegisterSteamVR, I18n.t("tray.menu.register_steamvr"), enabled: @steamvr_available)
         end
         append(menu, Command::OpenLogDirectory, I18n.t("tray.menu.open_logs"))
+        append(menu, Command::CheckUpdate, I18n.t("tray.menu.check_update"))
         separator(menu)
         append(menu, Command::Quit, I18n.t("tray.menu.quit"))
 

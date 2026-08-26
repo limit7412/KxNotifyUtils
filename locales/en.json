@@ -99,5 +99,20 @@
   "settings.dialog.cannot_send_test": "Cannot send the test notification",
   "settings.dialog.unsaved": "Unsaved changes",
   "settings.dialog.unsaved_body": "There are unsaved changes. Press Close again to discard them, or press Save to keep them.",
-  "settings.external_change": "The config file has changed on disk. Saving your edits will overwrite it."
+  "settings.external_change": "The config file has changed on disk. Saving your edits will overwrite it.",
+  "tray.menu.check_update": "Check for updates",
+  "notify.update_available.title": "A new version is available",
+  "notify.update_available.body": "{version} has been released. Open the release page from the About tab.",
+  "notify.update_none.title": "No updates",
+  "notify.update_none.body": "You are running the latest version.",
+  "settings.general.update_check": "Check for updates at startup and once a day",
+  "settings.general.update_channel": "Update channel",
+  "settings.about.update_available": "New version: {version}",
+  "settings.about.update_open": "Open the release page",
+  "settings.about.update_latest": "You are running the latest version",
+  "settings.about.update_unchecked": "Updates have not been checked yet",
+  "settings.about.update_disabled": "Update checking is disabled",
+  "notify.update_failed.title": "Could not check for updates",
+  "notify.update_failed.body": "Could not fetch the release list from GitHub. Check your connection.",
+  "error.update_check": "Checking for updates"
 }

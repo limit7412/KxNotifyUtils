@@ -99,5 +99,20 @@
   "settings.dialog.cannot_send_test": "テスト通知を送れない",
   "settings.dialog.unsaved": "未保存の変更がある",
   "settings.dialog.unsaved_body": "保存していない変更がある。破棄してよければもう一度「閉じる」を押す。残す場合は「保存」を押す。",
-  "settings.external_change": "設定ファイルが変更されています。編集中の内容を保存すると上書きされます。"
+  "settings.external_change": "設定ファイルが変更されています。編集中の内容を保存すると上書きされます。",
+  "tray.menu.check_update": "更新を確認",
+  "notify.update_available.title": "新しい版が出ている",
+  "notify.update_available.body": "{version} が公開されている。情報タブからリリースページを開ける。",
+  "notify.update_none.title": "更新は無い",
+  "notify.update_none.body": "実行中の版が最新である。",
+  "settings.general.update_check": "起動時と 1 日ごとに更新を確認する",
+  "settings.general.update_channel": "更新を追うチャンネル",
+  "settings.about.update_available": "新しい版: {version}",
+  "settings.about.update_open": "リリースページを開く",
+  "settings.about.update_latest": "実行中の版が最新である",
+  "settings.about.update_unchecked": "更新は未確認である",
+  "settings.about.update_disabled": "更新の確認は無効である",
+  "notify.update_failed.title": "更新を確認できなかった",
+  "notify.update_failed.body": "GitHub からリリース一覧を取れなかった。回線を確かめる。",
+  "error.update_check": "更新の確認"
 }

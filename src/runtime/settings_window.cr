@@ -24,11 +24,12 @@ module Runtime
     # この画面が利用者から見えるライセンス表記の一次的な置き場所になる。
     THIRD_PARTY_NOTICES = {{ read_file("#{__DIR__}/../../THIRD-PARTY-NOTICES.md") }}
 
-    TIMEOUT_MODES = %w[dynamic fixed]
-    FILTER_MODES  = %w[blacklist whitelist]
-    TRANSPORTS    = %w[websocket udp]
-    LOG_LEVELS    = %w[trace debug info notice warn error fatal none]
-    LANGUAGES     = %w[auto ja en]
+    TIMEOUT_MODES   = %w[dynamic fixed]
+    FILTER_MODES    = %w[blacklist whitelist]
+    TRANSPORTS      = %w[websocket udp]
+    LOG_LEVELS      = %w[trace debug info notice warn error fatal none]
+    LANGUAGES       = %w[auto ja en]
+    UPDATE_CHANNELS = %w[stable test]
 
     # rules の 1 項目で上書きできるフィールドのうち、単独の値を持つもの。
     # どれも「上書きするか」のチェックと入力欄の組で編集するため、同じ形で扱う。
@@ -61,6 +62,10 @@ module Runtime
       @version : String,
       @access_status : Proc(String) = -> { I18n.t("status.unknown") },
       @steamvr_status : Proc(String) = -> { I18n.t("status.unknown") },
+      # 更新の確認の状態と、新しい版のリリースページ（issue #10）。
+      # 版の比較は update コンテキストが持つため、結果だけを受け取る。
+      @update_status : Proc(String) = -> { I18n.t("settings.about.update_unchecked") },
+      @update_url : Proc(String?) = -> { nil.as(String?) },
     )
       @window = nil.as(UIng::Window?)
       @draft = @config.current.dup_snapshot
@@ -76,6 +81,8 @@ module Runtime
       @external_change_label = nil.as(UIng::Label?)
       @access_label = nil.as(UIng::Label?)
       @steamvr_label = nil.as(UIng::Label?)
+      @update_label = nil.as(UIng::Label?)
+      @update_button = nil.as(UIng::Button?)
       # 未保存の変更があるまま閉じようとしたことを覚えておく。
       # 一度警告を出し、続けてもう一度閉じる操作をしたときに破棄する。
       @close_warned = false
@@ -203,7 +210,9 @@ module Runtime
       form = UIng::Form.new(padded: true)
       form.append(I18n.t("settings.general.log_level"), combo("log_level", LOG_LEVELS), false)
       form.append(I18n.t("settings.general.language"), combo("language", LANGUAGES), false)
+      form.append(I18n.t("settings.general.update_channel"), combo("update_channel", UPDATE_CHANNELS), false)
       box.append(form, false)
+      box.append(check("update.check_enabled", I18n.t("settings.general.update_check")), false)
       box.append(UIng::Label.new(I18n.t("settings.general.language_note")), false)
       box
     end
@@ -377,6 +386,17 @@ module Runtime
       box = UIng::Box.new(:vertical, padded: true)
       box.append(UIng::Label.new("KxNotifyUtils #{@version}"), false)
       box.append(button(I18n.t("settings.about.open_repository", {"url" => REPOSITORY_URL})) { open_repository }, false)
+
+      update_label = UIng::Label.new(@update_status.call)
+      @update_label = update_label
+      box.append(update_label, false)
+
+      # 新しい版が無いうちは押せない。開く先が無いためである。
+      update_button = button(I18n.t("settings.about.update_open")) { open_update_page }
+      update_button.disable
+      @update_button = update_button
+      box.append(update_button, false)
+
       box.append(UIng::Label.new(I18n.t("settings.about.licenses")), false)
 
       notices = UIng::MultilineEntry.new
@@ -390,6 +410,8 @@ module Runtime
     private def load_draft : Nil
       set_combo("log_level", LOG_LEVELS, @draft.log_level)
       set_combo("language", LANGUAGES, @draft.language)
+      set_combo("update_channel", UPDATE_CHANNELS, @draft.update.channel)
+      set_check("update.check_enabled", @draft.update.check_enabled)
 
       windows = WinNotification::Settings.from_section(@draft.source(WinNotification::SOURCE_ID))
       set_check("sources.windows.enabled", windows.enabled)
@@ -663,6 +685,14 @@ module Runtime
       mark_dirty
     end
 
+    private def open_update_page : Nil
+      url = @update_url.call
+      return unless url
+      {% if flag?(:windows) %}
+        Win32.open_with_shell(url)
+      {% end %}
+    end
+
     private def open_repository : Nil
       {% if flag?(:windows) %}
         Win32.open_with_shell(REPOSITORY_URL)
@@ -689,6 +719,10 @@ module Runtime
       @steamvr_label.try do |label|
         label.text = I18n.t("settings.steamvr.status", {"status" => @steamvr_status.call})
       end
+      @update_label.try { |label| label.text = @update_status.call }
+      @update_button.try do |control|
+        @update_url.call.nil? ? control.disable : control.enable
+      end
     end
 
     # 画面の入力から設定スナップショットを組み立てる。
@@ -700,6 +734,8 @@ module Runtime
       root = @draft.dup_snapshot
       root.log_level = selected_value("log_level", LOG_LEVELS)
       root.language = selected_value("language", LANGUAGES)
+      root.update.channel = selected_value("update_channel", UPDATE_CHANNELS)
+      root.update.check_enabled = checked?("update.check_enabled")
 
       root.sources = root.sources.dup
       root.sources[WinNotification::SOURCE_ID] = JSON.parse({

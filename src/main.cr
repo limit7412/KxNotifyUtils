@@ -19,6 +19,9 @@ require "./runtime/win32"
 require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
+require "./update/models"
+require "./update/repository"
+require "./update/usecase"
 require "./win_notification/ffi_client"
 require "./win_notification/models"
 require "./win_notification/repository"
@@ -71,6 +74,11 @@ module KxNotifyUtils
         Runtime::Paths.manifest_path,
         Runtime::Paths.executable_path,
       )
+      # User-Agent の無い要求を GitHub API は拒む。実行中の版が分かる形にしておく。
+      @update = Update::Usecase.new(
+        Update::GitHubRepository.new("KxNotifyUtils/#{VERSION}"))
+      # 確認が走っている間か。押し直しや周期の重なりで多重に投げないために持つ。
+      @update_checking = false
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
       @settings_window = nil.as(Runtime::SettingsWindow?)
       @stopping = false
@@ -108,6 +116,7 @@ module KxNotifyUtils
       build_sinks
       start_ui
       start_steamvr
+      check_update
       main_loop
     ensure
       shutdown
@@ -264,11 +273,87 @@ module KxNotifyUtils
         VERSION,
         access_status: -> { access_status_label },
         steamvr_status: -> { steamvr_status_label },
+        update_status: -> { update_status_label },
+        update_url: -> { @update.available.try(&.url) },
       )
       window.on_request_steamvr_register = -> { register_steamvr }
       window.on_request_steamvr_unregister = -> { unregister_steamvr }
       window.on_open_notification_settings = -> { open_notification_settings }
       window
+    end
+
+    # 更新の確認（issue #10）。
+    #
+    # HTTP の応答待ちは別のファイバで行う。
+    # 主ループの中で待つと、その間は通知の中継も WebSocket の接続維持も止まる。
+    # ファイバは主ループの Fiber.yield で進むため、待っている間も常駐は動き続ける。
+    #
+    # 手動の確認は check_enabled を無視する。
+    # 自動の確認を切っている利用者でも、押したときは確かめたいはずである。
+    private def check_update(manual : Bool = false) : Nil
+      return if @update_checking
+      return unless manual || @config.current.update.check_enabled
+
+      @update_checking = true
+      spawn do
+        begin
+          notify_update(check_result(manual), manual)
+        rescue exception
+          @errors.handle("error.update_check", exception)
+        ensure
+          @update_checking = false
+        end
+      end
+    end
+
+    private def check_result(manual : Bool) : Update::CheckResult
+      channel = @config.current.update.channel
+      if manual
+        @update.check(VERSION, channel)
+      else
+        @update.check_quietly(VERSION, channel)
+      end
+    end
+
+    # 自動の確認は、新しい版が出ていたときだけ知らせる。
+    # 手動で押したときは結末をそのまま返す。黙ると無反応と区別が付かないためである。
+    private def notify_update(result : Update::CheckResult, manual : Bool) : Nil
+      case result.outcome
+      in .available?
+        release = result.release
+        return unless release
+        @errors.notify(
+          Runtime::I18n.t("notify.update_available.title"),
+          Runtime::I18n.t("notify.update_available.body", {"version" => release.tag}),
+        )
+      in .up_to_date?
+        return unless manual
+        @errors.notify(
+          Runtime::I18n.t("notify.update_none.title"),
+          Runtime::I18n.t("notify.update_none.body"),
+        )
+      in .unreachable?
+        return unless manual
+        @errors.notify(
+          Runtime::I18n.t("notify.update_failed.title"),
+          Runtime::I18n.t("notify.update_failed.body"),
+        )
+      in .unknown?
+        # 手元ビルドでは比べる相手が無い。押しても何も言わない。
+        Log.info { "実行中の版を比べられないため確認しない: #{VERSION}" }
+      end
+    end
+
+    private def update_status_label : String
+      return Runtime::I18n.t("settings.about.update_disabled") unless @config.current.update.check_enabled
+
+      if release = @update.available
+        Runtime::I18n.t("settings.about.update_available", {"version" => release.tag})
+      elsif @update.checked?
+        Runtime::I18n.t("settings.about.update_latest")
+      else
+        Runtime::I18n.t("settings.about.update_unchecked")
+      end
     end
 
     # SteamVR が起動していない状態で手動起動された場合も常駐を続け、scheduler が再試行する。
@@ -349,6 +434,8 @@ module KxNotifyUtils
         unregister_steamvr
       in .open_log_directory?
         open_with_shell(Runtime::Paths.log_directory)
+      in .check_update?
+        check_update(manual: true)
       in .quit?
         @stopping = true
       end
@@ -428,6 +515,7 @@ module KxNotifyUtils
       step_ui
       retry_source if @source_enabled && !@source_started
       retry_steamvr if steamvr_retry_needed?
+      check_update if @scheduler.check_update?
       @scheduler.step
       # 他のファイバへ実行を渡す。WebSocket の接続維持はここで進む。
       Fiber.yield
