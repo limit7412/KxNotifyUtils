@@ -23,6 +23,17 @@ private class FakeRepository < Update::Repository
     end
     Update::Catalog.new(@releases, @complete)
   end
+
+  # 取得した内容。呼ばれたかどうかの確認に使う。
+  property downloaded : Array({Update::Asset, String}) = [] of {Update::Asset, String}
+  property download_error : Exception? = nil
+
+  def download(asset : Update::Asset, path : String) : Nil
+    if error = @download_error
+      raise error
+    end
+    @downloaded << {asset, path}
+  end
 end
 
 # composition root の流れを真似る。

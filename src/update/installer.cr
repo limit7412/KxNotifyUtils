@@ -1,0 +1,150 @@
+require "digest/sha256"
+require "json"
+require "log"
+
+require "./models"
+require "./repository"
+
+module Update
+  # 取得した実行ファイルを次の起動で使えるようにする（issue #10 第 2 段階）。
+  #
+  # 実行中の exe は上書きできないが、リネームはできる。この性質だけを使う。
+  # 走っている実行ファイルを .old へ退避し、取っておいた .new を元の場所へ移す。
+  # exe のパスが変わらないため、SteamVR へ登録したマニフェストの
+  # binary_path_windows は書き換えなくてよい。
+  #
+  # 取得と置き換えを分けてあるのは、置き換えが失敗すると起動しない exe が残る操作だからである。
+  # 常駐している間は取得と検証までを行い、置き換えは起動シーケンスの先頭で行う。
+  class Installer
+    Log = ::Log.for("update")
+
+    # 読み出しの単位。
+    BUFFER_SIZE = 64 * 1024
+
+    # 取得しておいた実行ファイルに添える記録。
+    #
+    # 取得したときに一度照合しているが、置き換える前にもう一度照合する。
+    # 取得から次の起動までの間に壊れたものを、そのまま実行ファイルとして置くわけにはいかない。
+    struct Staged
+      include JSON::Serializable
+
+      getter tag : String
+      getter digest : String
+      getter size : Int64
+
+      def initialize(@tag, @digest, @size)
+      end
+    end
+
+    getter staged_path : String
+    getter previous_path : String
+
+    def initialize(
+      @repository : Repository,
+      @executable_path : String,
+      @staged_path : String,
+      @previous_path : String,
+    )
+    end
+
+    # 取得したものに添える記録の置き場所。
+    def metadata_path : String
+      "#{@staged_path}.json"
+    end
+
+    # リリースのアセットを取り、記録と一緒に残す。
+    #
+    # アセットを持たないリリースでは何もせず偽を返す。
+    # 手で作った安定版に exe を添え忘れた場合がこれにあたり、
+    # そのときは利用者にリリースページから取ってもらう。
+    def download(release : Release) : Bool
+      asset = release.asset
+      unless asset
+        Log.info { "置き換えに使えるアセットが無い: #{release.tag}" }
+        return false
+      end
+
+      @repository.download(asset, @staged_path)
+      File.write(metadata_path, Staged.new(release.tag, asset.digest, asset.size).to_json)
+      Log.info { "次の起動で置き換える実行ファイルを取得した: #{release.tag}" }
+      true
+    end
+
+    # 取得済みで、記録と照合の通る実行ファイル。無ければ nil を返す。
+    #
+    # 合わないものはその場で捨てる。残しておいても次の起動でまた同じ照合に落ちるだけであり、
+    # 取り直しの機会を与えたほうがよい。
+    def staged : Staged?
+      return nil unless File.exists?(metadata_path) && File.exists?(@staged_path)
+
+      record = Staged.from_json(File.read(metadata_path))
+      return record if verified?(record)
+
+      Log.warn { "取得しておいた実行ファイルが記録と合わないため捨てる: #{@staged_path}" }
+      discard
+      nil
+    rescue exception : JSON::Error | IO::Error
+      Log.warn(exception: exception) { "取得しておいた実行ファイルを確かめられないため捨てる" }
+      discard
+      nil
+    end
+
+    # 取得しておいたものを消す。
+    def discard : Nil
+      File.delete?(@staged_path)
+      File.delete?(metadata_path)
+    end
+
+    # 退避しておいた古い実行ファイルを消す。
+    #
+    # 置き換えた直後は、その exe がまだ走っているため消せない。
+    # 次の起動で消す。消せなくても常駐は続ける。次の機会にまた試す。
+    def discard_previous : Nil
+      return unless File.exists?(@previous_path)
+
+      File.delete(@previous_path)
+      Log.info { "置き換え前の実行ファイルを消した: #{@previous_path}" }
+    rescue exception : IO::Error
+      Log.warn(exception: exception) { "置き換え前の実行ファイルを消せなかった: #{@previous_path}" }
+    end
+
+    # 実行ファイルを置き換える。
+    #
+    # 退避に成功した後で移動に失敗したら、退避したものを戻す。
+    # 戻せないまま抜けると、実行ファイルの無い状態が残る。
+    def apply(record : Staged) : Bool
+      File.delete?(@previous_path)
+      File.rename(@executable_path, @previous_path)
+
+      begin
+        File.rename(@staged_path, @executable_path)
+      rescue exception
+        File.rename(@previous_path, @executable_path) rescue nil
+        raise exception
+      end
+
+      File.delete?(metadata_path)
+      Log.info { "実行ファイルを #{record.tag} へ置き換えた" }
+      true
+    end
+
+    # 記録された大きさと digest の両方を見る。
+    # 大きさを先に見るのは、違っていれば読まずに落とせるためである。
+    private def verified?(record : Staged) : Bool
+      return false unless File.info(@staged_path).size == record.size
+
+      digest_of(@staged_path) == record.digest
+    end
+
+    private def digest_of(path : String) : String
+      digest = Digest::SHA256.new
+      File.open(path, "rb") do |file|
+        buffer = Bytes.new(BUFFER_SIZE)
+        while (read = file.read(buffer)) > 0
+          digest.update(buffer[0, read])
+        end
+      end
+      digest.final.hexstring
+    end
+  end
+end

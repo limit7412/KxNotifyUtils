@@ -1,6 +1,8 @@
+require "digest/sha256"
 require "http/client"
 require "json"
 require "set"
+require "uri"
 
 require "./models"
 
@@ -12,6 +14,10 @@ module Update
     # チャンネルは取り方を選ぶためだけに渡す。絞り込みは呼び出し側が行う。
     # 取れなかった場合は例外を投げる。呼び出し側が握る。
     abstract def fetch_releases(channel : String) : Catalog
+
+    # アセットを path へ取り、digest と照合する。
+    # 照合まで通ったときだけ path にファイルが残る。それ以外は例外を投げる。
+    abstract def download(asset : Asset, path : String) : Nil
   end
 
   # GitHub Releases API から取る実装。
@@ -40,6 +46,22 @@ module Update
     # 主ループを止めないよう別のファイバで呼ぶが、それでも延々と待たせない。
     CONNECT_TIMEOUT = 5.seconds
     READ_TIMEOUT    = 5.seconds
+
+    # アセットの取得は数 MB を運ぶ。一覧の確認と同じ待ち時間では短すぎる。
+    # なお読み取りの待ち時間は 1 回の read ごとに数えるもので、全体の上限ではない。
+    DOWNLOAD_READ_TIMEOUT = 60.seconds
+
+    # 追うリダイレクトの上限。
+    # browser_download_url は署名付きの配布元へ 302 で渡す作りであり、
+    # Crystal の HTTP::Client は自動では追わない。
+    MAX_REDIRECTS = 5
+
+    # 受け取るアセットの上限。実物は 8 MB 前後である。
+    # 宣言された大きさがこれを超えるものは、取りに行く前に断る。
+    MAX_ASSET_SIZE = 64_i64 * 1024 * 1024
+
+    # 読み出しの単位。
+    BUFFER_SIZE = 64 * 1024
 
     # GitHub API は User-Agent の無い要求を拒む。
     def initialize(@user_agent : String)
@@ -109,6 +131,103 @@ module Update
       GitHubRepository.parse_one(response.body)
     end
 
+    # アセットを取り、digest と照合してから path へ残す。
+    #
+    # 照合を通らなければ書きかけを消して例外を投げる。
+    # 置き換えるのは実行ファイルであり、途中まで落ちたものを残しておく意味が無い。
+    def download(asset : Asset, path : String) : Nil
+      if asset.size > MAX_ASSET_SIZE
+        raise "アセットが大きすぎる: #{asset.size} バイト"
+      end
+
+      Dir.mkdir_p(File.dirname(path))
+
+      url = asset.url
+      MAX_REDIRECTS.times do
+        uri = URI.parse(url)
+        client = HTTP::Client.new(uri)
+        client.connect_timeout = CONNECT_TIMEOUT
+        client.read_timeout = DOWNLOAD_READ_TIMEOUT
+        begin
+          client.get(request_target(uri), asset_headers) do |response|
+            if location = GitHubRepository.redirect_target(response, uri)
+              url = location
+              next
+            end
+
+            unless response.success?
+              raise "アセットの取得で #{response.status_code} が返った"
+            end
+
+            GitHubRepository.store(response.body_io, asset, path)
+            return
+          end
+        ensure
+          client.close
+        end
+      end
+
+      raise "アセットの取得でリダイレクトが #{MAX_REDIRECTS} 回を超えた"
+    end
+
+    # 応答を読みながら digest を取り、通ったときだけ path へ残す。
+    #
+    # 読みながら数えるのは、宣言より大きいものを最後まで受け取らないためである。
+    # 通信から切り離してあり、spec では IO を直に渡して確かめる。
+    def self.store(source : IO, asset : Asset, path : String) : Nil
+      digest = Digest::SHA256.new
+      written = 0_i64
+
+      begin
+        File.open(path, "wb") do |file|
+          buffer = Bytes.new(BUFFER_SIZE)
+          while (read = source.read(buffer)) > 0
+            written += read
+            raise "アセットが宣言された大きさを超えた: #{asset.size} バイト" if written > asset.size
+
+            chunk = buffer[0, read]
+            digest.update(chunk)
+            file.write(chunk)
+          end
+        end
+
+        unless written == asset.size
+          raise "アセットの大きさが宣言と違う: #{written} / #{asset.size} バイト"
+        end
+
+        actual = digest.final.hexstring
+        unless actual == asset.digest
+          raise "アセットの digest が合わない: #{actual} / #{asset.digest}"
+        end
+      rescue exception
+        File.delete?(path)
+        raise exception
+      end
+    end
+
+    # リダイレクトなら次に当たる先を返す。そうでなければ nil を返す。
+    # 相対の Location も受け付ける。仕様では絶対でなくてよい。
+    def self.redirect_target(response : HTTP::Client::Response, from : URI) : String?
+      return nil unless response.status.redirection?
+
+      location = response.headers["Location"]?
+      raise "リダイレクトに Location が無い" unless location
+      from.resolve(location).to_s
+    end
+
+    private def asset_headers : HTTP::Headers
+      HTTP::Headers{
+        "Accept"     => "application/octet-stream",
+        "User-Agent" => @user_agent,
+      }
+    end
+
+    private def request_target(uri : URI) : String
+      query = uri.query
+      path = uri.path.empty? ? "/" : uri.path
+      query ? "#{path}?#{query}" : path
+    end
+
     private def get(url : String) : HTTP::Client::Response
       uri = URI.parse(url)
       client = HTTP::Client.new(uri)
@@ -149,7 +268,25 @@ module Update
       version = Version.parse?(payload.tag_name)
       return nil unless version
 
-      Release.new(version, payload.tag_name, payload.html_url, payload.prerelease)
+      Release.new(version, payload.tag_name, payload.html_url, payload.prerelease, asset_of(payload))
+    end
+
+    # 置き換えに使えるアセットを 1 つ選ぶ。
+    # 名前が合い、アップロードが済み、digest を持つものだけが対象になる。
+    private def self.asset_of(payload : Payload) : Asset?
+      payload.assets.each do |attached|
+        next unless attached.state == "uploaded"
+
+        asset = Asset.parse?(
+          attached.name,
+          attached.browser_download_url,
+          attached.digest,
+          attached.size,
+        )
+        return asset if asset
+      end
+
+      nil
     end
 
     # 応答のうち、確認に使う項目だけを読む。
@@ -160,6 +297,20 @@ module Update
       getter html_url : String
       getter prerelease : Bool = false
       getter draft : Bool = false
+      getter assets : Array(AssetPayload) = [] of AssetPayload
+    end
+
+    # 添付のうち、置き換えに使う項目だけを読む。
+    struct AssetPayload
+      include JSON::Serializable
+
+      getter name : String
+      getter browser_download_url : String
+      # GitHub が計算した digest。付かないリリースもあるため任意とする。
+      getter digest : String? = nil
+      getter size : Int64 = 0
+      # アップロードの途中のものを掴まないために見る。
+      getter state : String = "uploaded"
     end
   end
 end

@@ -1,8 +1,7 @@
 require "json"
 
-# 更新の確認（issue #10 の第 1 段階）。
-# GitHub Releases に出た新しい版を見つけて利用者へ知らせるところまでを担う。
-# 取得と置き換えは第 2 段階であり、ここには含まない。
+# 更新の確認と置き換え（issue #10）。
+# GitHub Releases に出た新しい版を見つけて知らせ、取得して次の起動で置き換えるまでを担う。
 module Update
   # リリースのタグが表す版。
   #
@@ -73,6 +72,40 @@ module Update
     end
   end
 
+  # リリースに添付された実行ファイル（issue #10 第 2 段階）。
+  #
+  # digest を持たないものは扱わない。置き換えるのは実行ファイルそのものであり、
+  # 取ってきたものが本当にそのリリースのものかを確かめずに置くわけにはいかない。
+  # 確かめられなければ、リリースページを開いてもらうところまでで止める。
+  struct Asset
+    # sha256 の 16 進表記。API は "sha256:..." で返すが、接頭辞は落として持つ。
+    getter digest : String
+    getter url : String
+    getter size : Int64
+
+    DIGEST_PREFIX = "sha256:"
+    # 16 進 64 桁。桁数と字種を見ておかないと、照合の相手として使えない値を持ち込む。
+    DIGEST_PATTERN = /\A[0-9a-f]{64}\z/
+
+    def initialize(@digest, @url, @size)
+    end
+
+    # API の応答から、置き換えに使えるものだけを組み立てる。
+    #
+    # 名前で絞るのは、リリースに別のアセットが増えても取り違えないためである。
+    # 大きさを見るのは、宣言と実物の食い違いを取得の側で打ち切れるようにするためである。
+    def self.parse?(name : String, url : String, digest : String?, size : Int64) : Asset?
+      return nil unless name == ASSET_NAME
+      return nil unless size > 0
+      return nil unless digest && digest.starts_with?(DIGEST_PREFIX)
+
+      hex = digest[DIGEST_PREFIX.size..].downcase
+      return nil unless DIGEST_PATTERN.matches?(hex)
+
+      Asset.new(hex, url, size)
+    end
+  end
+
   # 確認の対象にするリリース。
   struct Release
     getter version : Version
@@ -80,8 +113,10 @@ module Update
     getter url : String
     # GitHub 上でプレリリースとして作られたか。
     getter prerelease : Bool
+    # 置き換えに使えるアセット。digest が無いか、名前が違えば nil になる。
+    getter asset : Asset?
 
-    def initialize(@version, @tag, @url, @prerelease = false)
+    def initialize(@version, @tag, @url, @prerelease = false, @asset = nil)
     end
 
     # 安定版のチャンネルで拾う対象か。
@@ -110,4 +145,7 @@ module Update
 
   # 更新の確認の設定（設定ファイルの update セクション）。
   CHANNELS = %w[stable test]
+
+  # リリースに添付される実行ファイルの名前（PR #9、PR #11）。
+  ASSET_NAME = "KxNotifyUtils.exe"
 end

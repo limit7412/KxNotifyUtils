@@ -2,6 +2,21 @@ require "../spec_helper"
 require "../../src/update/repository"
 
 # 応答の読み取りだけを確かめる。実際の通信は Windows の実機でしか確かめられない（issue #10）。
+
+private def asset_for(body : String) : Update::Asset
+  Update::Asset.new(Digest::SHA256.hexdigest(body), "https://example.test/asset", body.bytesize.to_i64)
+end
+
+# 実ファイルを触る確認のための置き場所。使い終わったら消す。
+private def with_temporary_path(& : String -> Nil) : Nil
+  path = File.join(Dir.tempdir, "kxnotifyutils-spec-#{Random::Secure.hex(8)}")
+  begin
+    yield path
+  ensure
+    File.delete?(path)
+  end
+end
+
 describe Update::GitHubRepository do
   describe ".parse" do
     it "タグと URL とプレリリースの印を読む" do
@@ -98,6 +113,155 @@ describe Update::GitHubRepository do
         %({"tag_name": "nightly", "html_url": "https://example.test/nightly"}))
 
       releases.should be_empty
+    end
+  end
+
+  describe "アセットの読み取り" do
+    it "名前と digest が揃ったアセットを拾う" do
+      releases = Update::GitHubRepository.parse(%([{
+        "tag_name": "1.0.0",
+        "html_url": "https://example.test/1.0.0",
+        "assets": [{
+          "name": "KxNotifyUtils.exe",
+          "browser_download_url": "https://example.test/download/KxNotifyUtils.exe",
+          "digest": "sha256:#{"a" * 64}",
+          "size": 1024
+        }]
+      }]))
+
+      asset = releases.first.asset.not_nil!
+      asset.digest.should eq "a" * 64
+      asset.url.should eq "https://example.test/download/KxNotifyUtils.exe"
+      asset.size.should eq 1024
+    end
+
+    # 取ってきたものがそのリリースのものか確かめられない。
+    # 実行ファイルを置き換える操作であり、確かめずに進むわけにはいかない。
+    it "digest の無いアセットは扱わない" do
+      releases = Update::GitHubRepository.parse(%([{
+        "tag_name": "1.0.0",
+        "html_url": "https://example.test/1.0.0",
+        "assets": [{
+          "name": "KxNotifyUtils.exe",
+          "browser_download_url": "https://example.test/download/KxNotifyUtils.exe",
+          "size": 1024
+        }]
+      }]))
+
+      releases.first.asset.should be_nil
+    end
+
+    it "名前の違うアセットは扱わない" do
+      releases = Update::GitHubRepository.parse(%([{
+        "tag_name": "1.0.0",
+        "html_url": "https://example.test/1.0.0",
+        "assets": [{
+          "name": "KxNotifyUtils.zip",
+          "browser_download_url": "https://example.test/download/KxNotifyUtils.zip",
+          "digest": "sha256:#{"a" * 64}",
+          "size": 1024
+        }]
+      }]))
+
+      releases.first.asset.should be_nil
+    end
+
+    # アップロードの途中のものを掴むと、宣言された大きさに届かない。
+    it "アップロードの済んでいないアセットは扱わない" do
+      releases = Update::GitHubRepository.parse(%([{
+        "tag_name": "1.0.0",
+        "html_url": "https://example.test/1.0.0",
+        "assets": [{
+          "name": "KxNotifyUtils.exe",
+          "browser_download_url": "https://example.test/download/KxNotifyUtils.exe",
+          "digest": "sha256:#{"a" * 64}",
+          "size": 1024,
+          "state": "starter"
+        }]
+      }]))
+
+      releases.first.asset.should be_nil
+    end
+
+    it "アセットが無いリリースも読める" do
+      releases = Update::GitHubRepository.parse(
+        %([{"tag_name": "1.0.0", "html_url": "https://example.test/1.0.0"}]))
+
+      releases.first.asset.should be_nil
+    end
+  end
+
+  describe ".store" do
+    it "digest が合えば書き出す" do
+      with_temporary_path do |path|
+        body = "KxNotifyUtils"
+        Update::GitHubRepository.store(IO::Memory.new(body), asset_for(body), path)
+
+        File.read(path).should eq body
+      end
+    end
+
+    # 途中まで落ちたものを残しても、次に使えるわけではない。
+    it "digest が合わなければ書きかけを残さない" do
+      with_temporary_path do |path|
+        asset = Update::Asset.new("b" * 64, "https://example.test/asset", 13_i64)
+
+        expect_raises(Exception, /digest/) do
+          Update::GitHubRepository.store(IO::Memory.new("KxNotifyUtils"), asset, path)
+        end
+
+        File.exists?(path).should be_false
+      end
+    end
+
+    it "宣言より短ければ書きかけを残さない" do
+      with_temporary_path do |path|
+        body = "KxNotifyUtils"
+        asset = Update::Asset.new(Digest::SHA256.hexdigest(body), "https://example.test/asset", 99_i64)
+
+        expect_raises(Exception, /大きさ/) do
+          Update::GitHubRepository.store(IO::Memory.new(body), asset, path)
+        end
+
+        File.exists?(path).should be_false
+      end
+    end
+
+    # 宣言を超えた分まで受け取ってから気付くと、その間ディスクを埋め続ける。
+    it "宣言を超えたら読み切らずに打ち切る" do
+      with_temporary_path do |path|
+        asset = Update::Asset.new("a" * 64, "https://example.test/asset", 4_i64)
+
+        expect_raises(Exception, /超えた/) do
+          Update::GitHubRepository.store(IO::Memory.new("KxNotifyUtils"), asset, path)
+        end
+
+        File.exists?(path).should be_false
+      end
+    end
+  end
+
+  describe ".redirect_target" do
+    it "相対の Location を絶対へ直す" do
+      response = HTTP::Client::Response.new(302, headers: HTTP::Headers{"Location" => "/moved"})
+
+      Update::GitHubRepository.redirect_target(response, URI.parse("https://example.test/asset"))
+        .should eq "https://example.test/moved"
+    end
+
+    it "リダイレクトでなければ nil を返す" do
+      response = HTTP::Client::Response.new(200)
+
+      Update::GitHubRepository.redirect_target(response, URI.parse("https://example.test/asset"))
+        .should be_nil
+    end
+
+    it "Location が無ければ例外にする" do
+      response = HTTP::Client::Response.new(302)
+
+      expect_raises(Exception, /Location/) do
+        Update::GitHubRepository.redirect_target(response, URI.parse("https://example.test/asset"))
+      end
     end
   end
 end

@@ -1,0 +1,174 @@
+require "../spec_helper"
+require "../../src/update/installer"
+
+# 実ファイルの入れ替えを確かめる。
+# Windows で実行中の exe をリネームできることそのものは実機でしか確かめられない（issue #10）。
+
+private class FakeRepository < Update::Repository
+  property body : String = "新しい実行ファイル"
+  property error : Exception? = nil
+  getter downloads = 0
+
+  def fetch_releases(channel : String) : Update::Catalog
+    Update::Catalog.new([] of Update::Release)
+  end
+
+  def download(asset : Update::Asset, path : String) : Nil
+    @downloads += 1
+    if error = @error
+      raise error
+    end
+    File.write(path, @body)
+  end
+end
+
+private record Fixture,
+  installer : Update::Installer,
+  repository : FakeRepository,
+  executable : String
+
+private def with_installer(& : Fixture -> Nil) : Nil
+  directory = File.join(Dir.tempdir, "kxnotifyutils-spec-#{Random::Secure.hex(8)}")
+  Dir.mkdir_p(directory)
+  begin
+    executable = File.join(directory, "KxNotifyUtils.exe")
+    File.write(executable, "実行中の実行ファイル")
+    repository = FakeRepository.new
+    installer = Update::Installer.new(
+      repository,
+      executable,
+      "#{executable}.new",
+      "#{executable}.old",
+    )
+    yield Fixture.new(installer, repository, executable)
+  ensure
+    FileUtils.rm_rf(directory)
+  end
+end
+
+private def release(tag : String, body : String) : Update::Release
+  Update::Release.new(
+    Update::Version.parse?(tag).not_nil!,
+    tag,
+    "https://example.test/#{tag}",
+    false,
+    Update::Asset.new(
+      Digest::SHA256.hexdigest(body),
+      "https://example.test/#{tag}/KxNotifyUtils.exe",
+      body.bytesize.to_i64,
+    ),
+  )
+end
+
+describe Update::Installer do
+  describe "#download" do
+    it "取得して記録を添える" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body)).should be_true
+
+        staged = fixture.installer.staged.not_nil!
+        staged.tag.should eq "1.0.0"
+        File.read(fixture.installer.staged_path).should eq fixture.repository.body
+      end
+    end
+
+    # 手で作った安定版に exe を添え忘れた場合がこれにあたる。
+    # 取りに行く先が無いので、リリースページを開いてもらうところで止める。
+    it "アセットの無いリリースは取りに行かない" do
+      with_installer do |fixture|
+        without_asset = Update::Release.new(
+          Update::Version.new(1, 0, 0), "1.0.0", "https://example.test/1.0.0")
+
+        fixture.installer.download(without_asset).should be_false
+        fixture.repository.downloads.should eq 0
+      end
+    end
+  end
+
+  describe "#staged" do
+    it "取得していなければ nil を返す" do
+      with_installer do |fixture|
+        fixture.installer.staged.should be_nil
+      end
+    end
+
+    # 取得から次の起動までの間に壊れることはある。
+    # 壊れたものを実行ファイルとして置くわけにはいかない。
+    it "記録と中身が食い違えば捨てる" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+        File.write(fixture.installer.staged_path, "書き換えられた中身")
+
+        fixture.installer.staged.should be_nil
+        File.exists?(fixture.installer.staged_path).should be_false
+        File.exists?(fixture.installer.metadata_path).should be_false
+      end
+    end
+
+    it "記録を読めなければ捨てる" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+        File.write(fixture.installer.metadata_path, "{ 壊れている")
+
+        fixture.installer.staged.should be_nil
+        File.exists?(fixture.installer.staged_path).should be_false
+      end
+    end
+
+    # 片方だけ残っていても置き換えには使えない。
+    it "記録だけが残っていても使わない" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+        File.delete(fixture.installer.staged_path)
+
+        fixture.installer.staged.should be_nil
+      end
+    end
+  end
+
+  describe "#apply" do
+    it "実行中のものを退避して置き換える" do
+      with_installer do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+        staged = fixture.installer.staged.not_nil!
+
+        fixture.installer.apply(staged).should be_true
+
+        File.read(fixture.executable).should eq fixture.repository.body
+        File.read(fixture.installer.previous_path).should eq "実行中の実行ファイル"
+        # 置き換えた後は取得済みとして残さない。次の起動でまた同じものを置かないためである。
+        fixture.installer.staged.should be_nil
+      end
+    end
+
+    # 前回の置き換えで消し損ねた .old が残っていることはある。
+    it "前回の退避が残っていても置き換えられる" do
+      with_installer do |fixture|
+        File.write(fixture.installer.previous_path, "前回の退避")
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+
+        fixture.installer.apply(fixture.installer.staged.not_nil!).should be_true
+
+        File.read(fixture.executable).should eq fixture.repository.body
+      end
+    end
+  end
+
+  describe "#discard_previous" do
+    it "退避しておいたものを消す" do
+      with_installer do |fixture|
+        File.write(fixture.installer.previous_path, "前回の退避")
+
+        fixture.installer.discard_previous
+
+        File.exists?(fixture.installer.previous_path).should be_false
+      end
+    end
+
+    it "退避が無ければ何もしない" do
+      with_installer do |fixture|
+        fixture.installer.discard_previous
+      end
+    end
+  end
+end
