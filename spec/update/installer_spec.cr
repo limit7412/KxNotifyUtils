@@ -22,26 +22,36 @@ private class FakeRepository < Update::Repository
   end
 end
 
+# 正規のパスへの移動だけが失敗する Installer。
+# 退避（exe → .old）は通り、移動（.new → exe）と戻し（.old → exe）が落ちる。
+private class BrokenInstaller < Update::Installer
+  protected def move(from : String, to : String) : Nil
+    raise File::Error.new("動かせない", file: from) if to == @executable_path
+    super
+  end
+end
+
 private record Fixture,
   installer : Update::Installer,
   repository : FakeRepository,
   executable : String
 
-private def with_installer(running : String = "0.0.1", & : Fixture -> Nil) : Nil
+private def with_installer(running : String = "0.0.1", broken : Bool = false, & : Fixture -> Nil) : Nil
   directory = File.join(Dir.tempdir, "kxnotifyutils-spec-#{Random::Secure.hex(8)}")
   Dir.mkdir_p(directory)
   begin
     executable = File.join(directory, "KxNotifyUtils.exe")
     File.write(executable, "実行中の実行ファイル")
     repository = FakeRepository.new
-    installer = Update::Installer.new(
-      repository,
-      running,
-      executable,
-      "#{executable}.new",
-      "#{executable}.old",
-    )
-    yield Fixture.new(installer, repository, executable)
+    staged = "#{executable}.new"
+    previous = "#{executable}.old"
+    installer =
+      if broken
+        BrokenInstaller.new(repository, running, executable, staged, previous)
+      else
+        Update::Installer.new(repository, running, executable, staged, previous)
+      end
+    yield Fixture.new(installer.as(Update::Installer), repository, executable)
   ensure
     FileUtils.rm_rf(directory)
   end
@@ -151,6 +161,27 @@ describe Update::Installer do
         fixture.installer.apply(fixture.installer.staged.not_nil!).should be_true
 
         File.read(fixture.executable).should eq fixture.repository.body
+      end
+    end
+
+    # 退避には成功したが、移動も戻しも失敗する状況を真似る。
+    # 実ファイルでは、退避した直後に別のプロセスが正規のパスを埋めた場合がこれにあたる。
+    #
+    # このとき正規のパスに実行ファイルが無い状態が残る。
+    # 呼び出し側が通常の失敗と同じに扱って取得済みを捨てると、
+    # 復旧の材料が、戻せなかった .old だけになる。
+    it "退避を戻せなければ通常の失敗と区別する" do
+      with_installer(broken: true) do |fixture|
+        fixture.installer.download(release("1.0.0", fixture.repository.body))
+        staged = fixture.installer.staged.not_nil!
+
+        expect_raises(Update::Installer::RollbackFailed) do
+          fixture.installer.apply(staged)
+        end
+
+        # 復旧の材料は両方残っている。
+        File.exists?(fixture.installer.staged_path).should be_true
+        File.exists?(fixture.installer.previous_path).should be_true
       end
     end
   end

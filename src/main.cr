@@ -66,6 +66,9 @@ module KxNotifyUtils
       @steamvr_sync_pending = false
       # 設定へ書けなかった SteamVR の記録。書ける機会に書き直すために持つ。
       @steamvr_record_pending = nil.as({Bool, String}?)
+      # 置き換えに失敗して実行ファイルが正規のパスに無いか。
+      # 起動時に起きた場合、トレイを立てた後に知らせるために持つ（issue #10 第 2 段階）。
+      @update_recovery_needed = false
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -151,6 +154,8 @@ module KxNotifyUtils
         Log.error { "トレイを作れなかった。操作する手立てが無いため起動を終える" }
         return
       end
+      # 置き換えに失敗して実行ファイルが無いままなら、トレイが立った今ここで知らせる。
+      notify_update_recovery
       # 置き換えたときに残る古い実行ファイルは、次の起動、つまりここで消す。
       @installer.discard_previous
       register_validators
@@ -397,6 +402,9 @@ module KxNotifyUtils
           @errors.handle("error.update_check", exception)
         ensure
           @update_checking = false
+          # 見つけた版はトレイの項目を変える。確認はファイバで進むため、
+          # ここで写し直さないと、次に何かが状態を触るまで「更新を取得する」が出ない。
+          update_tray_state
           flush_pending_update_check
         end
       end
@@ -445,9 +453,13 @@ module KxNotifyUtils
       in .available?
         release = result.release
         return false unless release
+        # 取得できるかどうかで案内を分ける。
+        # アセットが無いか digest が付いていないリリースでは取得の項目を出さないため、
+        # 「取得できる」と書くと、押す先の無い案内になる。
+        body = release.asset ? "notify.update_available.body" : "notify.update_available.body_release_page"
         shown = @errors.notify(
           Runtime::I18n.t("notify.update_available.title"),
-          Runtime::I18n.t("notify.update_available.body", {"version" => release.tag}),
+          Runtime::I18n.t(body, {"version" => release.tag}),
         )
         # 出せたときだけ覚える。
         # 出ていない版を覚えると、利用者が一度も見ないまま以後の確認で抑止される。
@@ -551,6 +563,14 @@ module KxNotifyUtils
       reacquire_single_instance
       Log.error { "置き換えた実行ファイルを起動できなかった。次の起動から新しい版になる" }
       false
+    rescue exception : Update::Installer::RollbackFailed
+      # 正規のパスに実行ファイルが無い。取得しておいたものは捨てない。
+      # 捨てると復旧の材料が .old だけになり、そちらも戻せなかったからここへ来ている。
+      # 常駐はメモリ上で続くが、次の起動には実行ファイルが要る。利用者へ伝える。
+      Log.error(exception: exception) { "置き換えに失敗し、退避した実行ファイルも戻せなかった" }
+      @update_recovery_needed = true
+      notify_update_recovery
+      false
     rescue exception
       # 置き換えに失敗しても常駐は続ける。
       # 退避したものは Installer が戻しており、実行ファイルは元のままである。
@@ -558,6 +578,20 @@ module KxNotifyUtils
       Log.error(exception: exception) { "取得しておいた更新を適用できなかった" }
       @installer.discard
       false
+    end
+
+    # 実行ファイルが正規のパスに無いことを利用者へ伝える。
+    #
+    # 起動時に起きた場合、この時点ではトレイがまだ無い。
+    # 印だけ立てておき、トレイを立てた後に呼び直す。
+    private def notify_update_recovery : Nil
+      return unless @update_recovery_needed
+      return unless @errors.notify(
+                      Runtime::I18n.t("notify.update_broken.title"),
+                      Runtime::I18n.t("notify.update_broken.body"),
+                    )
+
+      @update_recovery_needed = false
     end
 
     # 利用者の操作で、その場で置き換えて入れ替わる。

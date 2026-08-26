@@ -21,6 +21,21 @@ module Update
     # 読み出しの単位。
     BUFFER_SIZE = 64 * 1024
 
+    # 退避した実行ファイルを戻せなかった。
+    #
+    # 正規のパスに実行ファイルが無い状態であり、置き換えの失敗の中でも扱いが違う。
+    # 取得しておいたものを捨ててはならない。捨てると復旧の材料が .old だけになり、
+    # そちらも戻せなかったからここへ来ている。
+    class RollbackFailed < Exception
+      getter executable_path : String
+      getter previous_path : String
+      getter staged_path : String
+
+      def initialize(@executable_path, @previous_path, @staged_path)
+        super("退避した実行ファイルを戻せなかった: #{@previous_path} を #{@executable_path} へ戻す必要がある")
+      end
+    end
+
     # 取得しておいた実行ファイルに添える記録。
     #
     # 取得したときに一度照合しているが、置き換える前にもう一度照合する。
@@ -122,21 +137,42 @@ module Update
     # 実行ファイルを置き換える。
     #
     # 退避に成功した後で移動に失敗したら、退避したものを戻す。
-    # 戻せないまま抜けると、実行ファイルの無い状態が残る。
+    # 戻せなければ正規のパスに実行ファイルが無い状態が残るため、
+    # 通常の失敗とは別の例外にして呼び出し側へ伝える。
+    # そちらでは取得しておいたものを捨ててはならない。復旧の材料になる。
     def apply(record : Staged) : Bool
       File.delete?(@previous_path)
-      File.rename(@executable_path, @previous_path)
+      move(@executable_path, @previous_path)
 
       begin
-        File.rename(@staged_path, @executable_path)
+        move(@staged_path, @executable_path)
       rescue exception
-        File.rename(@previous_path, @executable_path) rescue nil
+        begin
+          move(@previous_path, @executable_path)
+        rescue rollback
+          Log.error(exception: rollback) do
+            "退避した実行ファイルを戻せなかった。" \
+            "#{@previous_path} を #{@executable_path} へ戻すか、" \
+            "#{@staged_path} を置く必要がある"
+          end
+          raise RollbackFailed.new(@executable_path, @previous_path, @staged_path)
+        end
+
         raise exception
       end
 
       File.delete?(metadata_path)
       Log.info { "実行ファイルを #{record.tag} へ置き換えた" }
       true
+    end
+
+    # 実ファイルの入れ替え。
+    #
+    # 置き換えの成否はこの 3 回の移動だけで決まる。
+    # 1 か所にまとめてあるのは、失敗の場合分けをここへ寄せるためであり、
+    # spec ではここを差し替えて、戻しまで失敗する状況を作る。
+    protected def move(from : String, to : String) : Nil
+      File.rename(from, to)
     end
 
     # 取得しておいたものが実行中より新しいか。

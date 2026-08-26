@@ -130,11 +130,14 @@
   "notify.update_no_asset.title": "The update cannot be downloaded",
   "notify.update_no_asset.body": "This release has no executable attached. Download it from the release page.",
   "notify.update_apply_failed.title": "Could not apply the update",
-  "notify.update_apply_failed.body": "Could not replace the executable. It will be retried the next time the app starts.",
+  "notify.update_apply_failed.body": "Could not replace the executable. Download it again and retry.",
   "settings.about.update_downloading": "Downloading the update",
   "settings.about.update_staged": "Ready: {version} (will be applied on the next start)",
   "settings.about.update_download": "Download the update",
   "settings.about.update_apply": "Apply and restart",
   "error.update_download": "Downloading the update",
-  "error.update_apply": "Applying the update"
+  "error.update_apply": "Applying the update",
+  "notify.update_available.body_release_page": "{version} has been released. Open the release page from the About tab.",
+  "notify.update_broken.title": "The executable is missing from its original path",
+  "notify.update_broken.body": "The replacement failed and the saved executable could not be restored. Recovery steps have been written to the log."
 }
