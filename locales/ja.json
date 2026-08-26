@@ -24,6 +24,8 @@
   "notify.config_invalid.title": "設定を読めなかった",
   "notify.config_reloaded.title": "設定を再読み込みした",
   "notify.config_reloaded.body": "編集した設定を反映した。",
+  "notify.test.title": "テスト通知",
+  "notify.test.body": "この表示と音で通知が届く。",
   "notify.steamvr_unregister_partial.title": "SteamVR の登録解除が途中で止まった",
   "notify.steamvr_unregister_partial.body": "自動起動は無効にした。vrmanifest の登録解除に失敗したため、SteamVR 側にアプリの登録が残っている。",
   "status.access.allowed": "許可されている",

@@ -782,7 +782,11 @@ module Runtime
         return
       end
 
-      @relay.send_test(root.defaults.to_resolved)
+      @relay.send_test(
+        root.defaults.to_resolved,
+        I18n.t("notify.test.title"),
+        I18n.t("notify.test.body"),
+      )
     end
 
     # 未保存の変更があるまま閉じようとしたときは、一度警告を出して操作をやり直させる。

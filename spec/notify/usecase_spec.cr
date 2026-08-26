@@ -174,11 +174,12 @@ describe Notify::RelayUsecase do
     usecase = build_usecase([] of Notify::SourceRepository, [sink.as(Notify::PostRepository)])
 
     resolved = Config::Defaults.from_json(%({"volume": 0.9, "title_template": "{title}"})).to_resolved
-    usecase.send_test(resolved)
+    usecase.send_test(resolved, "件名", "本文")
 
     sink.sent.size.should eq 1
     sink.sent.first.volume.should eq 0.9
-    sink.sent.first.title.should eq "テスト通知"
+    # 件名と本文は呼び出し側が渡す。usecase は辞書を知らない（issue #4）。
+    sink.sent.first.title.should eq "件名"
   end
 
   it "観測した app_id を設定 GUI の入力補助のために覚える" do

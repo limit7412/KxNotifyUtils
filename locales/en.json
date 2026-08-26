@@ -24,6 +24,8 @@
   "notify.config_invalid.title": "Could not read the config",
   "notify.config_reloaded.title": "Config reloaded",
   "notify.config_reloaded.body": "The edited config has been applied.",
+  "notify.test.title": "Test notification",
+  "notify.test.body": "Notifications arrive with this look and sound.",
   "notify.steamvr_unregister_partial.title": "SteamVR unregistration stopped partway",
   "notify.steamvr_unregister_partial.body": "Auto-launch has been disabled, but removing the vrmanifest registration failed, so the app is still registered on the SteamVR side.",
   "status.access.allowed": "allowed",

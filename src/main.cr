@@ -332,7 +332,11 @@ module KxNotifyUtils
         update_tray_state
         Log.info { @relay.paused ? "中継を一時停止した" : "中継を再開した" }
       in .send_test_message?
-        @relay.send_test(@config.current.defaults.to_resolved)
+        @relay.send_test(
+          @config.current.defaults.to_resolved,
+          Runtime::I18n.t("notify.test.title"),
+          Runtime::I18n.t("notify.test.body"),
+        )
       in .open_settings?
         @settings_window.try(&.open)
       in .open_config_file?
