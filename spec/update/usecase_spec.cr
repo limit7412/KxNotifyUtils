@@ -192,6 +192,30 @@ describe Update::Usecase do
       usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
     end
 
+    # チャンネルを往復すると記録が入れ替わる。
+    # 等値で見ていると、往復のたびに同じ安定版を知らせ直すことになる。
+    it "知らせた版より古い版は知らせ直さない" do
+      repository = FakeRepository.new([release("2.0.0"), release("2.1.0-test1", prerelease: true)])
+      usecase = Update::Usecase.new(repository)
+
+      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      usecase.check_quietly("1.0.0", "test").outcome.should eq Update::Outcome::Available
+
+      # stable へ戻す。2.0.0 は 2.1.0-test1 より古いので知らせ直さない。
+      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+    end
+
+    it "mark_notified は記録より古い版で上書きしない" do
+      repository = FakeRepository.new([release("2.1.0-test1", prerelease: true)])
+      usecase = Update::Usecase.new(repository)
+      usecase.check_quietly("1.0.0", "test")
+
+      older = release("2.0.0")
+      usecase.mark_notified(older)
+
+      usecase.notified_tag.should eq "2.1.0-test1"
+    end
+
     it "復元した版より新しい版は知らせる" do
       usecase = Update::Usecase.new(FakeRepository.new([release("3.0.0")]))
       usecase.notified_tag = "2.0.0"

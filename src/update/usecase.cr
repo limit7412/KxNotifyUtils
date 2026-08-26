@@ -63,7 +63,13 @@ module Update
     # 知らせた版として覚える。
     # 自動の確認は check_quietly が自分で覚えるが、手動の確認は check を通るため、
     # 知らせた側が明示的に呼ぶ。呼ばないと次の確認や再起動で同じ版をもう一度知らせる。
+    #
+    # 記録より古い版で上書きしない。チャンネルを往復したときに、
+    # 既に伝えてある版より古いものへ記録が下がると、その版をまた知らせることになる。
     def mark_notified(release : Release) : Nil
+      notified = @notified
+      return if notified && notified >= release.version
+
       @notified = release.version
     end
 
@@ -81,13 +87,19 @@ module Update
     end
 
     # 自動の確認。
-    # 新しい版でも、既に知らせた版なら UpToDate として返し、二度は知らせない。
+    # 知らせた版と同じか、それより古い版なら UpToDate として返し、二度は知らせない。
+    #
+    # 等値で見るわけにはいかない。チャンネルを往復すると記録が入れ替わるためである。
+    # stable の 2.0.0 を知らせた後に test の 2.1.0-test1 を知らせて stable へ戻すと、
+    # 記録は 2.1.0-test1 になっており、等値では 2.0.0 を未通知と判断して知らせ直す。
+    # 「これ以上に新しいものは既に伝えてある」と読めば、往復しても増えない。
     def check_quietly(current : String, channel : String) : CheckResult
       result = check(current, channel)
       release = result.release
       return result unless result.available? && release
 
-      if @notified == release.version
+      notified = @notified
+      if notified && notified >= release.version
         return CheckResult.new(Outcome::UpToDate, release)
       end
 

@@ -82,6 +82,8 @@ module KxNotifyUtils
       # 確認の最中に来た要求。終わってから改めて確認するために覚える。
       @update_recheck = false
       @update_recheck_manual = false
+      # 直近の確認の結末。保留していた手動の要求へ、確認を投げ直さずに応えるために持つ。
+      @update_last_result = nil.as(Update::CheckResult?)
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
       @settings_window = nil.as(Runtime::SettingsWindow?)
       @stopping = false
@@ -312,9 +314,18 @@ module KxNotifyUtils
       end
 
       @update_checking = true
+      channel = @config.current.update.channel
       spawn do
         begin
-          notify_update(check_result(manual), manual)
+          result = check_result(manual, channel)
+
+          # 確認の最中にチャンネルが変わっていたら、この結果は今の設定のものではない。
+          # stable を選び直した利用者へプレリリースのバルーンを出すわけにはいかない。
+          # 保留した確認が今のチャンネルで取り直す。
+          if channel == @config.current.update.channel
+            @update_last_result = result
+            notify_update(result, manual)
+          end
         rescue exception
           @errors.handle("error.update_check", exception)
         ensure
@@ -324,18 +335,34 @@ module KxNotifyUtils
       end
     end
 
-    # 確認の最中に来ていた要求をここで実行する。
+    # 確認の最中に来ていた要求をここで片付ける。
     private def flush_pending_update_check : Nil
       return unless @update_recheck
 
       @update_recheck = false
       manual = @update_recheck_manual
       @update_recheck_manual = false
-      check_update(manual: manual)
+
+      # チャンネルが変わっていれば取り直す。
+      unless @update.checked?(@config.current.update.channel)
+        check_update(manual: manual)
+        return
+      end
+
+      # 今のチャンネルの確認は終わっている。保留していたのは手動の要求だけなので、
+      # 同じ確認をもう一度投げずに、終わった結果をそのまま知らせる。
+      return unless manual
+      result = @update_last_result
+      return unless result
+
+      # 終わった確認が既に知らせていれば重ねない。
+      # 待っている間にバルーンが出ているため、押した側への応答は済んでいる。
+      return if result.available?
+
+      notify_update(result, manual: true)
     end
 
-    private def check_result(manual : Bool) : Update::CheckResult
-      channel = @config.current.update.channel
+    private def check_result(manual : Bool, channel : String) : Update::CheckResult
       if manual
         @update.check(VERSION, channel)
       else
@@ -350,11 +377,14 @@ module KxNotifyUtils
       in .available?
         release = result.release
         return unless release
-        @errors.notify(
+        shown = @errors.notify(
           Runtime::I18n.t("notify.update_available.title"),
           Runtime::I18n.t("notify.update_available.body", {"version" => release.tag}),
         )
-        # 手動の確認は check を通るため、知らせた側で覚える。
+        # 出せたときだけ覚える。
+        # 出ていない版を覚えると、利用者が一度も見ないまま以後の確認で抑止される。
+        # 手動の確認は check を通るため、覚えるのは知らせた側の仕事である。
+        return unless shown
         @update.mark_notified(release)
         remember_notified_update
       in .up_to_date?

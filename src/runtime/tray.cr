@@ -101,14 +101,18 @@ module Runtime
     end
 
     # バルーン通知。許可の誘導とエラーの通知に使う。
-    def show_balloon(title : String, body : String, level : UInt32 = LibWin32::NIIF_INFO) : Nil
-      return unless @added
+    # 出せたかどうかを返す。
+    # アイコンを登録できていなければ何も出ない。Explorer の再起動後に
+    # 登録し直せなかった場合がこれにあたる。
+    # 出たことにして進む呼び出し側があるため、黙って戻らない（issue #10）。
+    def show_balloon(title : String, body : String, level : UInt32 = LibWin32::NIIF_INFO) : Bool
+      return false unless @added
 
       data = notify_icon_data(LibWin32::NIF_INFO)
       Win32.copy_utf16(data.info_title.to_unsafe, 64, title)
       Win32.copy_utf16(data.info.to_unsafe, 256, body)
       data.info_flags = level
-      LibWin32.shell_notify_icon_w(LibWin32::NIM_MODIFY, pointerof(data))
+      LibWin32.shell_notify_icon_w(LibWin32::NIM_MODIFY, pointerof(data)) != 0
     end
 
     private def register_window_class : Nil
