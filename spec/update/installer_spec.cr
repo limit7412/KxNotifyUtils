@@ -57,12 +57,12 @@ private def with_installer(running : String = "0.0.1", broken : Bool = false, & 
   end
 end
 
-private def release(tag : String, body : String) : Update::Release
+private def release(tag : String, body : String, prerelease : Bool = false) : Update::Release
   Update::Release.new(
     Update::Version.parse?(tag).not_nil!,
     tag,
     "https://example.test/#{tag}",
-    false,
+    prerelease,
     Update::Asset.new(
       Digest::SHA256.hexdigest(body),
       "https://example.test/#{tag}/KxNotifyUtils.exe",
@@ -154,6 +154,18 @@ describe Update::Installer do
         fixture.installer.download(release("1.0.0", fixture.repository.body))
 
         fixture.installer.staged("test").should_not be_nil
+      end
+    end
+
+    # 綴りだけでは足りない。手で作ったリリースに GitHub のプレリリースの印だけが
+    # 付くことがあり、確認の側は綴りと印の両方を見ている。
+    it "綴りが安定版でもプレリリースの印が付いていれば stable では捨てる" do
+      with_installer do |fixture|
+        fixture.installer.download(
+          release("1.0.0", fixture.repository.body, prerelease: true))
+
+        fixture.installer.staged("test").should_not be_nil
+        fixture.installer.staged("stable").should be_nil
       end
     end
   end

@@ -46,8 +46,16 @@ module Update
       getter tag : String
       getter digest : String
       getter size : Int64
+      # 安定版のチャンネルで拾う対象か。取得したときの Release#stable? を残す。
+      #
+      # タグの綴りだけでは足りない。手で作ったリリースに GitHub のプレリリースの印だけが
+      # 付くことがあり、確認の側（Release#stable?）は綴りと印の両方を見ている。
+      # 印は API の応答にしか無いので、取得した時点で残しておかないと後から引けない。
+      #
+      # 古い記録には無いため既定は偽とする。分からないものを stable へ入れない。
+      getter stable : Bool = false
 
-      def initialize(@tag, @digest, @size)
+      def initialize(@tag, @digest, @size, @stable = false)
       end
     end
 
@@ -81,7 +89,10 @@ module Update
       end
 
       @repository.download(asset, @staged_path)
-      File.write(metadata_path, Staged.new(release.tag, asset.digest, asset.size).to_json)
+      File.write(
+        metadata_path,
+        Staged.new(release.tag, asset.digest, asset.size, release.stable?).to_json,
+      )
       Log.info { "次の起動で置き換える実行ファイルを取得した: #{release.tag}" }
       true
     end
@@ -100,7 +111,7 @@ module Update
       # 取得と置き換えの間には、設定を変えて再起動するだけの間がある。
       # test で取ったプレリリースを取得済みのまま stable へ変えられると、
       # 選び直した設定に反してプレリリースが入る。
-      unless covered_by?(record.tag, channel)
+      unless covered_by?(record, channel)
         Log.info { "取得しておいた #{record.tag} は今のチャンネル（#{channel}）の対象ではないため捨てる" }
         discard
         return nil
@@ -224,18 +235,15 @@ module Update
       File.rename(from, to)
     end
 
-    # そのタグが、指定のチャンネルで拾う対象か。
+    # その記録が、指定のチャンネルで拾う対象か。
     #
-    # 見るのはタグの綴りだけである。GitHub のプレリリースの印は記録に持っていないが、
-    # 判断したいのは「今のチャンネルならこの版を見つけたか」であり、
-    # チャンネルの絞り込み（Usecase#newest_in）と同じ基準で足りる。
-    private def covered_by?(tag : String, channel : String) : Bool
+    # test は両方を拾う。stable は取得したときに Release#stable? だったものだけを拾う。
+    # 確認の側の絞り込み（Usecase#newest_in）と同じ基準であり、
+    # 「今のチャンネルならこの版を見つけたか」に答えている。
+    private def covered_by?(record : Staged, channel : String) : Bool
       return true if channel == "test"
 
-      version = Version.parse?(tag)
-      return true unless version
-
-      version.stable?
+      record.stable
     end
 
     # 取得しておいたものが実行中より新しいか。

@@ -142,5 +142,6 @@
   "notify.update_broken.body": "置き換えに失敗し、退避した実行ファイルも戻せなかった。復旧の手順をログに残した。",
   "notify.update_relaunch_failed.title": "更新は適用した",
   "notify.update_relaunch_failed.body": "実行ファイルの置き換えは済んだが、起動し直せなかった。次に起動すると新しい版になる。",
-  "settings.dialog.update_unsaved_body": "更新を適用するとアプリが再起動する。編集中の内容を保存するか、設定ウィンドウを閉じてからもう一度押す。"
+  "settings.dialog.update_unsaved_body": "更新を適用するとアプリが再起動する。編集中の内容を保存するか、設定ウィンドウを閉じてからもう一度押す。",
+  "settings.about.update_broken": "実行ファイルが元の場所に無い（復旧の手順はログにある）"
 }

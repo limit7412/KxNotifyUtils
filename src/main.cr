@@ -527,6 +527,11 @@ module KxNotifyUtils
     private def update_status_label : String
       settings = @config.current.update
 
+      # 実行ファイルが無い状態を先に出す。
+      # 取得したものは残っているが、置き換えは進まない。
+      # 手で戻すまで更新は止まっており、「次の起動で置き換わる」とは書けない。
+      return Runtime::I18n.t("settings.about.update_broken") if @update_broken
+
       # 取得の進み具合を先に見る。
       # ここまで来ていれば、新しい版があることは利用者に伝わっている。
       if tag = @update_staged_tag
