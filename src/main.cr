@@ -383,7 +383,7 @@ module KxNotifyUtils
         )
         # 出せたときだけ覚える。
         # 出ていない版を覚えると、利用者が一度も見ないまま以後の確認で抑止される。
-        # 手動の確認は check を通るため、覚えるのは知らせた側の仕事である。
+        # 自動と手動のどちらの経路でも、覚えるのはここだけである。
         return unless shown
         @update.mark_notified(release)
         remember_notified_update

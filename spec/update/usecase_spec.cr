@@ -22,6 +22,18 @@ private class FakeRepository < Update::Repository
   end
 end
 
+# composition root の流れを真似る。
+# 確認して、新しい版ならバルーンを出し、出せたときだけ覚える。
+# 覚えるのは usecase ではなく知らせた側の仕事である（issue #10）。
+private def check_and_notify(
+  usecase : Update::Usecase, current : String, channel : String, shown : Bool = true
+) : Update::CheckResult
+  result = usecase.check_quietly(current, channel)
+  release = result.release
+  usecase.mark_notified(release) if result.available? && release && shown
+  result
+end
+
 private def release(tag : String, prerelease : Bool = false) : Update::Release
   version = Update::Version.parse?(tag).not_nil!
   Update::Release.new(version, tag, "https://example.test/#{tag}", prerelease)
@@ -166,9 +178,21 @@ describe Update::Usecase do
       usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
       usecase.notified_tag.should eq ""
 
-      usecase.check_quietly("1.0.0", "stable")
+      check_and_notify(usecase, "1.0.0", "stable")
 
       usecase.notified_tag.should eq "2.0.0"
+    end
+
+    # バルーンを出せないことがある（Explorer の再起動でアイコンを登録し直せない場合など）。
+    # 確認の側で覚えてしまうと、利用者が一度も見ないまま以後の確認で抑止される。
+    it "確認そのものでは覚えない" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+
+      check_and_notify(usecase, "1.0.0", "stable", shown: false)
+
+      usecase.notified_tag.should eq ""
+      # 出せていないので、次の確認でも知らせる対象のままである。
+      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
     end
 
     # 設定を手で壊された場合。記録が無いものとして扱い、確認そのものは続ける。
@@ -198,17 +222,17 @@ describe Update::Usecase do
       repository = FakeRepository.new([release("2.0.0"), release("2.1.0-test1", prerelease: true)])
       usecase = Update::Usecase.new(repository)
 
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
-      usecase.check_quietly("1.0.0", "test").outcome.should eq Update::Outcome::Available
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      check_and_notify(usecase, "1.0.0", "test").outcome.should eq Update::Outcome::Available
 
       # stable へ戻す。2.0.0 は 2.1.0-test1 より古いので知らせ直さない。
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
     end
 
     it "mark_notified は記録より古い版で上書きしない" do
       repository = FakeRepository.new([release("2.1.0-test1", prerelease: true)])
       usecase = Update::Usecase.new(repository)
-      usecase.check_quietly("1.0.0", "test")
+      check_and_notify(usecase, "1.0.0", "test")
 
       older = release("2.0.0")
       usecase.mark_notified(older)
@@ -229,24 +253,24 @@ describe Update::Usecase do
     it "同じ版は一度しか Available にしない" do
       usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
 
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
     end
 
     it "さらに新しい版が出たら改めて知らせる" do
       repository = FakeRepository.new([release("2.0.0")])
       usecase = Update::Usecase.new(repository)
-      usecase.check_quietly("1.0.0", "stable")
+      check_and_notify(usecase, "1.0.0", "stable")
 
       repository.releases = [release("3.0.0")]
 
-      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
+      check_and_notify(usecase, "1.0.0", "stable").outcome.should eq Update::Outcome::Available
     end
 
     # 手動の確認は知らせ済みでも結末を返す。押して黙るのは無反応と区別が付かない。
     it "知らせ済みでも check は Available を返す" do
       usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
-      usecase.check_quietly("1.0.0", "stable")
+      check_and_notify(usecase, "1.0.0", "stable")
 
       usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::Available
     end
