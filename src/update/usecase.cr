@@ -36,17 +36,41 @@ module Update
   class Usecase
     Log = ::Log.for("update")
 
-    # 直近の確認で見つけた新しい版。無ければ nil。
-    # 設定ウィンドウの情報タブがこれを読む。
-    getter available : Release? = nil
-
-    # 一覧を取れた確認が一度でもあったか。
-    # 「新しい版は無い」と「まだ確かめていない」を情報タブで書き分けるために持つ。
-    getter? checked : Bool = false
+    # 直近の確認に使ったチャンネル。まだ確認できていなければ nil。
+    #
+    # 結果と一緒に覚えておかないと、設定を test から stable へ変えたときに、
+    # 直前に見つけたプレリリースが次の確認まで表示に残る。
+    # 逆向きでは、プレリリースを一度も調べていないのに「最新である」と出る。
+    getter checked_channel : String? = nil
 
     def initialize(@repository : Repository)
+      @available = nil.as(Release?)
       # 知らせ済みの版。同じ版を確認のたびに知らせないための記録である。
+      # 起動のたびに知らせ直さないよう、設定へ残して次の起動で復元する。
       @notified = nil.as(Version?)
+    end
+
+    # 知らせ済みの版のタグ。設定へ書き戻すために使う。
+    def notified_tag : String
+      @notified.try(&.to_s) || ""
+    end
+
+    # 設定から復元する。版として読めない値は記録が無いものとして扱う。
+    def notified_tag=(tag : String) : Nil
+      @notified = Version.parse?(tag)
+    end
+
+    # 今のチャンネルで見つけている新しい版。
+    # 別のチャンネルで確認した結果は、設定と食い違うため返さない。
+    def available(channel : String) : Release?
+      return nil unless @checked_channel == channel
+      @available
+    end
+
+    # 今のチャンネルで確認が成り立ったか。
+    # 「新しい版は無い」と「まだ確かめていない」を情報タブで書き分けるために使う。
+    def checked?(channel : String) : Bool
+      @checked_channel == channel
     end
 
     # 自動の確認。
@@ -75,10 +99,10 @@ module Update
         return CheckResult.new(Outcome::Unknown)
       end
 
-      releases = fetch
+      releases = fetch(channel)
       return CheckResult.new(Outcome::Unreachable) unless releases
 
-      @checked = true
+      @checked_channel = channel
       newest = newest_in(releases, channel)
       if newest.nil? || newest.version <= running
         @available = nil
@@ -92,14 +116,17 @@ module Update
 
     # 回線が無い環境では起動のたびに失敗する。
     # 利用者に対処のしようが無いため、警告ログに留めて知らせない（issue #10）。
-    private def fetch : Array(Release)?
-      @repository.fetch_releases
+    private def fetch(channel : String) : Array(Release)?
+      @repository.fetch_releases(channel)
     rescue exception
       Log.warn(exception: exception) { "更新の確認に失敗した" }
       nil
     end
 
     # 応答の並び順に頼らず、対象のうち最も新しいものを選ぶ。
+    #
+    # stable では repository が安定版だけを返すが、ここでも絞る。
+    # 絞りをどちらか一方に任せると、片方を直したときにもう片方が黙って通してしまう。
     private def newest_in(releases : Array(Release), channel : String) : Release?
       candidates = channel == "test" ? releases : releases.select(&.stable?)
       candidates.max_by?(&.version)

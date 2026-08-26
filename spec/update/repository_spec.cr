@@ -54,4 +54,22 @@ describe Update::GitHubRepository do
       releases[0].stable?.should be_true
     end
   end
+
+  # stable のチャンネルは /releases/latest を使う。
+  # 一覧はプレリリースが 20 件積まれると安定版が 1 ページ目から落ちるためである。
+  describe ".parse_one" do
+    it "1 件の応答を読む" do
+      releases = Update::GitHubRepository.parse_one(
+        %({"tag_name": "1.0.0", "html_url": "https://example.test/1.0.0"}))
+
+      releases.map(&.tag).should eq ["1.0.0"]
+    end
+
+    it "版として読めないタグなら空を返す" do
+      releases = Update::GitHubRepository.parse_one(
+        %({"tag_name": "nightly", "html_url": "https://example.test/nightly"}))
+
+      releases.should be_empty
+    end
+  end
 end
