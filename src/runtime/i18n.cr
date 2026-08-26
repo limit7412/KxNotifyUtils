@@ -60,6 +60,12 @@ module Runtime
       LOCALES[@@locale][key]? || LOCALES[DEFAULT_LOCALE][key]? || key
     end
 
+    # ログへ出すための文字列。選択言語に依らず既定の言語で引く。
+    # ログは開発者が読むものであり、実行環境ごとに言語が変わると読み比べられない。
+    def self.log_text(key : String) : String
+      LOCALES[DEFAULT_LOCALE][key]? || key
+    end
+
     # プレースホルダ（{status} など）を値で置き換える。
     # 1 回の走査で置き換えるのは、値に含まれる { } を再解釈しないためである。
     def self.t(key : String, vars : Hash(String, String)) : String

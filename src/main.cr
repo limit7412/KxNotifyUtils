@@ -182,15 +182,15 @@ module KxNotifyUtils
           # 開始できるまで一定間隔で試し直すため、知らせるのは最初の 1 回だけとする。
           # 同じ失敗のたびにトレイ通知を出すと、利用者の手が止まる。
           if @source_start_notified
-            Log.error(exception: exception) { "Windows 通知ソースの初期化" }
+            Log.error(exception: exception) { Runtime::I18n.log_text("error.source_start") }
           else
             @source_start_notified = true
-            @errors.handle("Windows 通知ソースの初期化", exception)
+            @errors.handle("error.source_start", exception)
           end
         end
       elsif !settings.enabled && @source_started
         @relay.sources.delete(@win_source)
-        @errors.guard("Windows 通知ソースの停止") { @win_source.stop }
+        @errors.guard("error.source_stop") { @win_source.stop }
         @source_started = false
         Log.info { "Windows 通知ソースを無効にした" }
       end
@@ -239,6 +239,8 @@ module KxNotifyUtils
       @tray.on_command = ->(command : Runtime::Tray::Command) { handle(command) }
       @tray.start
       @errors.notifier = ->(title : String, body : String) { @tray.show_balloon(title, body) }
+      @errors.log_text = ->(key : String) { Runtime::I18n.log_text(key) }
+      @errors.display_text = ->(key : String) { Runtime::I18n.t(key) }
       true
     rescue exception
       # notifier をまだ登録していないため、ここで伝えられるのはログだけである。
@@ -271,7 +273,7 @@ module KxNotifyUtils
 
     # SteamVR が起動していない状態で手動起動された場合も常駐を続け、scheduler が再試行する。
     private def start_steamvr : Nil
-      @errors.guard("SteamVR の初期化") do
+      @errors.guard("error.steamvr_start") do
         if @openvr.open
           register_steamvr unless @config.current.steamvr.auto_launch_configured
           sync_steamvr
@@ -296,7 +298,7 @@ module KxNotifyUtils
     end
 
     private def register_steamvr : Nil
-      @errors.guard("SteamVR への登録") do
+      @errors.guard("error.steamvr_register") do
         next unless @steamvr.register
         @config.save(@config.current.with_steamvr(true, Runtime::Paths.executable_path))
         update_tray_state
@@ -304,7 +306,7 @@ module KxNotifyUtils
     end
 
     private def unregister_steamvr : Nil
-      @errors.guard("SteamVR 登録の解除") do
+      @errors.guard("error.steamvr_unregister") do
         result = @steamvr.unregister
         next if result.failed?
 
@@ -347,7 +349,7 @@ module KxNotifyUtils
         @stopping = true
       end
     rescue exception
-      @errors.handle("トレイの操作", exception)
+      @errors.handle("error.tray_action", exception)
     end
 
     private def reload_config : Nil
@@ -406,7 +408,7 @@ module KxNotifyUtils
       @tray.on_idle = -> { background_step }
 
       until @stopping
-        @errors.guard("トレイのメッセージ処理") { @tray.pump }
+        @errors.guard("error.tray_pump") { @tray.pump }
         break if @tray.quit_requested?
 
         background_step
@@ -463,7 +465,7 @@ module KxNotifyUtils
       UIng.main_step(false)
       window.tick
     rescue exception
-      @errors.handle("設定ウィンドウの処理", exception)
+      @errors.handle("error.settings_window", exception)
     end
 
     # アダプタの生存期間は composition root が持つ。
