@@ -114,5 +114,8 @@
   "settings.about.update_disabled": "Update checking is disabled",
   "notify.update_failed.title": "Could not check for updates",
   "notify.update_failed.body": "Could not fetch the release list from GitHub. Check your connection.",
-  "error.update_check": "Checking for updates"
+  "error.update_check": "Checking for updates",
+  "notify.update_unsure.title": "Could not confirm the latest version",
+  "notify.update_unsure.body": "There are too many releases to list fully. Check the release page directly.",
+  "settings.about.update_unsure": "Could not confirm whether this is the latest version"
 }

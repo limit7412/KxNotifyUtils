@@ -11,7 +11,7 @@ module Update
     # 候補になるリリースを返す。並び順は問わない。呼び出し側が版で比べる。
     # チャンネルは取り方を選ぶためだけに渡す。絞り込みは呼び出し側が行う。
     # 取れなかった場合は例外を投げる。呼び出し側が握る。
-    abstract def fetch_releases(channel : String) : Array(Release)
+    abstract def fetch_releases(channel : String) : Catalog
   end
 
   # GitHub Releases API から取る実装。
@@ -58,8 +58,12 @@ module Update
     #
     # 両方を合わせれば、版番号で比べる候補が一覧から得られ、
     # 一覧の範囲から押し出された安定版も latest から拾える。
-    def fetch_releases(channel : String) : Array(Release)
-      GitHubRepository.merge(fetch_all, fetch_latest_stable)
+    # 一覧が上限で切れた場合は、集めきれていないことを添えて返す。
+    # 押し出された範囲に、版番号がより大きい安定版が残っている可能性があるためである。
+    # 保守版を後から出すと、作成順では新しいのに版としては古いものが latest になる。
+    def fetch_releases(channel : String) : Catalog
+      listed, complete = fetch_all
+      Catalog.new(GitHubRepository.merge(listed, fetch_latest_stable), complete)
     end
 
     # タグで重複を除く。一覧と latest は同じリリースを返しうる。
@@ -69,7 +73,8 @@ module Update
       releases + extra.reject { |release| seen.includes?(release.tag) }
     end
 
-    private def fetch_all : Array(Release)
+    # 集めた候補と、最後まで取れたかを返す。
+    private def fetch_all : {Array(Release), Bool}
       releases = [] of Release
 
       (1..MAX_PAGES).each do |page|
@@ -82,17 +87,14 @@ module Update
         releases.concat(payloads.compact_map { |payload| GitHubRepository.build(payload) })
 
         # 上限に満たない件数で返ってきたら最後のページである。
-        break if payloads.size < PER_PAGE
-
-        if page == MAX_PAGES
-          Log.warn do
-            "リリースが #{MAX_PAGES * PER_PAGE} 件を超えている。" \
-            "これより古いリリースは更新の確認の対象にしない"
-          end
-        end
+        return {releases, true} if payloads.size < PER_PAGE
       end
 
-      releases
+      Log.warn do
+        "リリースが #{MAX_PAGES * PER_PAGE} 件を超えている。" \
+        "これより古いリリースは更新の確認の対象にしない"
+      end
+      {releases, false}
     end
 
     # 安定版が 1 つも無いリポジトリでは 404 が返る。

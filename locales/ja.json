@@ -114,5 +114,8 @@
   "settings.about.update_disabled": "更新の確認は無効である",
   "notify.update_failed.title": "更新を確認できなかった",
   "notify.update_failed.body": "GitHub からリリース一覧を取れなかった。回線を確かめる。",
-  "error.update_check": "更新の確認"
+  "error.update_check": "更新の確認",
+  "notify.update_unsure.title": "更新を確かめきれなかった",
+  "notify.update_unsure.body": "リリースが多く、一覧を取りきれなかった。リリースページで直接確かめる。",
+  "settings.about.update_unsure": "最新かどうかを確かめきれていない"
 }

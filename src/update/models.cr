@@ -94,6 +94,20 @@ module Update
     end
   end
 
+  # 集めた候補と、集めきれたかどうか。
+  #
+  # 取得には上限があるため、「新しい版は無い」と言い切れないことがある。
+  # 集めきれていないのに最新だと言うと、実際には出ている版を見落としたまま
+  # 利用者へ「最新である」と伝えることになる。
+  struct Catalog
+    getter releases : Array(Release)
+    # 上限に掛からず最後まで取れたか。
+    getter? complete : Bool
+
+    def initialize(@releases, @complete = true)
+    end
+  end
+
   # 更新の確認の設定（設定ファイルの update セクション）。
   CHANNELS = %w[stable test]
 end

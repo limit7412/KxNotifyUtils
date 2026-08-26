@@ -12,13 +12,16 @@ private class FakeRepository < Update::Repository
   # 直近に渡されたチャンネル。stable と test でエンドポイントが分かれることの確認に使う。
   getter last_channel : String? = nil
 
-  def fetch_releases(channel : String) : Array(Update::Release)
+  # 候補を集めきれたか。取得の上限に掛かった場合を真似る。
+  property complete : Bool = true
+
+  def fetch_releases(channel : String) : Update::Catalog
     @calls += 1
     @last_channel = channel
     if error = @error
       raise error
     end
-    @releases
+    Update::Catalog.new(@releases, @complete)
   end
 end
 
@@ -119,6 +122,34 @@ describe Update::Usecase do
 
       usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::Unreachable
       usecase.checked?("stable").should be_false
+    end
+
+    # 集めきれていないのに「最新である」と言うと、押し出された範囲に残っている
+    # 版を見落としたまま利用者へ伝えることになる。
+    it "候補を集めきれていなければ最新だと言い切らない" do
+      repository = FakeRepository.new([release("1.0.0")])
+      repository.complete = false
+      usecase = Update::Usecase.new(repository)
+
+      usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::Incomplete
+      usecase.complete?.should be_false
+    end
+
+    # 見つかったものは確かに存在する。集めきれていなくても知らせてよい。
+    it "集めきれていなくても新しい版が見つかれば知らせる" do
+      repository = FakeRepository.new([release("2.0.0")])
+      repository.complete = false
+      usecase = Update::Usecase.new(repository)
+
+      usecase.check("1.0.0", "stable").outcome.should eq Update::Outcome::Available
+    end
+
+    it "集めきれていれば complete? は真である" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("1.0.0")]))
+
+      usecase.check("1.0.0", "stable")
+
+      usecase.complete?.should be_true
     end
 
     it "一覧が空なら UpToDate を返す" do

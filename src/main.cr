@@ -420,6 +420,13 @@ module KxNotifyUtils
           Runtime::I18n.t("notify.update_failed.title"),
           Runtime::I18n.t("notify.update_failed.body"),
         )
+      in .incomplete?
+        # 自動の確認は黙る。押されたときだけ、言い切れないことを返す。
+        return false unless manual
+        @errors.notify(
+          Runtime::I18n.t("notify.update_unsure.title"),
+          Runtime::I18n.t("notify.update_unsure.body"),
+        )
       in .unknown?
         # 手元ビルドでは比べる相手が無い。押しても何も言わない。
         Log.info { "実行中の版を比べられないため確認しない: #{VERSION}" }
@@ -449,7 +456,11 @@ module KxNotifyUtils
       if release = @update.available(settings.channel)
         return Runtime::I18n.t("settings.about.update_available", {"version" => release.tag})
       end
-      return Runtime::I18n.t("settings.about.update_latest") if @update.checked?(settings.channel)
+      if @update.checked?(settings.channel)
+        # 集めきれていない確認では「最新である」と言い切らない。
+        return Runtime::I18n.t("settings.about.update_unsure") unless @update.complete?
+        return Runtime::I18n.t("settings.about.update_latest")
+      end
       return Runtime::I18n.t("settings.about.update_disabled") unless settings.check_enabled
 
       Runtime::I18n.t("settings.about.update_unchecked")

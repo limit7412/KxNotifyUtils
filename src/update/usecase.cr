@@ -16,6 +16,9 @@ module Update
     UpToDate
     # 一覧を取れなかった。回線が無いか、API が応えなかった。
     Unreachable
+    # 候補を集めきれず、最新かどうかを言い切れない。
+    # 取得の上限に掛かり、押し出された範囲に新しい版が残っている場合がこれにあたる。
+    Incomplete
     # 実行中の版を比べられない。手元ビルドの 0.1.0-dev がこれにあたる。
     Unknown
   end
@@ -48,6 +51,8 @@ module Update
       # 知らせ済みの版。同じ版を確認のたびに知らせないための記録である。
       # 起動のたびに知らせ直さないよう、設定へ残して次の起動で復元する。
       @notified = nil.as(Version?)
+      # 直近の確認で候補を集めきれたか。
+      @complete = true
     end
 
     # 知らせ済みの版のタグ。設定へ書き戻すために使う。
@@ -88,6 +93,12 @@ module Update
       @checked_channel == channel
     end
 
+    # 直近の確認で候補を集めきれたか。
+    # 集めきれていない場合、情報タブは「最新である」と言い切らない。
+    def complete? : Bool
+      @complete
+    end
+
     # 既に知らせた版なら UpToDate へ倒す。自動の確認だけがこれを通す。
     #
     # 手動で押したときの結末には使わない。抑止した結末をそのまま返すと、
@@ -122,13 +133,20 @@ module Update
         return CheckResult.new(Outcome::Unknown)
       end
 
-      releases = fetch(channel)
-      return CheckResult.new(Outcome::Unreachable) unless releases
+      catalog = fetch(channel)
+      return CheckResult.new(Outcome::Unreachable) unless catalog
 
       @checked_channel = channel
-      newest = newest_in(releases, channel)
+      @complete = catalog.complete?
+      newest = newest_in(catalog.releases, channel)
       if newest.nil? || newest.version <= running
         @available = nil
+
+        # 候補を集めきれていないなら、最新だとは言い切れない。
+        # 押し出された範囲に、版番号がより大きい安定版が残っている可能性がある。
+        # 確かめていないことを「最新である」と伝えるわけにはいかない。
+        return CheckResult.new(Outcome::Incomplete) unless catalog.complete?
+
         return CheckResult.new(Outcome::UpToDate)
       end
 
@@ -139,7 +157,7 @@ module Update
 
     # 回線が無い環境では起動のたびに失敗する。
     # 利用者に対処のしようが無いため、警告ログに留めて知らせない（issue #10）。
-    private def fetch(channel : String) : Array(Release)?
+    private def fetch(channel : String) : Catalog?
       @repository.fetch_releases(channel)
     rescue exception
       Log.warn(exception: exception) { "更新の確認に失敗した" }
