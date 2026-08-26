@@ -501,6 +501,39 @@ describe Config::Usecase do
       stored.steamvr.auto_launch_registered.should be_true
     end
 
+    # 起動時に読めなかったファイルを利用者が直しても、readable? だけを見ていると
+    # 「設定を再読み込み」を押すまで記録が一度も残らない。
+    it "読めなかった設定が直っていれば記録を書き戻す" do
+      target, repository = usecase(%({"log_level": "verbose"}))
+      target.load
+      target.readable?.should be_false
+
+      repository.edit_externally(Config::Root.default.to_json)
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe")).should be_true
+
+      repository.save_count.should eq before + 1
+      Config::Root.from_json(repository.stored.not_nil!).steamvr.auto_launch_registered.should be_true
+    end
+
+    # record が触るのは on_apply が配らない項目だけである。
+    # 呼ぶと、記録が書けない間の書き直しのたびに設定全体の再適用が走り、
+    # 未確認のチャンネルがあれば 24 時間ごとのはずの更新の確認まで毎分走る。
+    it "設定全体の再適用は行わない" do
+      target, _ = usecase(Config::Root.default.to_json)
+      target.load
+      applied = 0
+      target.on_apply = ->(_root : Config::Root) do
+        applied += 1
+        nil
+      end
+
+      target.record(&.with_steamvr(true, ""))
+
+      applied.should eq 0
+    end
+
     it "再読み込みの直後に編集されていたら、記録の前に読み直す" do
       target, repository = usecase(Config::Root.default.to_json)
       target.load

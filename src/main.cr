@@ -709,6 +709,19 @@ module KxNotifyUtils
       start_steamvr
     end
 
+    # 書けていない記録を終了の前に書き切る。
+    #
+    # 周期の書き直しは 60 秒ごとであり、その間に終了されると記録はメモリごと消える。
+    # 登録を解除した記録であれば、次の起動でディスク側の古い「登録済み」を読んだ
+    # 同期が自動起動を有効に戻す。更新の通知であれば同じ版のバルーンがまた出る。
+    #
+    # 例外は握る。終了の途中であり、ここで抜けると残りの後始末が走らない。
+    private def flush_records : Nil
+      retry_records
+    rescue exception
+      Log.error(exception: exception) { "終了時の記録の書き戻しに失敗した" }
+    end
+
     private def step_ui : Nil
       window = @settings_window
       return unless window
@@ -721,6 +734,7 @@ module KxNotifyUtils
     # アダプタの生存期間は composition root が持つ。
     private def shutdown : Nil
       Log.info { "KxNotifyUtils を終了する" }
+      flush_records
       @sinks.each { |sink| sink.stop rescue nil }
       @win_source.stop rescue nil if @source_started
       @tray.stop rescue nil
