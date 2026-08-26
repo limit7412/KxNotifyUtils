@@ -25,16 +25,25 @@ module Update
     def initialize(@major, @minor, @patch, @test = nil)
     end
 
+    # 数値は Int32 に収まる範囲でだけ読む。
+    # 正規表現は桁数を見ないため、設定へ手で書かれた桁あふれの綴りも一致してしまう。
+    # to_i は範囲外で例外を投げ、設定の読み込みの外で呼ぶ経路（起動時の復元）ごと落とす。
     def self.parse?(text : String) : Version?
       match = PATTERN.match(text.strip)
       return nil unless match
 
-      Version.new(
-        match[1].to_i,
-        match[2].to_i,
-        match[3].to_i,
-        match[4]?.try(&.to_i),
-      )
+      major = match[1].to_i?
+      minor = match[2].to_i?
+      patch = match[3].to_i?
+      return nil unless major && minor && patch
+
+      if number = match[4]?
+        test = number.to_i?
+        return nil unless test
+        return Version.new(major, minor, patch, test)
+      end
+
+      Version.new(major, minor, patch)
     end
 
     def stable? : Bool

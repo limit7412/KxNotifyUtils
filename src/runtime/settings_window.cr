@@ -736,6 +736,10 @@ module Runtime
       root.language = selected_value("language", LANGUAGES)
       root.update.channel = selected_value("update_channel", UPDATE_CHANNELS)
       root.update.check_enabled = checked?("update.check_enabled")
+      # 知らせ済みの版はアプリが書き込む記録であり、画面では編集しない。
+      # 画面を開いている間に更新の確認が終わると現在の設定だけが変わるため、
+      # steamvr セクションと同じく、下書きの古い記録で上書きしない。
+      root.update.notified_version = @config.current.update.notified_version
 
       root.sources = root.sources.dup
       root.sources[WinNotification::SOURCE_ID] = JSON.parse({

@@ -38,6 +38,15 @@ describe Update::Version do
       Update::Version.parse?("").should be_nil
     end
 
+    # 正規表現は桁数を見ない。to_i のまま呼ぶと例外になり、
+    # 設定の読み込みの外で呼ぶ起動時の復元ごとアプリが落ちる。
+    it "Int32 に収まらない数値は読まない" do
+      Update::Version.parse?("999999999999999999999.0.0").should be_nil
+      Update::Version.parse?("1.999999999999999999999.0").should be_nil
+      Update::Version.parse?("1.0.999999999999999999999").should be_nil
+      Update::Version.parse?("1.0.0-test999999999999999999999").should be_nil
+    end
+
     it "ゼロ埋めされた -testN も数値として読む" do
       Update::Version.parse?("0.0.2-test007").try(&.test).should eq 7
     end

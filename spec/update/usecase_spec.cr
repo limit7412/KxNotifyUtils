@@ -179,6 +179,19 @@ describe Update::Usecase do
       usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::Available
     end
 
+    # 手動の確認は check を通る。知らせた側が覚えないと、
+    # 直後の自動確認や再起動で同じ版をもう一度知らせる。
+    it "mark_notified で覚えた版は check_quietly が知らせ直さない" do
+      usecase = Update::Usecase.new(FakeRepository.new([release("2.0.0")]))
+      result = usecase.check("1.0.0", "stable")
+      release = result.release.not_nil!
+
+      usecase.mark_notified(release)
+
+      usecase.notified_tag.should eq "2.0.0"
+      usecase.check_quietly("1.0.0", "stable").outcome.should eq Update::Outcome::UpToDate
+    end
+
     it "復元した版より新しい版は知らせる" do
       usecase = Update::Usecase.new(FakeRepository.new([release("3.0.0")]))
       usecase.notified_tag = "2.0.0"

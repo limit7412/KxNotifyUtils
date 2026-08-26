@@ -60,6 +60,13 @@ module Update
       @notified = Version.parse?(tag)
     end
 
+    # 知らせた版として覚える。
+    # 自動の確認は check_quietly が自分で覚えるが、手動の確認は check を通るため、
+    # 知らせた側が明示的に呼ぶ。呼ばないと次の確認や再起動で同じ版をもう一度知らせる。
+    def mark_notified(release : Release) : Nil
+      @notified = release.version
+    end
+
     # 今のチャンネルで見つけている新しい版。
     # 別のチャンネルで確認した結果は、設定と食い違うため返さない。
     def available(channel : String) : Release?

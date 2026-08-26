@@ -79,6 +79,9 @@ module KxNotifyUtils
         Update::GitHubRepository.new("KxNotifyUtils/#{VERSION}"))
       # 確認が走っている間か。押し直しや周期の重なりで多重に投げないために持つ。
       @update_checking = false
+      # 確認の最中に来た要求。終わってから改めて確認するために覚える。
+      @update_recheck = false
+      @update_recheck_manual = false
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
       @settings_window = nil.as(Runtime::SettingsWindow?)
       @stopping = false
@@ -297,8 +300,16 @@ module KxNotifyUtils
     # 手動の確認は check_enabled を無視する。
     # 自動の確認を切っている利用者でも、押したときは確かめたいはずである。
     private def check_update(manual : Bool = false) : Nil
-      return if @update_checking
       return unless manual || @config.current.update.check_enabled
+
+      # 確認の最中に来た要求は捨てずに保留する。
+      # チャンネルを変えた直後がこれにあたり、捨てると新しいチャンネルは
+      # 次の 24 時間の周期まで未確認のままになる。
+      if @update_checking
+        @update_recheck = true
+        @update_recheck_manual ||= manual
+        return
+      end
 
       @update_checking = true
       spawn do
@@ -308,8 +319,19 @@ module KxNotifyUtils
           @errors.handle("error.update_check", exception)
         ensure
           @update_checking = false
+          flush_pending_update_check
         end
       end
+    end
+
+    # 確認の最中に来ていた要求をここで実行する。
+    private def flush_pending_update_check : Nil
+      return unless @update_recheck
+
+      @update_recheck = false
+      manual = @update_recheck_manual
+      @update_recheck_manual = false
+      check_update(manual: manual)
     end
 
     private def check_result(manual : Bool) : Update::CheckResult
@@ -332,6 +354,8 @@ module KxNotifyUtils
           Runtime::I18n.t("notify.update_available.title"),
           Runtime::I18n.t("notify.update_available.body", {"version" => release.tag}),
         )
+        # 手動の確認は check を通るため、知らせた側で覚える。
+        @update.mark_notified(release)
         remember_notified_update
       in .up_to_date?
         return unless manual
