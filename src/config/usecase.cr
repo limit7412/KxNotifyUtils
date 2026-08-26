@@ -42,6 +42,9 @@ module Config
     def initialize(@repository : Repository, @current : Root = Root.default)
       # sources と sinks の各セクションは、そのアダプタが自分で検証する。
       @section_validators = {} of String => Proc(JSON::Any?, Array(String))
+      # 最後に読み込むか書き出した時点の更新時刻。
+      # current がディスクの中身と一致しているかの判断に使う（issue #15）。
+      @synced_at = nil.as(Time?)
     end
 
     # "sources.windows" のようなセクション名に対する検証をアダプタから登録する。
@@ -55,6 +58,7 @@ module Config
       unless @repository.exists?
         @current = Root.default
         @repository.save(@current)
+        @synced_at = @repository.modified_at
         Log.info { "初期設定を書き出した: #{@repository.path}" }
         return [] of ValidationError
       end
@@ -64,6 +68,7 @@ module Config
       if errors.empty?
         @current = root
         @readable = true
+        @synced_at = @repository.modified_at
         @on_apply.call(@current)
       else
         @readable = false
@@ -84,6 +89,7 @@ module Config
       if errors.empty?
         @current = root
         @readable = true
+        @synced_at = @repository.modified_at
         @on_apply.call(@current)
         Log.info { "設定を再読み込みした" }
       else
@@ -113,6 +119,7 @@ module Config
       if @readable || overwrite_unreadable
         @repository.save(root)
         @readable = true
+        @synced_at = @repository.modified_at
         Log.info { "設定を保存した" }
       else
         Log.warn { "設定ファイルを読めていないため、書き出さずに反映だけを行う: #{@repository.path}" }
@@ -121,6 +128,64 @@ module Config
       @current = root
       @on_apply.call(@current)
       errors
+    end
+
+    # アプリ自身が書き込む記録だけを書き戻す（issue #15）。
+    #
+    # 利用者が設定画面から保存する save とは分けてある。
+    # あちらは全項目を画面で確かめたうえでの明示的な上書きであり、外部変更の警告も出す。
+    # こちらは SteamVR の同期や更新の確認から、利用者の操作を伴わずに走る。
+    # 読み込みから書き戻しまでの間に手で編集されていると、
+    # メモリ上のスナップショットで全体を置き換えて、その編集を警告なしに失う。
+    #
+    # 渡すブロックは、書き戻す元になる設定を受け取って、記録を載せ替えたものを返す。
+    def record(& : Root -> Root) : Nil
+      # 読めていない設定へ書き戻さない。save と同じ理由である。
+      # current は既定値であり、書き戻すと利用者のルールごとファイルを失う。
+      unless @readable
+        Log.warn { "設定ファイルを読めていないため記録の書き戻しを見送る: #{@repository.path}" }
+        return
+      end
+
+      base, adopt = base_for_record
+      return unless base
+
+      root = yield base
+      errors = validate(root)
+      unless errors.empty?
+        # 読み直した設定が検証を通らない。記録だけを載せて書き戻すと、
+        # 利用者が直している途中のファイルを不正なまま固定してしまう。
+        Log.warn { "書き戻す元の設定が検証を通らないため記録の書き戻しを見送る: #{errors.join(" / ")}" }
+        return
+      end
+
+      @repository.save(root)
+      @synced_at = @repository.modified_at
+
+      # 外部の編集を読み直して書いた場合、その内容を動作へ反映はしない。
+      # 利用者が「設定を再読み込み」を押す前に、編集の途中のものへ勝手に切り替わるのを避ける。
+      # 記録はディスクへ残っているので、次の読み込みで揃う。
+      return unless adopt
+
+      @current = root
+      @on_apply.call(@current)
+    end
+
+    # 書き戻す元になる設定と、それを動作へ反映してよいかを返す。
+    #
+    # 更新時刻が変わっていなければ current がディスクと一致しているので、そのまま使う。
+    # 変わっていれば読み直す。読み直せない場合は書き込みそのものを見送る。
+    private def base_for_record : {Root?, Bool}
+      modified = @repository.modified_at
+      return {@current, true} if modified && modified == @synced_at
+
+      Log.info { "設定ファイルが外部で変更されているため読み直してから記録する: #{@repository.path}" }
+      {@repository.load, false}
+    rescue ex : JSON::Error | File::Error
+      # 読み直せないものへ記録を載せることはできない。
+      # 全体を上書きすれば書けるが、それでは外部の編集を失う。
+      Log.warn(exception: ex) { "設定ファイルを読み直せなかったため記録の書き戻しを見送る" }
+      {nil, false}
     end
 
     def validate(root : Root) : Array(ValidationError)

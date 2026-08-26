@@ -301,4 +301,94 @@ describe Config::Usecase do
       target.validate(root).map(&.message).any?(&.includes?("log_level")).should be_true
     end
   end
+
+  # アプリ自身が書き込む記録（SteamVR の登録、知らせ済みの版）の書き戻し。
+  # 利用者の操作を伴わずに走るため、外部の編集を巻き込まないことが要る（issue #15）。
+  describe "#record" do
+    it "記録を書き戻して動作へ反映する" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      stored.steamvr.auto_launch_registered.should be_true
+      target.current.steamvr.last_exe_path.should eq "D:/tools/KxNotifyUtils.exe"
+    end
+
+    # 読み込んでから書き戻すまでの間に手で編集されると、
+    # メモリ上のスナップショットで全体を置き換えて編集を失う。
+    it "外部の編集を読み直してから記録を載せる" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_externally(edited.to_json)
+
+      target.record(&.with_steamvr(true, "D:/tools/KxNotifyUtils.exe"))
+
+      stored = Config::Root.from_json(repository.stored.not_nil!)
+      # 記録は入っている。
+      stored.steamvr.auto_launch_registered.should be_true
+      # 外部の編集も残っている。
+      stored.log_level.should eq "debug"
+    end
+
+    # 記録のついでに、利用者が編集の途中のものへ動作を切り替えるわけにはいかない。
+    # 反映は「設定を再読み込み」を押したときに行う。
+    it "読み直した内容は動作へ反映しない" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      edited = Config::Root.default
+      edited.log_level = "debug"
+      repository.edit_externally(edited.to_json)
+
+      target.record(&.with_steamvr(true, ""))
+
+      target.current.log_level.should eq "info"
+    end
+
+    # 読み直せないものへ記録だけを載せることはできない。
+    # 全体を上書きすれば書けるが、それでは外部の編集を失う。
+    it "読み直せなければ書き戻しを見送る" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+      repository.edit_externally("{}")
+      repository.unreadable = true
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, ""))
+
+      repository.save_count.should eq before
+    end
+
+    # 直している途中のファイルを、記録を載せて不正なまま固定しない。
+    it "読み直した設定が検証を通らなければ見送る" do
+      target, repository = usecase(Config::Root.default.to_json)
+      target.load
+
+      broken = Config::Root.default
+      broken.log_level = "verbose"
+      repository.edit_externally(broken.to_json)
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, ""))
+
+      repository.save_count.should eq before
+    end
+
+    # 読めていない設定へ書き戻すと、利用者のルールごとファイルを失う。
+    it "設定を読めていなければ書き戻さない" do
+      target, repository = usecase(%({"log_level": "verbose"}))
+      target.load
+      target.readable?.should be_false
+      before = repository.save_count
+
+      target.record(&.with_steamvr(true, ""))
+
+      repository.save_count.should eq before
+    end
+  end
 end

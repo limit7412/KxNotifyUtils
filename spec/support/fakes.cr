@@ -131,6 +131,10 @@ module Fakes
     # PNG として扱うファイル。指定が無ければ existing_files をすべて PNG とみなす。
     property png_files : Array(String)? = nil
     property save_count : Int32 = 0
+    # 更新時刻。外部からの編集を真似るために手で進める（issue #15）。
+    property modified : Time? = Time.unix(0)
+    # load が失敗する状況を真似る。
+    property unreadable : Bool = false
 
     def initialize(@stored : String? = nil)
     end
@@ -144,12 +148,21 @@ module Fakes
     end
 
     def load : Config::Root
+      raise JSON::ParseException.new("壊れている", 1, 1) if @unreadable
       Config::Root.from_json(@stored || "{}")
     end
 
     def save(root : Config::Root) : Nil
       @stored = root.to_json
       @save_count += 1
+      # 書き出せば更新時刻も進む。
+      @modified = @modified.try(&.+(1.second))
+    end
+
+    # 外部エディタでの編集を真似る。中身と更新時刻の両方を変える。
+    def edit_externally(json : String) : Nil
+      @stored = json
+      @modified = @modified.try(&.+(1.second))
     end
 
     def file_exists?(path : String) : Bool
@@ -165,7 +178,7 @@ module Fakes
     end
 
     def modified_at : Time?
-      nil
+      @modified
     end
   end
 

@@ -449,11 +449,9 @@ module KxNotifyUtils
       tag = @update.notified_tag
       return if tag.empty? || tag == @config.current.update.notified_version
 
-      errors = @config.save(@config.current.with_update_notified(tag))
-      return if errors.empty?
-
       # 書けなくても常駐は続ける。次の起動で同じ版をもう一度知らせるだけである。
-      Log.warn { "知らせ済みの版を設定へ残せなかった: #{errors.join(" / ")}" }
+      # 見送った理由は record が記録する。
+      @config.record(&.with_update_notified(tag))
     end
 
     private def update_status_label : String
@@ -494,13 +492,13 @@ module KxNotifyUtils
 
       section = result.section
       return unless section
-      @config.save(@config.current.with_steamvr(section.auto_launch_registered, section.last_exe_path))
+      @config.record(&.with_steamvr(section.auto_launch_registered, section.last_exe_path))
     end
 
     private def register_steamvr : Nil
       @errors.guard("error.steamvr_register") do
         next unless @steamvr.register
-        @config.save(@config.current.with_steamvr(true, Runtime::Paths.executable_path))
+        @config.record(&.with_steamvr(true, Runtime::Paths.executable_path))
         update_tray_state
       end
     end
@@ -513,7 +511,7 @@ module KxNotifyUtils
         # 自動起動を無効にできた時点で設定へ書き戻す。
         # マニフェストの登録解除だけが失敗した場合に「登録済み」を残すと、
         # 次回起動時の同期が自動起動を有効に戻してしまう。
-        @config.save(@config.current.with_steamvr(false, "", configured: true))
+        @config.record(&.with_steamvr(false, "", configured: true))
         update_tray_state
 
         if result.auto_launch_only?
