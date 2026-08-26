@@ -208,6 +208,19 @@ module Config
     end
   end
 
+  # 更新の確認の設定（issue #10）。
+  class UpdateSection
+    include JSON::Serializable
+
+    property check_enabled : Bool = true
+
+    # 追うチャンネル。"stable" は安定版だけ、"test" はプレリリースも見る。
+    property channel : String = "stable"
+
+    def initialize
+    end
+  end
+
   # 設定ファイル全体。
   #
   # sources と sinks は識別子をキーにした生の JSON として保持する。
@@ -222,6 +235,7 @@ module Config
     property defaults : Defaults = Defaults.new
     property rules : Array(Rule) = [] of Rule
     property steamvr : SteamVRSection = SteamVRSection.new
+    property update : UpdateSection = UpdateSection.new
     property log_level : String = "info"
     # UI の言語。"auto" は OS の表示言語に従う。反映は次回の起動時である（issue #4）。
     property language : String = "auto"
