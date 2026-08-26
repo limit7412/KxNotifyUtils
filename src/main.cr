@@ -672,7 +672,8 @@ module KxNotifyUtils
     private def download_update : Nil
       return if @update_downloading
 
-      release = @update.available(@config.current.update.channel)
+      channel = @config.current.update.channel
+      release = @update.available(channel)
       unless release
         Log.info { "取得の対象になる版が見つかっていない" }
         return
@@ -696,11 +697,25 @@ module KxNotifyUtils
       spawn do
         begin
           if @installer.download(release)
-            @update_staged_tag = release.tag
-            @errors.notify(
-              Runtime::I18n.t("notify.update_downloaded.title"),
-              Runtime::I18n.t("notify.update_downloaded.body", {"version" => release.tag}),
-            )
+            # 取得の最中にチャンネルが変わっていないかを見る。
+            #
+            # 変わっていれば、取ってきたのは今の設定に無い版である。
+            # 置き換えは次の起動で走るため、そのまま残すと、stable を選び直した後に
+            # プレリリースが入る。実行中より新しいかどうかでは、これを止められない。
+            if channel == @config.current.update.channel
+              @update_staged_tag = release.tag
+              @errors.notify(
+                Runtime::I18n.t("notify.update_downloaded.title"),
+                Runtime::I18n.t("notify.update_downloaded.body", {"version" => release.tag}),
+              )
+            else
+              Log.info do
+                "取得の最中にチャンネルが変わったため取得したものを捨てる: " \
+                "#{release.tag}（#{channel} → #{@config.current.update.channel}）"
+              end
+              @installer.discard
+              @update_staged_tag = nil
+            end
           end
         rescue exception
           # 取ってきたものは Installer が捨てている。押し直せば取り直せる。

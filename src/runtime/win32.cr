@@ -172,8 +172,18 @@ module Runtime
       handle = LibWin32.create_mutex_w(Pointer(Void).null, 0, utf16(name).to_unsafe)
       return false if handle.null?
 
+      # 既にあるミューテックスを開いた場合、こちらのハンドルもそれを生かし続ける。
+      # 抑止に掛かった側が終わるまで持っていると、その間は
+      # 常駐している側がハンドルを手放しても、ミューテックスは残ったままになる。
+      # 置き換えて起動した新しいプロセスが「既に起動している」と判断して終わり、
+      # 渡した側も起動できたつもりで終わるため、どちらも残らない（issue #10 第 2 段階）。
+      if LibWin32.get_last_error == LibWin32::ERROR_ALREADY_EXISTS
+        LibWin32.close_handle(handle)
+        return false
+      end
+
       @@single_instance = handle
-      LibWin32.get_last_error != LibWin32::ERROR_ALREADY_EXISTS
+      true
     end
 
     # 多重起動の抑止を解く（issue #10 第 2 段階）。
