@@ -92,7 +92,11 @@ try {
 
     # 書き換える前に控えを取る。
     # 戻しはコピーで行う。読み書きを往復させると、改行や符号化の扱いで元と 1 バイト違いうる。
-    $resourceBackup = Join-Path ([System.IO.Path]::GetTempPath()) "kxnotifyutils.rc.original"
+    #
+    # 置き場所はビルドごとに一意にする。固定の名前にすると、同じ利用者が別の
+    # チェックアウトを同時にビルドしたときに互いの控えを上書きし、先に終わったほうが
+    # 消した後で、もう一方の戻しが対象を失う。そちらの .rc は書き換わったまま残る。
+    $resourceBackup = [System.IO.Path]::GetTempFileName()
     Copy-Item $resourceScript $resourceBackup -Force
 
     $rc = Get-Content $resourceScript -Raw
