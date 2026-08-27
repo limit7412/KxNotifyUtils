@@ -166,6 +166,7 @@ WinRT の呼び出しだけは別である。
 - **uing の静的リンク**：uing 0.2.0 は libui-ng の静的ライブラリを postinstall で取得し、そのままリンクする。fork も設定の上書きも要らなかった。
 - **libui-ng とトレイの共存**：`uiMainStep(0)` を主ループから呼ぶ形で、UI スレッド 1 本に収めた。専用スレッドへの分離はしていない。
 - **openvr のインターフェースバージョン**：`IVRSystem_026` と `IVRApplications_008` に固定した。FnTable の並びは `openvr_capi.h` から機械的に写している。起動時に `VR_IsInterfaceVersionValid` で検証し、通らなければ SteamVR 連携を無効にして常駐を続ける。
+- **OpenVR の初期化の種別**：`VRApplication_Background` で初期化する。SteamVR が動いていないときに SteamVR を起こさず、初期化のほうを失敗させる種別はこれだけである。`VRApplication_Overlay` では、設定を見たいだけの手動起動でも SteamVR が起動してしまう（issue #12）。本ツールが OpenVR に求めるのは vrmanifest の登録と自動起動の設定、そして `VREvent_Quit` の受け取りだけで、オーバーレイの描画は行わないため `IVROverlay` を使っていない。この 3 つはいずれも Background で足りる。SteamVR が動いていないことは `VRInitError_Init_NoServerForBackgroundApp` という初期化の失敗として表れるので、この番号だけは異常として扱わず、60 秒ごとの再試行を続ける。vrmanifest に書く `is_dashboard_overlay` はこれとは別物であり、そのままにしてある。あちらは SteamVR がアプリをどう分類し、自動起動でどう扱うかを決めるもので、アプリ自身が `VR_Init` へ渡す種別とは関係しない。
 - **openvrpaths.vrpath の形式差**：`runtime` 配列を一次の情報源とし、読めない場合は `%ProgramFiles(x86)%\Steam\steamapps\common\SteamVR` を試すフォールバックを足した。
 - **アプリ別ルールの一覧ウィジェット**：Table ではなく、リストと編集フォームの組み合わせにした。並べ替えに意味があるため、上下の移動ボタンを付けている。
 - **アプリケーションマニフェスト**：本体からは埋め込まない。Common Controls v6 の宣言は uing が埋め込むマニフェストが持っており、同じ RT_MANIFEST リソースを重ねると衝突する。DPI awareness は起動時に `SetProcessDpiAwarenessContext` を呼んで設定する。

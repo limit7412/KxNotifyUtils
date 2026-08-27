@@ -17,10 +17,18 @@ module SteamVR
   end
 
   lib LibOpenVR
-    # EVRApplicationType_VRApplication_Overlay
-    APPLICATION_TYPE_OVERLAY = 2
+    # EVRApplicationType_VRApplication_Background
+    #
+    # SteamVR が動いていなければ、起動せずに初期化のほうを失敗させる唯一の種別である（issue #12）。
+    # Overlay（2）や Scene（1）では、動いていなければ SteamVR が起動される。
+    APPLICATION_TYPE_BACKGROUND = 3
     # EVRInitError_VRInitError_None と EVRApplicationError_VRApplicationError_None
     ERROR_NONE = 0
+    # EVRInitError_VRInitError_Init_NoServerForBackgroundApp
+    #
+    # Background で初期化したときに、SteamVR が動いていないことを表す。
+    # 初期化の失敗のうち、これだけは異常ではない。
+    ERROR_NO_SERVER_FOR_BACKGROUND_APP = 121
     # EVREventType_VREvent_Quit
     EVENT_QUIT = 700
 

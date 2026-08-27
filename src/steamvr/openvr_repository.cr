@@ -22,6 +22,7 @@ module SteamVR
       @system = Pointer(LibOpenVR::IVRSystemFnTable).null
       @applications = Pointer(LibOpenVR::IVRApplicationsFnTable).null
       @opened = false
+      @reported_init_error = nil.as(Int32?)
     end
 
     def opened? : Bool
@@ -30,6 +31,14 @@ module SteamVR
 
     # openvr_api.dll の解決、OpenVR の初期化、FnTable の取得までを行う。
     # どこで失敗しても SteamVR 連携を無効にするだけで、本体の常駐は続けられる。
+    #
+    # 初期化には Background を渡す。
+    # SteamVR が動いていなければ、この種別だけが SteamVR を起こさずに失敗する（issue #12）。
+    # 本ツールが OpenVR に求めるのは vrmanifest の登録と自動起動の設定、
+    # そして VREvent_Quit の受け取りだけであり、いずれも overlay の描画を伴わない。
+    #
+    # SteamVR を起動しないことは、初期化の成功ではなく失敗として表れる。
+    # 呼び出し側はこの失敗を異常として扱わず、60 秒ごとに開き直す。
     def open : Bool
       return true if @opened
 
@@ -57,11 +66,12 @@ module SteamVR
       end
 
       error = 0
-      init.call(pointerof(error), LibOpenVR::APPLICATION_TYPE_OVERLAY, Pointer(UInt8).null)
+      init.call(pointerof(error), LibOpenVR::APPLICATION_TYPE_BACKGROUND, Pointer(UInt8).null)
       unless error == LibOpenVR::ERROR_NONE
-        Log.debug { "OpenVR の初期化に失敗した (#{error})" }
+        report_init_failure(error)
         return unload
       end
+      @reported_init_error = nil
       @shutdown_internal = shutdown
 
       unless version_valid.call(IVRSYSTEM_VERSION.to_unsafe) &&
@@ -181,6 +191,30 @@ module SteamVR
     private def resolve(name : String) : Void*?
       pointer = LibDynamicLoad.get_proc_address(@library, name.to_unsafe)
       pointer.null? ? nil : pointer
+    end
+
+    # 初期化の失敗を、SteamVR が動いていないだけの場合と切り分けて出す。
+    #
+    # Background で初期化するため、SteamVR を起動していない間はここを必ず通る。
+    # 既定のログレベルは info であり、そちらへ上げると VR を使わない日のログが
+    # 60 秒ごとの同じ 1 行で埋まる。異常ではないので debug に留める。
+    #
+    # それ以外の失敗は目に触れる必要がある。
+    # ただし再試行のたびに繰り返されるため、番号が変わったときだけ書く。
+    private def report_init_failure(error : Int32) : Nil
+      if error == LibOpenVR::ERROR_NO_SERVER_FOR_BACKGROUND_APP
+        Log.debug { "SteamVR が動いていないため OpenVR を初期化しなかった" }
+        @reported_init_error = nil
+        return
+      end
+
+      if @reported_init_error == error
+        Log.debug { "OpenVR の初期化に失敗した (#{error})" }
+        return
+      end
+
+      @reported_init_error = error
+      Log.warn { "OpenVR の初期化に失敗した (#{error})" }
     end
 
     private def check(operation : String, error : Int32) : Bool

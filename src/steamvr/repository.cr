@@ -2,7 +2,9 @@ module SteamVR
   # OpenVR 呼び出しの境界（仕様書 4.5 節、4.6 節）。
   # 実装は openvr_repository.cr が openvr_api.dll の動的ロードで提供する。
   abstract class Repository
-    # OpenVR を VRApplication_Overlay で初期化する。成功したら true を返す。
+    # OpenVR を VRApplication_Background で初期化する。成功したら true を返す。
+    #
+    # SteamVR が動いていなければ失敗する。この種別を選んだのはそのためである（issue #12）。
     abstract def open : Bool
 
     abstract def close : Nil
