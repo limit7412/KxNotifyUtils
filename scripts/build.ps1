@@ -104,8 +104,15 @@ Write-Host "==> 本体をビルドする"
 $shimDirectory = Join-Path $root "shim\build\$configuration"
 $resource = Join-Path $root "res\kxnotifyutils.res"
 
+# /SUBSYSTEM:WINDOWS を付けないとコンソールの exe になり、起動のたびに
+# コンソールウィンドウが残る（issue #19）。トレイ常駐であり、標準出力へは何も書かない。
+#
+# 普通ならここでエントリポイントも変える必要がある。
+# /SUBSYSTEM:WINDOWS はリンカの既定エントリを wWinMainCRTStartup にするためである。
+# Crystal が /ENTRY:wmainCRTStartup を明示しているので、そちらは起きない。
+#
 # 置き場所に空白が入っていても壊れないよう、パスは引用符で囲む。
-$linkFlags = "/LIBPATH:`"$shimDirectory`" `"$resource`""
+$linkFlags = "/SUBSYSTEM:WINDOWS /LIBPATH:`"$shimDirectory`" `"$resource`""
 Write-Host "link flags: $linkFlags"
 
 # --no-debug を外すと uing が libui-ng の debug 版を選ぶ。

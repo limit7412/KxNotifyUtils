@@ -43,6 +43,17 @@ uing はデバッグ情報の有無で libui-ng の release と debug を選び�
 uing が配る `ui.lib` が静的 CRT でビルドされており、そこに合わせないとリンク時に `RuntimeLibrary` の食い違いで止まる。
 理由は `docs/architecture.md` の「仕様書からの変更点」に書いた。
 
+`/SUBSYSTEM:WINDOWS` はコンソールを開かせないために要る。
+付けないとコンソールの exe になり、起動のたびにコンソールウィンドウが残る（issue #19）。
+トレイ常駐であり、標準出力へは何も書かないため失うものは無い。
+
+普通ならここでエントリポイントも変えることになる。
+`/SUBSYSTEM:WINDOWS` はリンカの既定エントリを `wWinMainCRTStartup` にし、`WinMain` が無いとリンクが止まるためである。
+Crystal が `/ENTRY:wmainCRTStartup` を明示しているので、そちらは起きない。
+
+コンソールが無いと標準出力と標準エラーは閉じたハンドルになる。
+`src/main.cr` の末尾が起動を囲んでいるのはそのためで、漏れた例外はログファイルへ落としてから終える。
+
 `openvr_api.dll` はリンクしない。
 SteamVR がインストールしたものを実行時に探してロードする。
 

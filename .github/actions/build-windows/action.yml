@@ -79,3 +79,23 @@ runs:
 
         Write-Host "同梱前提の DLL への依存は無い"
 
+    - name: コンソールの exe になっていないことを確かめる
+      # /SUBSYSTEM:WINDOWS が落ちるとコンソールの exe になり、起動のたびに
+      # コンソールウィンドウが残る（issue #19）。
+      # リンク引数の指定ミスは、上の DLL 依存と同じくビルドが通ってしまう類であり、
+      # 手元で気付けるとは限らないためここで見る。
+      shell: pwsh
+      run: |
+        $headers = dumpbin /nologo /headers KxNotifyUtils.exe
+        if ($LASTEXITCODE -ne 0) { throw "dumpbin が終了コード $LASTEXITCODE で失敗した" }
+
+        $subsystem = $headers | Select-String -Pattern '^\s+\d+ subsystem \((.+)\)\s*$'
+        if (-not $subsystem) {
+          throw "dumpbin の出力からサブシステムを読み取れなかった"
+        }
+
+        $name = $subsystem[0].Matches[0].Groups[1].Value
+        Write-Host "サブシステム: $name"
+        if ($name -ne "Windows GUI") {
+          throw "コンソールの exe になっている（サブシステムが $name）"
+        }
