@@ -1,18 +1,29 @@
 # KxNotifyUtils を 1 ファイルの exe としてビルドする。
 #
+# 手元でも CI でもこのスクリプトを使う（issue #20）。
+# 複合アクション（.github/actions/build-windows）が持つのは、MSVC と Crystal を用意すること、
+# このスクリプトを呼ぶこと、出来た exe を検査することだけである。
+# 手順を 2 か所に書くと、片方だけ直したときに配布物と手元ビルドが食い違う。
+#
 # 前提:
 #   - Visual Studio 2022 以降の C++ ビルドツール（cmake と rc.exe に PATH が通っていること）
 #   - Crystal の Windows 版（MSVC ツールチェーン）
 #
 # 使い方:
-#   pwsh scripts/build.ps1              リリースビルド
-#   pwsh scripts/build.ps1 -DebugBuild  デバッグビルド
+#   pwsh scripts/build.ps1                リリースビルド
+#   pwsh scripts/build.ps1 -DebugBuild    デバッグビルド
+#   pwsh scripts/build.ps1 -Version 1.2.3 バージョンを埋めてビルドする
 #
 # PowerShell の共通パラメータに -Debug があるため、独自のスイッチは -DebugBuild とする。
 [CmdletBinding()]
 param(
   [switch]$DebugBuild,
-  [string]$Output = "KxNotifyUtils.exe"
+  [string]$Output = "KxNotifyUtils.exe",
+  # 実行ファイルへ埋めるバージョン。
+  # 空にすると src/main.cr と res/kxnotifyutils.rc の既定値のままビルドする。
+  [string]$Version = "",
+  # shards install をやり直す回数。
+  [int]$ShardsAttempts = 3
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,25 +40,73 @@ Set-Location $root
 
 $configuration = if ($DebugBuild) { "Debug" } else { "Release" }
 
+Write-Host "==> 依存 shard を取得する"
+# uing の postinstall は libui-ng の静的ライブラリを GitHub から取得する。
+# この取得は落ちることがあり、shards は理由を出さずに終わる。
+# 取り直せば通るため、間隔を空けて試し直す。
+#
+# lib を消すのは 2 回目以降に限る。
+# 途中で失敗した postinstall が壊れた lib を残すため、やり直す前には消す必要があるが、
+# 1 回目の前にも消すと、手元ではビルドのたびに shard を取り直すことになる。
+for ($attempt = 1; $attempt -le $ShardsAttempts; $attempt++) {
+  if ($attempt -gt 1 -and (Test-Path lib)) { Remove-Item -Recurse -Force lib }
+  shards install
+  if ($LASTEXITCODE -eq 0) { break }
+  if ($attempt -eq $ShardsAttempts) {
+    throw "shards install が $ShardsAttempts 回とも失敗した"
+  }
+  Write-Host "shards install に失敗した ($attempt 回目, 終了コード $LASTEXITCODE)"
+  Start-Sleep -Seconds ($attempt * 10)
+}
+
 Write-Host "==> NotifListenerShim をビルドする ($configuration)"
 cmake -S shim -B shim/build -A x64
 Assert-LastExitCode "cmake の構成"
 cmake --build shim/build --config $configuration
 Assert-LastExitCode "シムのビルド"
 
+if ($Version -ne "") {
+  Write-Host "==> バージョンをリソースへ埋める"
+  # 本体側のバージョンは KXNOTIFYUTILS_VERSION から読むが、exe のプロパティに出る
+  # バージョン情報はリソースが持つため、こちらは書き換えて渡す。
+  #
+  # 書き換えるのはワークスペース上のファイルだけで、コミットはしない。
+  # タグが版の source of truth であり、リポジトリ側の値は手元ビルドの既定値である。
+  $resourceScript = "res/kxnotifyutils.rc"
+
+  # FILEVERSION と PRODUCTVERSION は数値 4 つしか置けない。
+  # -testN のようなプレリリース識別子は入らないため、X.Y.Z だけを使う。
+  if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)') {
+    throw "バージョン '$Version' から X.Y.Z を読み取れなかった"
+  }
+  $numeric = "$($Matches[1]), $($Matches[2]), $($Matches[3]), 0"
+
+  $rc = Get-Content $resourceScript -Raw
+  $rc = $rc -replace '(?m)^FILEVERSION .*$', "FILEVERSION $numeric"
+  $rc = $rc -replace '(?m)^PRODUCTVERSION .*$', "PRODUCTVERSION $numeric"
+  # 文字列側は識別子を含む完全なバージョンを載せる。末尾の \0 はリソースの記法。
+  $rc = $rc -replace '(?m)^([ \t]*VALUE "FileVersion", ").*$', ('${1}' + $Version + '\0"')
+  $rc = $rc -replace '(?m)^([ \t]*VALUE "ProductVersion", ").*$', ('${1}' + $Version + '\0"')
+
+  # BOM を付けずに書き戻す。Set-Content の既定は PowerShell の版で変わる。
+  [System.IO.File]::WriteAllText(
+    (Join-Path $PWD $resourceScript), $rc, (New-Object System.Text.UTF8Encoding $false))
+
+  Write-Host "リソースへ埋めたバージョン: $Version (数値は $numeric)"
+  $env:KXNOTIFYUTILS_VERSION = $Version
+}
+
 Write-Host "==> リソースをコンパイルする"
 rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
 Assert-LastExitCode "リソースのコンパイル"
 
-Write-Host "==> 依存 shard を取得する"
-shards install
-Assert-LastExitCode "shards install"
-
 Write-Host "==> 本体をビルドする"
 $shimDirectory = Join-Path $root "shim\build\$configuration"
 $resource = Join-Path $root "res\kxnotifyutils.res"
-# 置き場所に空白が入っていても壊れないよう、どちらも引用符で囲む。
+
+# 置き場所に空白が入っていても壊れないよう、パスは引用符で囲む。
 $linkFlags = "/LIBPATH:`"$shimDirectory`" `"$resource`""
+Write-Host "link flags: $linkFlags"
 
 # --no-debug を外すと uing が libui-ng の debug 版を選ぶ。
 # uing はデバッグ情報の有無で libui-ng の release と debug を選び分けており、
