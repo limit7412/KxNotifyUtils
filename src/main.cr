@@ -49,8 +49,14 @@ module KxNotifyUtils
     LAUNCH_SETTLE = 2.seconds
 
     def initialize
-      @icons = Runtime::IconRepository.new
+      # ログを最初に立てる。
+      # 配布物はコンソールを持たないため、ここから下で落ちたものは
+      # ファイルへ書けなければどこにも残らない（issue #19）。
+      # 読み込んだ設定のレベルへは load_config が改めて差し替える。
       @log_backend = Runtime::DailyFileBackend.new(Runtime::Paths.log_directory)
+      Runtime::Logging.setup(@log_backend)
+
+      @icons = Runtime::IconRepository.new
       @errors = Error::Usecase.new
       @tray = Runtime::Tray.new
       @config = ::Config::Usecase.new(::Config::FileRepository.new(Runtime::Paths.config_path))
@@ -128,7 +134,6 @@ module KxNotifyUtils
     end
 
     def run : Nil
-      Runtime::Logging.setup(@log_backend)
       {% if flag?(:windows) %}
         Runtime::Win32.enable_per_monitor_dpi_awareness
       {% end %}
@@ -1163,4 +1168,18 @@ module KxNotifyUtils
   end
 end
 
-KxNotifyUtils::Application.new.run
+# 漏れた例外をログへ残してから終える。
+#
+# 配布物は /SUBSYSTEM:WINDOWS でリンクしており、コンソールを持たない（issue #19）。
+# 標準出力と標準エラーは閉じたハンドルになるため、ここで漏れた例外はどこにも出ない。
+# 囲わないと「起動したのに何も起こらない」だけが残り、原因を追う手掛かりが無くなる。
+#
+# ログの設定は Application の生成が最初に行う。生成の途中で落ちたものも残すためである。
+begin
+  KxNotifyUtils::Application.new.run
+rescue exception
+  # ログの設定より前で落ちた場合は、既定のバックエンドが閉じた標準エラーへ書こうとして
+  # ここでも失敗する。そこまでは面倒を見ず、終了コードだけ残して終える。
+  KxNotifyUtils::Log.fatal(exception: exception) { "起動を続けられないため終了する" } rescue nil
+  exit 1
+end

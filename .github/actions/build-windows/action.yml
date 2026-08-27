@@ -15,6 +15,11 @@ inputs:
     required: false
     default: "1.14.0"
 
+# ビルドの手順そのものは scripts/build.ps1 が持つ（issue #20）。
+# ここが持つのは、MSVC と Crystal を用意すること、それを呼ぶこと、
+# 出来た exe を検査することだけである。
+# 手順を 2 か所に書くと、片方だけ直したときに配布物と手元ビルドが食い違い、
+# しかも手元では再現しないため気付けない。
 runs:
   using: composite
   steps:
@@ -26,93 +31,16 @@ runs:
       with:
         crystal: ${{ inputs.crystal }}
 
-    - name: 依存 shard を取得する
-      # uing の postinstall は libui-ng の静的ライブラリを GitHub から取得する。
-      # この取得は落ちることがあり、shards は理由を出さずに終わる。
-      # 取り直せば通るため、lib を消してから間隔を空けて試し直す。
-      shell: pwsh
-      run: |
-        foreach ($attempt in 1..3) {
-          if (Test-Path lib) { Remove-Item -Recurse -Force lib }
-          shards install
-          if ($LASTEXITCODE -eq 0) { exit 0 }
-          Write-Host "shards install に失敗した ($attempt 回目, 終了コード $LASTEXITCODE)"
-          Start-Sleep -Seconds ($attempt * 10)
-        }
-        throw "shards install が 3 回とも失敗した"
-
-    - name: NotifListenerShim をビルドする
-      shell: pwsh
-      run: |
-        cmake -S shim -B shim/build -A x64
-        if ($LASTEXITCODE -ne 0) { throw "cmake の構成が終了コード $LASTEXITCODE で失敗した" }
-        cmake --build shim/build --config Release
-        if ($LASTEXITCODE -ne 0) { throw "シムのビルドが終了コード $LASTEXITCODE で失敗した" }
-
-    - name: バージョンをリソースへ埋める
-      # 本体側のバージョンは KXNOTIFYUTILS_VERSION から読むが、exe のプロパティに出る
-      # バージョン情報はリソースが持つため、こちらは書き換えて渡す。
+    - name: シムと本体をビルドする
+      # 終了コードは build.ps1 が自分で確かめて throw する。
       #
-      # 書き換えるのはワークスペース上のファイルだけで、コミットはしない。
-      # タグが版の source of truth であり、リポジトリ側の値は手元ビルドの既定値である。
-      if: inputs.version != ''
+      # バージョンは環境変数で渡す。run へ直接展開すると、値に含まれる引用符や改行が
+      # PowerShell の構文として解釈され、任意の文を実行させられる。
+      # release.yml の workflow_dispatch は版を自由入力で受け取り、タグ名もそのまま流れてくる。
       shell: pwsh
       env:
-        VERSION: ${{ inputs.version }}
-      run: |
-        $path = "res/kxnotifyutils.rc"
-
-        # FILEVERSION と PRODUCTVERSION は数値 4 つしか置けない。
-        # -testN のようなプレリリース識別子は入らないため、X.Y.Z だけを使う。
-        if ($env:VERSION -notmatch '^(\d+)\.(\d+)\.(\d+)') {
-          throw "バージョン '$($env:VERSION)' から X.Y.Z を読み取れなかった"
-        }
-        $numeric = "$($Matches[1]), $($Matches[2]), $($Matches[3]), 0"
-
-        $rc = Get-Content $path -Raw
-        $rc = $rc -replace '(?m)^FILEVERSION .*$', "FILEVERSION $numeric"
-        $rc = $rc -replace '(?m)^PRODUCTVERSION .*$', "PRODUCTVERSION $numeric"
-        # 文字列側は識別子を含む完全なバージョンを載せる。末尾の \0 はリソースの記法。
-        $rc = $rc -replace '(?m)^([ \t]*VALUE "FileVersion", ").*$', ('${1}' + $env:VERSION + '\0"')
-        $rc = $rc -replace '(?m)^([ \t]*VALUE "ProductVersion", ").*$', ('${1}' + $env:VERSION + '\0"')
-
-        # BOM を付けずに書き戻す。Set-Content の既定は PowerShell の版で変わる。
-        [System.IO.File]::WriteAllText(
-          (Join-Path $PWD $path), $rc, (New-Object System.Text.UTF8Encoding $false))
-
-        Write-Host "リソースへ埋めたバージョン: $($env:VERSION) (数値は $numeric)"
-
-    - name: リソースをコンパイルする
-      shell: pwsh
-      run: |
-        rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
-        if ($LASTEXITCODE -ne 0) { throw "リソースのコンパイルが終了コード $LASTEXITCODE で失敗した" }
-
-    - name: 本体をビルドする
-      # --no-debug を外すと uing が libui-ng の debug 版を選ぶ。
-      # uing はデバッグ情報の有無で release と debug を選び分けており、
-      # Crystal はデバッグ情報を既定で出すため、--release だけでは debug 版が使われる。
-      #
-      # --static は配布物を exe 1 ファイルにするために要る。
-      # Crystal の Windows 配布物は依存ライブラリを静的版（z.lib など）と
-      # インポートライブラリ（z-dynamic.lib など）の両方で持っており、
-      # コンパイラは --static なら -static、既定では -dynamic を付けた名前を先に探す。
-      # -static 版は無いので --static では素の名前、つまり静的版へ落ちる。
-      # 付けないと -dynamic 版が選ばれ、zlib1.dll などを要求する exe になる。
-      #
-      # 行継続のバッククォートは使わず、リンク引数を変数に組み立ててから 1 行で渡す。
-      # また終了コードを自分で確かめる。
-      # 失敗したときに何も出力が残らないと原因を追えないためである。
-      shell: pwsh
-      env:
-        KXNOTIFYUTILS_VERSION: ${{ inputs.version }}
-      run: |
-        # 置き場所に空白が入っていても壊れないよう、どちらも引用符で囲む。
-        $linkFlags = "/LIBPATH:`"$env:GITHUB_WORKSPACE\shim\build\Release`" `"$env:GITHUB_WORKSPACE\res\kxnotifyutils.res`""
-        Write-Host "link flags: $linkFlags"
-        crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --static --link-flags $linkFlags
-        Write-Host "crystal build exit code: $LASTEXITCODE"
-        if ($LASTEXITCODE -ne 0) { throw "crystal build が終了コード $LASTEXITCODE で失敗した" }
+        INPUT_VERSION: ${{ inputs.version }}
+      run: ./scripts/build.ps1 -Version "$env:INPUT_VERSION"
 
     - name: exe が単体で動くことを確かめる
       # 配布物は exe 1 ファイルであり、同梱する DLL は無い（仕様書 1 章、8.2 節）。
@@ -156,3 +84,24 @@ runs:
         $summary -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
         Write-Host "同梱前提の DLL への依存は無い"
+
+    - name: コンソールの exe になっていないことを確かめる
+      # /SUBSYSTEM:WINDOWS が落ちるとコンソールの exe になり、起動のたびに
+      # コンソールウィンドウが残る（issue #19）。
+      # リンク引数の指定ミスは、上の DLL 依存と同じくビルドが通ってしまう類であり、
+      # 手元で気付けるとは限らないためここで見る。
+      shell: pwsh
+      run: |
+        $headers = dumpbin /nologo /headers KxNotifyUtils.exe
+        if ($LASTEXITCODE -ne 0) { throw "dumpbin が終了コード $LASTEXITCODE で失敗した" }
+
+        $subsystem = $headers | Select-String -Pattern '^\s+\d+ subsystem \((.+)\)\s*$'
+        if (-not $subsystem) {
+          throw "dumpbin の出力からサブシステムを読み取れなかった"
+        }
+
+        $name = $subsystem[0].Matches[0].Groups[1].Value
+        Write-Host "サブシステム: $name"
+        if ($name -ne "Windows GUI") {
+          throw "コンソールの exe になっている（サブシステムが $name）"
+        }

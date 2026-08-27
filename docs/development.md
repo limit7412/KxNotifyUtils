@@ -11,19 +11,23 @@
 pwsh scripts/build.ps1
 ```
 
-このスクリプトは順に、シムの静的ライブラリをビルドし、リソースをコンパイルし、shard を取得し、本体をリンクする。
+このスクリプトは順に、shard を取得し、シムの静的ライブラリをビルドし、リソースをコンパイルし、本体をリンクする。
 出来上がるのは `KxNotifyUtils.exe` の 1 ファイルである。
 
-手で行う場合は次のようになる。
+CI とリリースも同じスクリプトを呼ぶ。
+複合アクション（`.github/actions/build-windows`）が持つのは、MSVC と Crystal を用意すること、これを呼ぶこと、出来た exe を検査することだけである。
+手順を 2 か所に書くと、片方だけ直したときに配布物と手元ビルドが食い違い、しかも手元では再現しないため気付けない（issue #20）。
+
+バージョンを埋める場合は `-Version` を渡す。
+省略すると `src/main.cr` と `res/kxnotifyutils.rc` の既定値のままになる。
+渡した場合は `res/kxnotifyutils.rc` を書き換えてリソースをコンパイルし、その後で元へ戻す。
+作業ツリーは汚れない。
 
 ```powershell
-cmake -S shim -B shim/build -A x64
-cmake --build shim/build --config Release
-rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
-shards install
-crystal build src/main.cr -o KxNotifyUtils.exe --release --no-debug --static `
-  --link-flags "/LIBPATH:$PWD\shim\build\Release $PWD\res\kxnotifyutils.res"
+pwsh scripts/build.ps1 -Version 1.2.3
 ```
+
+以下はスクリプトが渡している指定のうち、外すとビルドは通るのに配布先で壊れるものである。
 
 `--static` は配布物を exe 1 ファイルにするために要る。
 
@@ -40,6 +44,17 @@ uing はデバッグ情報の有無で libui-ng の release と debug を選び�
 シムの CRT は静的（`/MT`）に固定してある。
 uing が配る `ui.lib` が静的 CRT でビルドされており、そこに合わせないとリンク時に `RuntimeLibrary` の食い違いで止まる。
 理由は `docs/architecture.md` の「仕様書からの変更点」に書いた。
+
+`/SUBSYSTEM:WINDOWS` はコンソールを開かせないために要る。
+付けないとコンソールの exe になり、起動のたびにコンソールウィンドウが残る（issue #19）。
+トレイ常駐であり、標準出力へは何も書かないため失うものは無い。
+
+普通ならここでエントリポイントも変えることになる。
+`/SUBSYSTEM:WINDOWS` はリンカの既定エントリを `wWinMainCRTStartup` にし、`WinMain` が無いとリンクが止まるためである。
+Crystal が `/ENTRY:wmainCRTStartup` を明示しているので、そちらは起きない。
+
+コンソールが無いと標準出力と標準エラーは閉じたハンドルになる。
+`src/main.cr` の末尾が起動を囲んでいるのはそのためで、漏れた例外はログファイルへ落としてから終える。
 
 `openvr_api.dll` はリンクしない。
 SteamVR がインストールしたものを実行時に探してロードする。
