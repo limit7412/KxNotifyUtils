@@ -33,8 +33,14 @@ runs:
 
     - name: シムと本体をビルドする
       # 終了コードは build.ps1 が自分で確かめて throw する。
+      #
+      # バージョンは環境変数で渡す。run へ直接展開すると、値に含まれる引用符や改行が
+      # PowerShell の構文として解釈され、任意の文を実行させられる。
+      # release.yml の workflow_dispatch は版を自由入力で受け取り、タグ名もそのまま流れてくる。
       shell: pwsh
-      run: ./scripts/build.ps1 -Version '${{ inputs.version }}'
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: ./scripts/build.ps1 -Version "$env:INPUT_VERSION"
 
     - name: exe が単体で動くことを確かめる
       # 配布物は exe 1 ファイルであり、同梱する DLL は無い（仕様書 1 章、8.2 節）。

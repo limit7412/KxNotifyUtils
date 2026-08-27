@@ -65,40 +65,61 @@ Assert-LastExitCode "cmake の構成"
 cmake --build shim/build --config $configuration
 Assert-LastExitCode "シムのビルド"
 
-if ($Version -ne "") {
-  Write-Host "==> バージョンをリソースへ埋める"
-  # 本体側のバージョンは KXNOTIFYUTILS_VERSION から読むが、exe のプロパティに出る
-  # バージョン情報はリソースが持つため、こちらは書き換えて渡す。
-  #
-  # 書き換えるのはワークスペース上のファイルだけで、コミットはしない。
-  # タグが版の source of truth であり、リポジトリ側の値は手元ビルドの既定値である。
-  $resourceScript = "res/kxnotifyutils.rc"
+# バージョンを埋めてからリソースをコンパイルする。
+#
+# 本体側のバージョンは KXNOTIFYUTILS_VERSION から読むが、exe のプロパティに出る
+# バージョン情報はリソースが持つため、こちらは書き換えて渡す。
+#
+# 書き換えるのは追跡対象のファイルであり、済んだら必ず元へ戻す。
+# 戻さないと、次に -Version 無しでビルドしたときに Crystal 側は 0.1.0-dev なのに
+# exe のバージョン情報だけ前回の値が残り、引数の約束に反する。
+# 別の場所に一時ファイルを作る手は使えない。この .rc はアイコンを相対パスで参照している。
+#
+# タグが版の source of truth であり、リポジトリ側の値は手元ビルドの既定値である。
+$resourceScript = "res/kxnotifyutils.rc"
+$resourceBackup = $null
 
-  # FILEVERSION と PRODUCTVERSION は数値 4 つしか置けない。
-  # -testN のようなプレリリース識別子は入らないため、X.Y.Z だけを使う。
-  if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)') {
-    throw "バージョン '$Version' から X.Y.Z を読み取れなかった"
+try {
+  if ($Version -ne "") {
+    Write-Host "==> バージョンをリソースへ埋める"
+
+    # FILEVERSION と PRODUCTVERSION は数値 4 つしか置けない。
+    # -testN のようなプレリリース識別子は入らないため、X.Y.Z だけを使う。
+    if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)') {
+      throw "バージョン '$Version' から X.Y.Z を読み取れなかった"
+    }
+    $numeric = "$($Matches[1]), $($Matches[2]), $($Matches[3]), 0"
+
+    # 書き換える前に控えを取る。
+    # 戻しはコピーで行う。読み書きを往復させると、改行や符号化の扱いで元と 1 バイト違いうる。
+    $resourceBackup = Join-Path ([System.IO.Path]::GetTempPath()) "kxnotifyutils.rc.original"
+    Copy-Item $resourceScript $resourceBackup -Force
+
+    $rc = Get-Content $resourceScript -Raw
+    $rc = $rc -replace '(?m)^FILEVERSION .*$', "FILEVERSION $numeric"
+    $rc = $rc -replace '(?m)^PRODUCTVERSION .*$', "PRODUCTVERSION $numeric"
+    # 文字列側は識別子を含む完全なバージョンを載せる。末尾の \0 はリソースの記法。
+    $rc = $rc -replace '(?m)^([ \t]*VALUE "FileVersion", ").*$', ('${1}' + $Version + '\0"')
+    $rc = $rc -replace '(?m)^([ \t]*VALUE "ProductVersion", ").*$', ('${1}' + $Version + '\0"')
+
+    # BOM を付けずに書き戻す。Set-Content の既定は PowerShell の版で変わる。
+    [System.IO.File]::WriteAllText(
+      (Join-Path $PWD $resourceScript), $rc, (New-Object System.Text.UTF8Encoding $false))
+
+    Write-Host "リソースへ埋めたバージョン: $Version (数値は $numeric)"
+    $env:KXNOTIFYUTILS_VERSION = $Version
   }
-  $numeric = "$($Matches[1]), $($Matches[2]), $($Matches[3]), 0"
 
-  $rc = Get-Content $resourceScript -Raw
-  $rc = $rc -replace '(?m)^FILEVERSION .*$', "FILEVERSION $numeric"
-  $rc = $rc -replace '(?m)^PRODUCTVERSION .*$', "PRODUCTVERSION $numeric"
-  # 文字列側は識別子を含む完全なバージョンを載せる。末尾の \0 はリソースの記法。
-  $rc = $rc -replace '(?m)^([ \t]*VALUE "FileVersion", ").*$', ('${1}' + $Version + '\0"')
-  $rc = $rc -replace '(?m)^([ \t]*VALUE "ProductVersion", ").*$', ('${1}' + $Version + '\0"')
-
-  # BOM を付けずに書き戻す。Set-Content の既定は PowerShell の版で変わる。
-  [System.IO.File]::WriteAllText(
-    (Join-Path $PWD $resourceScript), $rc, (New-Object System.Text.UTF8Encoding $false))
-
-  Write-Host "リソースへ埋めたバージョン: $Version (数値は $numeric)"
-  $env:KXNOTIFYUTILS_VERSION = $Version
+  Write-Host "==> リソースをコンパイルする"
+  rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
+  Assert-LastExitCode "リソースのコンパイル"
+} finally {
+  # 途中で落ちても戻す。書き換えたまま抜けると、次のビルドが古い版を載せる。
+  if ($null -ne $resourceBackup) {
+    Copy-Item $resourceBackup $resourceScript -Force
+    Remove-Item $resourceBackup -Force
+  }
 }
-
-Write-Host "==> リソースをコンパイルする"
-rc.exe /nologo /fo res\kxnotifyutils.res res\kxnotifyutils.rc
-Assert-LastExitCode "リソースのコンパイル"
 
 Write-Host "==> 本体をビルドする"
 $shimDirectory = Join-Path $root "shim\build\$configuration"

@@ -20,6 +20,8 @@ CI とリリースも同じスクリプトを呼ぶ。
 
 バージョンを埋める場合は `-Version` を渡す。
 省略すると `src/main.cr` と `res/kxnotifyutils.rc` の既定値のままになる。
+渡した場合は `res/kxnotifyutils.rc` を書き換えてリソースをコンパイルし、その後で元へ戻す。
+作業ツリーは汚れない。
 
 ```powershell
 pwsh scripts/build.ps1 -Version 1.2.3
