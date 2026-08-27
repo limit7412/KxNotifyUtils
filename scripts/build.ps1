@@ -96,8 +96,13 @@ try {
     # 置き場所はビルドごとに一意にする。固定の名前にすると、同じ利用者が別の
     # チェックアウトを同時にビルドしたときに互いの控えを上書きし、先に終わったほうが
     # 消した後で、もう一方の戻しが対象を失う。そちらの .rc は書き換わったまま残る。
-    $resourceBackup = [System.IO.Path]::GetTempFileName()
-    Copy-Item $resourceScript $resourceBackup -Force
+    #
+    # 戻す対象として登録するのは、控えを取り切れてからにする。
+    # GetTempFileName は空のファイルを作るため、先に登録するとコピーが失敗した場合に
+    # finally がその空ファイルで .rc を上書きし、追跡対象の中身を消してしまう。
+    $backup = [System.IO.Path]::GetTempFileName()
+    Copy-Item $resourceScript $backup -Force
+    $resourceBackup = $backup
 
     $rc = Get-Content $resourceScript -Raw
     $rc = $rc -replace '(?m)^FILEVERSION .*$', "FILEVERSION $numeric"
