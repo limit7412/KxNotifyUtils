@@ -31,5 +31,19 @@ module Runtime
     def self.executable_path : String
       Process.executable_path || File.expand_path(PROGRAM_NAME)
     end
+
+    # 取得しておいた新しい実行ファイル（issue #10 第 2 段階）。
+    #
+    # 置き場所を %APPDATA% ではなく exe の隣にしてあるのは、
+    # 置き換えが同じボリューム内のリネームで済むようにするためである。
+    # ボリュームをまたぐと、リネームが中身の複写に化けて途中で失敗しうる。
+    def self.staged_executable_path : String
+      "#{executable_path}.new"
+    end
+
+    # 置き換えで退避した古い実行ファイル。次の起動で消す。
+    def self.previous_executable_path : String
+      "#{executable_path}.old"
+    end
   end
 end

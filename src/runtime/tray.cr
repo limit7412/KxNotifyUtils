@@ -28,6 +28,20 @@ module Runtime
       OpenLogDirectory  =  8
       CheckUpdate       =  9
       Quit              = 10
+      DownloadUpdate    = 11
+      ApplyUpdate       = 12
+    end
+
+    # 更新の進み具合。メニューに出す項目を選ぶために持つ（issue #10 第 2 段階）。
+    enum UpdateState
+      # 新しい版は見つかっていない。取得の項目は出さない。
+      None
+      # 見つかっており、置き換えに使えるアセットがある。
+      Available
+      # 取得の最中である。押し直せないよう項目は出すが選べなくする。
+      Downloading
+      # 取得して検証まで済んでいる。何もしなければ次の起動で置き換わる。
+      Staged
     end
 
     # メニューが選ばれたときに呼ぶフック。
@@ -39,6 +53,8 @@ module Runtime
     # SteamVR 連携が使えるか。使えないときは登録と解除を選べなくする。
     property steamvr_available : Bool = false
     property steamvr_registered : Bool = false
+    # 更新の進み具合。取得と適用の項目の出し分けに使う。
+    property update_state : UpdateState = UpdateState::None
 
     getter? quit_requested : Bool = false
 
@@ -198,6 +214,7 @@ module Runtime
         end
         append(menu, Command::OpenLogDirectory, I18n.t("tray.menu.open_logs"))
         append(menu, Command::CheckUpdate, I18n.t("tray.menu.check_update"))
+        append_update_action(menu)
         separator(menu)
         append(menu, Command::Quit, I18n.t("tray.menu.quit"))
 
@@ -224,6 +241,23 @@ module Runtime
         LibWin32.kill_timer(@hwnd, IDLE_TIMER_ID)
         LibWin32.destroy_menu(menu)
         @menu_open = false
+      end
+    end
+
+    # 更新の進み具合に応じて、取得か適用のどちらかを出す。
+    #
+    # 両方を並べない。取得していないものは適用できず、
+    # 取得したものをもう一度取る意味も無い。
+    private def append_update_action(menu : LibWin32::Handle) : Nil
+      case @update_state
+      in .none?
+        # 出す項目が無い。
+      in .available?
+        append(menu, Command::DownloadUpdate, I18n.t("tray.menu.download_update"))
+      in .downloading?
+        append(menu, Command::DownloadUpdate, I18n.t("tray.menu.downloading_update"), enabled: false)
+      in .staged?
+        append(menu, Command::ApplyUpdate, I18n.t("tray.menu.apply_update"))
       end
     end
 

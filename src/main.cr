@@ -19,6 +19,7 @@ require "./runtime/win32"
 require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
+require "./update/installer"
 require "./update/models"
 require "./update/repository"
 require "./update/usecase"
@@ -40,6 +41,13 @@ module KxNotifyUtils
   Log = ::Log.for("main")
 
   class Application
+    # 多重起動の抑止に使う名前付きミューテックス。
+    SINGLE_INSTANCE_NAME = "Local\\KxNotifyUtils"
+
+    # 置き換えた実行ファイルが落ち着くのを待つ時間（issue #10 第 2 段階）。
+    # トレイを作るところまでは一瞬で着く。そこで落ちるものをここで拾う。
+    LAUNCH_SETTLE = 2.seconds
+
     def initialize
       @icons = Runtime::IconRepository.new
       @log_backend = Runtime::DailyFileBackend.new(Runtime::Paths.log_directory)
@@ -62,6 +70,14 @@ module KxNotifyUtils
       @steamvr_sync_pending = false
       # 設定へ書けなかった SteamVR の記録。書ける機会に書き直すために持つ。
       @steamvr_record_pending = nil.as({Bool, String}?)
+      # 設定を書く役目を別のプロセスへ渡したか（issue #10 第 2 段階）。
+      # 渡した後は書かない。同じ一時ファイルを 2 つのプロセスが使うことになる。
+      @config_handed_over = false
+      # 置き換えに失敗して実行ファイルが正規のパスに無いか（issue #10 第 2 段階）。
+      # 復旧は利用者が手で行うため、常駐している間は下がらない。
+      @update_broken = false
+      # その旨を知らせ済みか。起動時に起きた場合はトレイがまだ無いので、後で知らせ直す。
+      @update_broken_notified = false
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -77,8 +93,9 @@ module KxNotifyUtils
         Runtime::Paths.executable_path,
       )
       # User-Agent の無い要求を GitHub API は拒む。実行中の版が分かる形にしておく。
-      @update = Update::Usecase.new(
-        Update::GitHubRepository.new("KxNotifyUtils/#{VERSION}"))
+      # 確認と取得は同じ境界を使う。相手は同じ GitHub である。
+      update_repository = Update::GitHubRepository.new("KxNotifyUtils/#{VERSION}")
+      @update = Update::Usecase.new(update_repository)
       # 確認が走っている間か。押し直しや周期の重なりで多重に投げないために持つ。
       @update_checking = false
       # 確認の最中に来た要求。終わってから改めて確認するために覚える。
@@ -91,6 +108,18 @@ module KxNotifyUtils
       @update_last_notified = false
       # 知らせた版を設定へ書けていないか。書けた機会に書き直すために持つ。
       @update_record_pending = false
+      # 取得と置き換え（issue #10 第 2 段階）。
+      @installer = Update::Installer.new(
+        update_repository,
+        VERSION,
+        Runtime::Paths.executable_path,
+        Runtime::Paths.staged_executable_path,
+        Runtime::Paths.previous_executable_path,
+      )
+      # 取得が走っている間か。押し直しで二重に取りに行かないために持つ。
+      @update_downloading = false
+      # 取得して検証まで済んだ版のタグ。表示と適用の判断に使う。
+      @update_staged_tag = nil.as(String?)
       # 覚えてある結末がどのチャンネルのものか。今の設定と突き合わせるために持つ。
       @update_last_channel = nil.as(String?)
       @scheduler = Runtime::Scheduler.new(@relay, @steamvr, @errors)
@@ -124,8 +153,26 @@ module KxNotifyUtils
         Log.error { "トレイを作れなかった。操作する手立てが無いため起動を終える" }
         return
       end
+      # 置き換えたときに残る古い実行ファイルは、次の起動、つまりここで消す。
+      @installer.discard_previous
+      # 取得の途中で終了した場合、片方だけが残る。ここで片付ける。
+      @installer.discard_incomplete
       register_validators
       load_config
+
+      # 取得しておいた更新があれば、ここで置き換えて新しい exe へ渡す（issue #10 第 2 段階）。
+      #
+      # 多重起動の抑止より後に置く。既に常駐しているプロセスがある状態で置き換えると、
+      # 起動した新しい側が抑止に当たって即座に終わり、置き換えだけが済んだ形になる。
+      # 抑止を通ってから、ミューテックスを手放して渡す。
+      #
+      # 設定を読んだ後に置く。取得しておいたものが今のチャンネルの対象かを見るためである。
+      # 取得と置き換えの間には、設定を変えて再起動するだけの間がある。
+      # トレイと設定を持っていても退避の妨げにはならない。どちらもファイルを開いたままにしない。
+      return if hand_over_to_staged.finished?
+
+      # 置き換えに失敗して実行ファイルが無いままなら、ここで知らせる。
+      notify_update_broken
       build_sources
       build_sinks
       start_ui
@@ -137,7 +184,18 @@ module KxNotifyUtils
 
     private def single_instance? : Bool
       {% if flag?(:windows) %}
-        Runtime::Win32.acquire_single_instance("Local\\KxNotifyUtils")
+        Runtime::Win32.acquire_single_instance(SINGLE_INSTANCE_NAME)
+      {% else %}
+        true
+      {% end %}
+    end
+
+    # 置き換えのために手放した抑止を取り直す。
+    # 手放した後で新しい exe を起動できなかった場合に呼ぶ。
+    # 取り直せたかを返す。取れなければ別のプロセスが常駐に入っている。
+    private def reacquire_single_instance : Bool
+      {% if flag?(:windows) %}
+        Runtime::Win32.acquire_single_instance(SINGLE_INSTANCE_NAME)
       {% else %}
         true
       {% end %}
@@ -295,10 +353,12 @@ module KxNotifyUtils
         steamvr_status: -> { steamvr_status_label },
         update_status: -> { update_status_label },
         update_url: -> { @update.available(@config.current.update.channel).try(&.url) },
+        update_action: -> { update_action_label },
       )
       window.on_request_steamvr_register = -> { register_steamvr }
       window.on_request_steamvr_unregister = -> { unregister_steamvr }
       window.on_open_notification_settings = -> { open_notification_settings }
+      window.on_request_update_action = -> { request_update_action }
       window
     end
 
@@ -358,6 +418,9 @@ module KxNotifyUtils
           @errors.handle("error.update_check", exception)
         ensure
           @update_checking = false
+          # 見つけた版はトレイの項目を変える。確認はファイバで進むため、
+          # ここで写し直さないと、次に何かが状態を触るまで「更新を取得する」が出ない。
+          update_tray_state
           flush_pending_update_check
         end
       end
@@ -406,9 +469,13 @@ module KxNotifyUtils
       in .available?
         release = result.release
         return false unless release
+        # 取得できるかどうかで案内を分ける。
+        # アセットが無いか digest が付いていないリリースでは取得の項目を出さないため、
+        # 「取得できる」と書くと、押す先の無い案内になる。
+        body = release.asset ? "notify.update_available.body" : "notify.update_available.body_release_page"
         shown = @errors.notify(
           Runtime::I18n.t("notify.update_available.title"),
-          Runtime::I18n.t("notify.update_available.body", {"version" => release.tag}),
+          Runtime::I18n.t(body, {"version" => release.tag}),
         )
         # 出せたときだけ覚える。
         # 出ていない版を覚えると、利用者が一度も見ないまま以後の確認で抑止される。
@@ -457,6 +524,16 @@ module KxNotifyUtils
         return
       end
 
+      # 設定を書く役目を渡した後は書かない。常駐している側と重なる。
+      #
+      # ただし保留には残す。知らせたことはメモリ上で記録済みであり、
+      # ここで落とすと、渡しに失敗して常駐を続けた場合に以後の確認が抑止され、
+      # ディスクへも残らないまま次の起動で同じ版をまた知らせることになる。
+      if @config_handed_over
+        @update_record_pending = true
+        return
+      end
+
       # 見送った理由は record が記録する。
       @update_record_pending = !@config.record(&.with_update_notified(tag))
     end
@@ -466,6 +543,19 @@ module KxNotifyUtils
     # 無効の表示を先に返すと、見つけた版とリリースページのボタンだけが出て文言が食い違う。
     private def update_status_label : String
       settings = @config.current.update
+
+      # 実行ファイルが無い状態を先に出す。
+      # 取得したものは残っているが、置き換えは進まない。
+      # 手で戻すまで更新は止まっており、「次の起動で置き換わる」とは書けない。
+      return Runtime::I18n.t("settings.about.update_broken") if @update_broken
+
+      # 取得の進み具合を先に見る。
+      # ここまで来ていれば、新しい版があることは利用者に伝わっている。
+      if tag = @update_staged_tag
+        return Runtime::I18n.t("settings.about.update_staged", {"version" => tag})
+      end
+      return Runtime::I18n.t("settings.about.update_downloading") if @update_downloading
+
       if release = @update.available(settings.channel)
         return Runtime::I18n.t("settings.about.update_available", {"version" => release.tag})
       end
@@ -477,6 +567,308 @@ module KxNotifyUtils
       return Runtime::I18n.t("settings.about.update_disabled") unless settings.check_enabled
 
       Runtime::I18n.t("settings.about.update_unchecked")
+    end
+
+    # 引き渡しの結末。
+    #
+    # 真偽で返していたが、それでは 3 つの失敗が同じ「偽」に潰れる。
+    # 置き換えは済んでいるのに「取得し直す」と案内したり、
+    # 復旧の案内を出した直後に、無効化した操作を勧めたりすることになる。
+    enum HandOver
+      # 取得しておいたものが無く、何もしなかった。
+      None
+      # 置き換えて新しい実行ファイルへ渡した。呼び出し側は終わる。
+      Handed
+      # 置き換えは済んだが起動できなかった。次の起動から新しい版になる。
+      Replaced
+      # 置き換えに失敗した。取得しておいたものは捨ててある。取り直せる。
+      Failed
+      # 退避を戻せなかった。実行ファイルが正規のパスに無い。
+      Broken
+      # 書き切れていない記録があるため見送った。取得しておいたものは残っている。
+      Postponed
+      # 抑止を取り直せず、別のプロセスが常駐に入った。このプロセスは終わる。
+      Superseded
+
+      # このプロセスが常駐へ進まず終わるべきか。
+      def finished? : Bool
+        handed? || superseded?
+      end
+    end
+
+    # 取得しておいた更新を置き換えて、新しい実行ファイルへ渡す。
+    #
+    # 結末を返す。呼び出し側は自分の終わり方と、利用者への伝え方を決める。
+    # 起動時は常駐に入らずそのまま終わり、常駐中は主ループを抜ける。
+    #
+    # ミューテックスは置き換えが済んでから手放す。
+    # 握ったまま起動すると、新しい側が「既に起動している」と判断して終わってしまう。
+    # 一方、置き換えの前に手放すと、置き換えに失敗したときに抑止だけが解けた状態が残る。
+    private def hand_over_to_staged : HandOver
+      staged = @installer.staged(@config.current.update.channel)
+      return HandOver::None unless staged
+
+      # 保留している記録は、置き換えより前に書き切る。
+      #
+      # 渡した後は、子が起動の途中で SteamVR の同期から設定を書き始める。
+      # こちらの終了処理にも flush_records があり、そちらと重なると、
+      # 同じ config.json.tmp を 2 つのプロセスが使うことになる。
+      # 書きかけが混ざったものがそのまま設定として置かれる。
+      retry_records
+
+      # 書き切れなかった記録を抱えたまま渡さない。
+      #
+      # 渡した後はこちらが書かないため、その記録は失われる。
+      # 登録解除の記録であれば、子はディスクの古い「登録済み」を読んで自動起動を戻す。
+      #
+      # 判定は置き換えより前に行う。後に置くと、実行ファイルは入れ替わり
+      # 取得しておいたものも消えた後で「適用しなかった」と伝えることになる。
+      if records_pending?
+        Log.error { "保留している記録を書き切れないため置き換えを見送る" }
+        return HandOver::Postponed
+      end
+
+      return HandOver::Failed unless @installer.apply(staged)
+
+      # ここから先は設定を書かない。
+      #
+      # 待ちの間も、このプロセスのファイバは進む。起動時の更新の確認がこれにあたり、
+      # 新しい版を見つけて知らせると、知らせた版の記録を設定へ書きに行く。
+      # 子はその頃には起動して SteamVR の同期から設定を書き始めており、
+      # 同じ config.json.tmp を 2 つのプロセスが使うことになる。
+      @config_handed_over = true
+
+      Runtime::Win32.release_single_instance
+      if launch_replacement
+        Log.info { "置き換えた実行ファイルへ渡した: #{staged.tag}" }
+        return HandOver::Handed
+      end
+
+      # 起動できなかった。置き換えそのものは済んでいるので、
+      # 次に起動されるのは新しい実行ファイルである。壊れた状態は残らない。
+      # 抑止だけが解けたまま常駐を続けるわけにはいかないので取り直す。
+      # 抑止を取り直せなければ、手放した隙に別のプロセスが常駐へ入っている。
+      # そのまま続けると、同じ通知を 2 つのプロセスが中継することになる。
+      # 抑止そのものが避けようとしている状態であり、こちらが引く。
+      unless reacquire_single_instance
+        # 常駐は別のプロセスのものになった。設定を書く役目もそちらへ渡ったままにする。
+        Log.error { "抑止を取り直せなかった。別のプロセスが常駐しているため、こちらは終わる" }
+        return HandOver::Superseded
+      end
+
+      # 常駐を続ける。子は落ちているので、設定を書く役目も戻る。
+      @config_handed_over = false
+      Log.error { "置き換えた実行ファイルを起動できなかった。次の起動から新しい版になる" }
+      HandOver::Replaced
+    rescue exception : Update::Installer::RollbackFailed
+      # 正規のパスに実行ファイルが無い。取得しておいたものは捨てない。
+      # 捨てると復旧の材料が .old だけになり、そちらも戻せなかったからここへ来ている。
+      # 常駐はメモリ上で続くが、次の起動には実行ファイルが要る。利用者へ伝える。
+      Log.error(exception: exception) { "置き換えに失敗し、退避した実行ファイルも戻せなかった" }
+      @update_broken = true
+      notify_update_broken
+      HandOver::Broken
+    rescue exception
+      # 置き換えに失敗しても常駐は続ける。
+      # 退避したものは Installer が戻しており、実行ファイルは元のままである。
+      # 取得しておいたものは捨てる。同じものでまた失敗するだけである。
+      Log.error(exception: exception) { "取得しておいた更新を適用できなかった" }
+      @installer.discard
+      HandOver::Failed
+    end
+
+    # 実行ファイルが正規のパスに無いことを利用者へ伝える。
+    #
+    # 起動時に起きた場合、この時点ではトレイも言語の設定もまだ無い。
+    # 印だけ立てておき、設定を読んだ後に呼び直す。
+    # 手で戻してもらう案内であり、選んだ言語で出す必要がある。
+    private def notify_update_broken : Nil
+      return unless @update_broken
+      return if @update_broken_notified
+      return unless @errors.notify(
+                      Runtime::I18n.t("notify.update_broken.title"),
+                      Runtime::I18n.t("notify.update_broken.body"),
+                    )
+
+      @update_broken_notified = true
+    end
+
+    # 利用者の操作で、その場で置き換えて入れ替わる。
+    #
+    # 押した人へは結末に合うものだけを返す。
+    # 置き換えが済んでいるのに取り直しを勧めたり、
+    # 無効にした操作を勧めたりすると、その場で確かめようがない。
+    private def apply_update_now : Nil
+      if @update_broken
+        Log.info { "実行ファイルが正規のパスに無いため適用しない" }
+        notify_update_broken
+        return
+      end
+
+      # 適用は再起動を伴う。設定ウィンドウに未保存の編集があれば、先に知らせて止める。
+      # 通常の終了では警告しているのに、更新の再起動だけ黙って捨てるわけにはいかない。
+      # トレイから押した場合も同じ経路を通る。
+      return if @settings_window.try(&.warn_if_unsaved?)
+
+      case hand_over_to_staged
+      in .handed?, .superseded?
+        @stopping = true
+      in .replaced?
+        # 置き換えは済んでいる。起動し直せなかっただけであり、取り直す必要は無い。
+        @errors.notify(
+          Runtime::I18n.t("notify.update_relaunch_failed.title"),
+          Runtime::I18n.t("notify.update_relaunch_failed.body"),
+        )
+      in .failed?
+        @errors.notify(
+          Runtime::I18n.t("notify.update_apply_failed.title"),
+          Runtime::I18n.t("notify.update_apply_failed.body"),
+        )
+      in .broken?
+        # 復旧の案内は hand_over_to_staged が出している。重ねない。
+      in .postponed?
+        @errors.notify(
+          Runtime::I18n.t("notify.update_postponed.title"),
+          Runtime::I18n.t("notify.update_postponed.body"),
+        )
+      in .none?
+        Log.info { "取得しておいた更新が無いため適用しない" }
+      end
+
+      @update_staged_tag = @installer.staged(@config.current.update.channel).try(&.tag)
+      update_tray_state
+    end
+
+    # 置き換えた実行ファイルを起動し、すぐに落ちなかったことまでを見る。
+    #
+    # 起動そのものが通っても、新しい側がトレイを作れないなどで run の途中で終わることがある。
+    # そこでこちらも終わると、常駐するプロセスが 1 つも残らない。
+    # 落ちていれば偽を返し、呼び出し側が抑止を取り直して常駐を続ける。
+    #
+    # 見られるのはここまでである。新しい側が常駐へ入るのは SteamVR の初期化の後であり、
+    # あれは VR を立ち上げることもあって数秒では終わらない。
+    # そこまで見届けるには準備完了を伝え合う仕組みが要るが、
+    # この待ちで拾えるのはトレイの失敗のような、常駐に入る前の早い失敗である。
+    private def launch_replacement : Bool
+      process = Process.new(Runtime::Paths.executable_path, [] of String)
+      sleep LAUNCH_SETTLE
+      return true unless process.terminated?
+
+      Log.error { "置き換えた実行ファイルが起動の直後に終わった" }
+      false
+    rescue exception
+      Log.error(exception: exception) { "置き換えた実行ファイルを起動できなかった" }
+      false
+    end
+
+    # 見つけている版のアセットを取得して、次の起動に備える。
+    #
+    # 取得は利用者が押したときだけ行う。数 MB を黙って運ばない。
+    # 待ちは別のファイバで行う。主ループの中で待つと中継も接続維持も止まる。
+    private def download_update : Nil
+      return if @update_downloading
+
+      channel = @config.current.update.channel
+      release = @update.available(channel)
+      unless release
+        Log.info { "取得の対象になる版が見つかっていない" }
+        return
+      end
+
+      unless release.asset
+        @errors.notify(
+          Runtime::I18n.t("notify.update_no_asset.title"),
+          Runtime::I18n.t("notify.update_no_asset.body"),
+        )
+        return
+      end
+
+      @update_downloading = true
+      update_tray_state
+      @errors.notify(
+        Runtime::I18n.t("notify.update_downloading.title"),
+        Runtime::I18n.t("notify.update_downloading.body", {"version" => release.tag}),
+      )
+
+      spawn do
+        begin
+          if @installer.download(release)
+            # 取得の最中にチャンネルが変わっていないかを見る。
+            #
+            # 変わっていれば、取ってきたのは今の設定に無い版である。
+            # 置き換えは次の起動で走るため、そのまま残すと、stable を選び直した後に
+            # プレリリースが入る。実行中より新しいかどうかでは、これを止められない。
+            if channel == @config.current.update.channel
+              @update_staged_tag = release.tag
+              @errors.notify(
+                Runtime::I18n.t("notify.update_downloaded.title"),
+                Runtime::I18n.t("notify.update_downloaded.body", {"version" => release.tag}),
+              )
+            else
+              Log.info do
+                "取得の最中にチャンネルが変わったため取得したものを捨てる: " \
+                "#{release.tag}（#{channel} → #{@config.current.update.channel}）"
+              end
+              @installer.discard
+              @update_staged_tag = nil
+            end
+          end
+        rescue exception
+          # 取ってきたものは Installer が捨てている。押し直せば取り直せる。
+          Log.error(exception: exception) { Runtime::I18n.log_text("error.update_download") }
+          @errors.notify(
+            Runtime::I18n.t("notify.update_download_failed.title"),
+            Runtime::I18n.t("notify.update_download_failed.body"),
+          )
+        ensure
+          @update_downloading = false
+          update_tray_state
+        end
+      end
+    end
+
+    # 情報タブのボタンに出す見出しと、押せるかどうか。
+    #
+    # 押せないときも見出しは返す。隠して出し直すと、
+    # 押そうとした瞬間にボタンの位置が動く。
+    private def update_action_label : {String, Bool}
+      case update_progress
+      in .available?
+        {Runtime::I18n.t("settings.about.update_download"), true}
+      in .staged?
+        {Runtime::I18n.t("settings.about.update_apply"), true}
+      in .downloading?
+        # 取得の最中は押せない。押しても何も起きないものを押せるように見せない。
+        {Runtime::I18n.t("settings.about.update_downloading"), false}
+      in .none?
+        {Runtime::I18n.t("settings.about.update_download"), false}
+      end
+    end
+
+    # 情報タブのボタンを押したときの動作。見出しと同じ判断で選ぶ。
+    private def request_update_action : Nil
+      case update_progress
+      in .available?
+        download_update
+      in .staged?
+        apply_update_now
+      in .downloading?, .none?
+        # 押せない状態のはずなので何もしない。
+      end
+    end
+
+    # トレイと情報タブに出す、更新の進み具合。
+    private def update_progress : Runtime::Tray::UpdateState
+      # 実行ファイルが無い間は何も出さない。
+      # 取得済みは残っているが、もう一度適用させると apply の先頭で
+      # 退避しておいた .old を消すことになり、復旧の材料を両方とも失う。
+      return Runtime::Tray::UpdateState::None if @update_broken
+      return Runtime::Tray::UpdateState::Downloading if @update_downloading
+      return Runtime::Tray::UpdateState::Staged if @update_staged_tag
+      release = @update.available(@config.current.update.channel)
+      return Runtime::Tray::UpdateState::Available if release && release.asset
+
+      Runtime::Tray::UpdateState::None
     end
 
     # SteamVR が起動していない状態で手動起動された場合も常駐を続け、scheduler が再試行する。
@@ -544,6 +936,15 @@ module KxNotifyUtils
     # 自動起動の決着（auto_launch_configured）は、この経路ではつねに真である。
     # 登録も解除も同期も、SteamVR 側の操作が済んだ後にだけここへ来る。
     private def record_steamvr(registered : Bool, exe_path : String) : Nil
+      # 設定を書く役目を渡した後は書かない。常駐している側と重なる。
+      #
+      # ただし保留には残す。渡しに失敗して常駐を続けた場合、
+      # ここで落とすと決着がディスクへ残らないまま次の起動を迎える。
+      if @config_handed_over
+        @steamvr_record_pending = {registered, exe_path}
+        return
+      end
+
       if @config.record(&.with_steamvr(registered, exe_path))
         @steamvr_record_pending = nil
         return
@@ -559,6 +960,11 @@ module KxNotifyUtils
     # 残っているのは決着を設定へ残すことだけである。
     # 書けなかった原因は外部の編集や一時的な書き込みの失敗であり、
     # 利用者が直したり、編集が終わったりすれば次の機会に書ける。
+    # 書き切れていない記録があるか。
+    private def records_pending? : Bool
+      !@steamvr_record_pending.nil? || @update_record_pending
+    end
+
     private def retry_records : Nil
       if pending = @steamvr_record_pending
         record_steamvr(pending[0], pending[1])
@@ -593,6 +999,10 @@ module KxNotifyUtils
         open_with_shell(Runtime::Paths.log_directory)
       in .check_update?
         check_update(manual: true)
+      in .download_update?
+        download_update
+      in .apply_update?
+        apply_update_now
       in .quit?
         @stopping = true
       end
@@ -629,6 +1039,7 @@ module KxNotifyUtils
       @tray.paused = @relay.paused
       @tray.steamvr_available = @openvr.opened?
       @tray.steamvr_registered = @steamvr.registered?
+      @tray.update_state = update_progress
     end
 
     private def access_status_label : String
@@ -657,6 +1068,10 @@ module KxNotifyUtils
 
       until @stopping
         @errors.guard("error.tray_pump") { @tray.pump }
+        # メニューから終わりを選ばれた後に 1 拍を回さない。
+        # 更新の適用がこれにあたり、この拍で中継すると、
+        # 既に常駐へ入っている子と同じ通知を 2 つのプロセスが送る。
+        break if @stopping
         break if @tray.quit_requested?
 
         background_step
@@ -717,6 +1132,10 @@ module KxNotifyUtils
     #
     # 例外は握る。終了の途中であり、ここで抜けると残りの後始末が走らない。
     private def flush_records : Nil
+      # 設定を書く役目を渡した後は書かない。
+      # 渡す前に書き切ってあり、ここで書くと常駐している側と重なる。
+      return if @config_handed_over
+
       retry_records
     rescue exception
       Log.error(exception: exception) { "終了時の記録の書き戻しに失敗した" }

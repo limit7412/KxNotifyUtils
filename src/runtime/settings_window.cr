@@ -55,6 +55,8 @@ module Runtime
     property on_request_steamvr_register : Proc(Nil) = -> { }
     property on_request_steamvr_unregister : Proc(Nil) = -> { }
     property on_open_notification_settings : Proc(Nil) = -> { }
+    # 情報タブの取得・適用のボタンを押したとき（issue #10 第 2 段階）。
+    property on_request_update_action : Proc(Nil) = -> { }
 
     def initialize(
       @config : ::Config::Usecase,
@@ -66,6 +68,9 @@ module Runtime
       # 版の比較は update コンテキストが持つため、結果だけを受け取る。
       @update_status : Proc(String) = -> { I18n.t("settings.about.update_unchecked") },
       @update_url : Proc(String?) = -> { nil.as(String?) },
+      # 取得と適用の操作の、見出しと押せるかどうか（issue #10 第 2 段階）。
+      # 何を押せるかは composition root が決める。
+      @update_action : Proc({String, Bool}) = -> { {I18n.t("settings.about.update_download"), false} },
     )
       @window = nil.as(UIng::Window?)
       @draft = @config.current.dup_snapshot
@@ -83,6 +88,7 @@ module Runtime
       @steamvr_label = nil.as(UIng::Label?)
       @update_label = nil.as(UIng::Label?)
       @update_button = nil.as(UIng::Button?)
+      @update_action_button = nil.as(UIng::Button?)
       # 未保存の変更があるまま閉じようとしたことを覚えておく。
       # 一度警告を出し、続けてもう一度閉じる操作をしたときに破棄する。
       @close_warned = false
@@ -396,6 +402,13 @@ module Runtime
       update_button.disable
       @update_button = update_button
       box.append(update_button, false)
+
+      # 取得と適用。押せるものが無いうちは表示を残したまま押せなくする。
+      # 隠して出し直すと、押そうとした瞬間にボタンの位置が動く。
+      action_button = button(I18n.t("settings.about.update_download")) { @on_request_update_action.call }
+      action_button.disable
+      @update_action_button = action_button
+      box.append(action_button, false)
 
       box.append(UIng::Label.new(I18n.t("settings.about.licenses")), false)
 
@@ -723,6 +736,11 @@ module Runtime
       @update_button.try do |control|
         @update_url.call.nil? ? control.disable : control.enable
       end
+      @update_action_button.try do |control|
+        label, enabled = @update_action.call
+        control.text = label
+        enabled ? control.enable : control.disable
+      end
     end
 
     # 画面の入力から設定スナップショットを組み立てる。
@@ -832,6 +850,23 @@ module Runtime
     # 未保存の変更があるまま閉じようとしたときは、一度警告を出して操作をやり直させる。
     # libui-ng が持つのは確認のないメッセージ表示だけなので、
     # 「保存するか破棄するか」の選択は、警告のあとにもう一度閉じる操作をするかで表す。
+    # 未保存の編集があれば知らせて真を返す。
+    #
+    # 更新の適用のように、その場でアプリが終わる操作の前に呼ぶ。
+    # 閉じるときは警告しているのに、再起動だけ黙って下書きを捨てるわけにはいかない。
+    # 一度きりの警告にはしない。閉じる操作と違い、押し直しの意思表示が要る場面ではなく、
+    # 保存するか閉じるかを先に決めてもらう。
+    def warn_if_unsaved? : Bool
+      window = @window
+      return false unless window
+
+      root, _ = collect
+      return false unless root.nil? || root.to_json != @config.current.to_json
+
+      window.msg_box(I18n.t("settings.dialog.unsaved"), I18n.t("settings.dialog.update_unsaved_body"))
+      true
+    end
+
     private def request_close(window : UIng::Window) : Nil
       root, _ = collect
       changed = root.nil? || root.to_json != @config.current.to_json
