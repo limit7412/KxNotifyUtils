@@ -70,10 +70,15 @@ describe WinNotification::MessageBuilder do
     builder = WinNotification::MessageBuilder.new(Fakes::Icons.new)
     dynamic = Config::DynamicTimeout.new(base: 2.0, reading_speed: 12.0, min: 3.0, max: 15.0)
 
-    short = builder.build(incoming(title: "", body: ""), settings(dynamic_timeout: dynamic))
+    # 既定の timeout_mode は fixed であるため、ここでは明示して切り替える。
+    mode = Config::TimeoutMode::Dynamic
+
+    short = builder.build(
+      incoming(title: "", body: ""), settings(timeout_mode: mode, dynamic_timeout: dynamic))
     short.timeout.should eq 3.0
 
-    long = builder.build(incoming(body: "あ" * 200), settings(dynamic_timeout: dynamic))
+    long = builder.build(
+      incoming(body: "あ" * 200), settings(timeout_mode: mode, dynamic_timeout: dynamic))
     long.timeout.should eq 15.0
   end
 

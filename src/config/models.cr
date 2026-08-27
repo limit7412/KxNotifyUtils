@@ -101,13 +101,18 @@ module Config
   class Defaults
     include JSON::Serializable
 
-    property timeout_mode : TimeoutMode = TimeoutMode::Dynamic
-    property timeout : Float64 = 6.0
+    # 表示時間は既定で固定の 1 秒とする（issue #22）。
+    # VR の視界に重なるため、読み切る時間より、視界を塞がない短さを優先する。
+    # 文字数に応じて伸ばしたい場合は dynamic へ切り替える。係数はそのとき使う。
+    property timeout_mode : TimeoutMode = TimeoutMode::Fixed
+    property timeout : Float64 = 1.0
     property dynamic_timeout : DynamicTimeout = DynamicTimeout.new
     property max_body_length : Int32 = 200
     property title_template : String = "{app_name}: {title}"
     property icon : String = "app"
-    property opacity : Float64 = 1.0
+    # 既定でわずかに透ける（issue #22）。
+    # 不透明のままだと、通知が出ている間その範囲の視界が完全に塞がる。
+    property opacity : Float64 = 0.75
     property volume : Float64 = 0.5
     property sound : String = "default"
 
