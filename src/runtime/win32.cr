@@ -57,6 +57,8 @@ module Runtime
 
     ERROR_ALREADY_EXISTS = 183_u32
 
+    WAIT_OBJECT_0 = 0x00000000_u32
+
     struct Point
       x : Int32
       y : Int32
@@ -108,6 +110,12 @@ module Runtime
 
     fun get_module_handle_w = GetModuleHandleW(module_name : UInt16*) : Handle
     fun create_mutex_w = CreateMutexW(attributes : Void*, initial_owner : Int32, name : UInt16*) : Handle
+    fun create_event_w = CreateEventW(
+      attributes : Void*, manual_reset : Int32, initial_state : Int32, name : UInt16*
+    ) : Handle
+    fun set_event = SetEvent(handle : Handle) : Int32
+    fun reset_event = ResetEvent(handle : Handle) : Int32
+    fun wait_for_single_object = WaitForSingleObject(handle : Handle, milliseconds : UInt32) : UInt32
     fun close_handle = CloseHandle(handle : Handle) : Int32
     # タスクバーの再作成を知るためのブロードキャストメッセージ ID を得る。
     fun register_window_message_w = RegisterWindowMessageW(name : UInt16*) : UInt32
@@ -198,6 +206,51 @@ module Runtime
       @@single_instance = nil
       LibWin32.close_handle(handle)
       true
+    end
+
+    # 置き換えた側が常駐へ入ったことを伝える名前付きイベントを用意する（issue #29）。
+    #
+    # 起動より前に作る。子が知らせた後に作ると、その SetEvent を取り落とし、
+    # 常駐へ入っているのに期限まで待つことになる。
+    #
+    # 手動リセットにする。自動リセットだと、待ち始める前に来た知らせを
+    # 最初に見に行った 1 回で消費してしまい、以降は非シグナルに戻る。
+    #
+    # 同じ名前のイベントが前の置き換えから残っている場合に備えて、作った後に落としておく。
+    # シグナルのまま渡されると、子を起動する前から「常駐へ入った」と読めてしまう。
+    def self.create_ready_event(name : String) : LibWin32::Handle?
+      handle = LibWin32.create_event_w(Pointer(Void).null, 1, 0, utf16(name).to_unsafe)
+      return nil if handle.null?
+
+      LibWin32.reset_event(handle)
+      handle
+    end
+
+    # 今シグナルになっているかだけを見る。
+    #
+    # 期限を渡して OS の中で待つことはしない。WaitForSingleObject はスレッドを止めるため、
+    # 待っている間は他のファイバが進まず、WebSocket の接続維持まで止まる。
+    # 呼ぶ側が Crystal の sleep を挟んで見に来る。
+    def self.event_signaled?(handle : LibWin32::Handle) : Bool
+      LibWin32.wait_for_single_object(handle, 0) == LibWin32::WAIT_OBJECT_0
+    end
+
+    def self.close_event(handle : LibWin32::Handle) : Nil
+      LibWin32.close_handle(handle)
+    end
+
+    # 常駐へ入ったことを、置き換えて起動した側へ伝える（issue #29）。
+    #
+    # 渡された側かどうかは見ずに、常駐へ入るたびに知らせる。
+    # 待っている親がいなければ、その場で作ったイベントを立てて閉じるだけで終わる。
+    # 引数で渡された場合だけ知らせる形にすると、起動の経路を数えることになり、
+    # 数え漏らしたほうが黙って期限まで待たされる。
+    def self.signal_ready(name : String) : Nil
+      handle = LibWin32.create_event_w(Pointer(Void).null, 1, 0, utf16(name).to_unsafe)
+      return if handle.null?
+
+      LibWin32.set_event(handle)
+      LibWin32.close_handle(handle)
     end
 
     # 画面ごとの DPI に追従させる。Windows 10 バージョン 1703 以降で有効になる。
