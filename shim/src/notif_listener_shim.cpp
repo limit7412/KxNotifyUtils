@@ -8,6 +8,7 @@
 #include <winrt/Windows.UI.Notifications.Management.h>
 #include <winrt/Windows.UI.Notifications.h>
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
@@ -35,6 +36,22 @@ constexpr int32_t kOk = 0;
 constexpr int32_t kErrorNotInitialized = -1;
 constexpr int32_t kErrorWorkerFailed = -2;
 constexpr int32_t kErrorCallFailed = -3;
+constexpr int32_t kErrorTimeout = -4;
+
+// RequestAccessAsync の応答を待つ上限（issue #28）。
+//
+// 期限を置かないと、応答が返らない場合に起動がそこで止まる。
+// 呼ぶのは Crystal 側の主スレッドであり、待っている間はトレイのメッセージ処理も
+// 通知の中継も動き出さない。
+//
+// 10 秒とした。この API は通常すぐに返る。
+// 許可の同意を求める画面が出た場合、利用者の応答を待ち切れない長さではあるが、
+// 本ツールは要求が失敗する前提で作ってあり（仕様書 3.2 節、7 章）、
+// 失敗しても Windows の設定画面へ誘導したうえで常駐は続く。
+// 許可の状態は一定間隔で確かめ直すため、後から許可すればそこで中継が始まる。
+// 応答を待ち切ることより、起動が止まらないことを優先する。
+constexpr int32_t kRequestAccessTimeoutSeconds = 10;
+constexpr std::chrono::seconds kRequestAccessTimeout{kRequestAccessTimeoutSeconds};
 
 // 直近のエラー。解放不要の静的バッファとして返す。
 std::string g_last_error;
@@ -478,7 +495,22 @@ int32_t nls_request_access(void) {
   int32_t result = kErrorCallFailed;
   const bool dispatched = g_worker.invoke([&] {
     try {
-      result = access_status_code(UserNotificationListener::Current().RequestAccessAsync().get());
+      // get() は完了するまで戻らない。期限を持つ wait_for で待つ（issue #28）。
+      auto operation = UserNotificationListener::Current().RequestAccessAsync();
+      const AsyncStatus status = operation.wait_for(kRequestAccessTimeout);
+
+      // 期限を過ぎたものは Started のまま返る。
+      if (status == AsyncStatus::Started) {
+        // 打ち切ったことを相手にも伝える。こちらは結果を待たない。
+        operation.Cancel();
+        set_last_error("RequestAccessAsync が " + std::to_string(kRequestAccessTimeoutSeconds) +
+                       " 秒以内に応答しなかった");
+        result = kErrorTimeout;
+        return;
+      }
+
+      // Completed 以外（Error と Canceled）は GetResults が例外を投げ、下の catch が受ける。
+      result = access_status_code(operation.GetResults());
     } catch (const hresult_error& error) {
       set_last_error(format_exception(error));
       result = kErrorCallFailed;
