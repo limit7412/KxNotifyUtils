@@ -23,6 +23,7 @@ module SteamVR
       @applications = Pointer(LibOpenVR::IVRApplicationsFnTable).null
       @opened = false
       @reported_init_error = nil.as(Int32?)
+      @logged_library_path = nil.as(String?)
     end
 
     def opened? : Bool
@@ -159,7 +160,7 @@ module SteamVR
         next if handle.null?
 
         @library = handle
-        Log.info { "openvr_api.dll をロードした: #{path}" }
+        report_library_loaded(path)
         return true
       end
       false
@@ -191,6 +192,30 @@ module SteamVR
     private def resolve(name : String) : Void*?
       pointer = LibDynamicLoad.get_proc_address(@library, name.to_unsafe)
       pointer.null? ? nil : pointer
+    end
+
+    # 解決できた場所を出す。ただし場所が変わったときだけ書く。
+    #
+    # SteamVR を起動していない間、open は毎回失敗し、その後始末で DLL を手放す。
+    # Background で初期化するようにしてから、この経路は常に通る（issue #12）。
+    # 次の再試行は読み込むところからやり直すため、そのたびに書くと
+    # VR を使わない日のログがこの 1 行だけで埋まる（issue #34）。
+    #
+    # 手放すのをやめて読み込んだままにする手は採らない。
+    # openvr_api.dll のファイルが掴まれ、常駐している間 SteamVR の更新や
+    # 再インストールを妨げる。それが起きるのは SteamVR を止めている間、
+    # つまりまさにこの経路を通っているときである。
+    #
+    # 場所が変わったら書き直す。移した先を黙られると、
+    # 古い場所を見に行ったまま追えなくなる。
+    private def report_library_loaded(path : String) : Nil
+      if @logged_library_path == path
+        Log.debug { "openvr_api.dll をロードした: #{path}" }
+        return
+      end
+
+      @logged_library_path = path
+      Log.info { "openvr_api.dll をロードした: #{path}" }
     end
 
     # 初期化の失敗を、SteamVR が動いていないだけの場合と切り分けて出す。
