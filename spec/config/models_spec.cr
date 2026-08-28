@@ -155,3 +155,25 @@ describe Config::DynamicTimeout do
     dynamic.seconds_for(1000).should eq 15.0
   end
 end
+
+describe Config::Defaults do
+  # 設定ファイルを持たない利用者に何が起こるかを決めるのはここである。
+  # 既定値の変更は設定ファイルの差分に現れず、書き換えても気付かれにくいため固定しておく。
+  it "表示時間は固定の 1 秒、透明度はわずかに透ける（issue #22）" do
+    defaults = Config::Defaults.new.to_resolved
+
+    defaults.timeout_mode.should eq Config::TimeoutMode::Fixed
+    defaults.timeout.should eq 1.0
+    defaults.opacity.should eq 0.75
+  end
+
+  # 既定を fixed にしても dynamic の係数は残す。切り替えたときにそのまま使う。
+  it "dynamic の係数は既定を持ち続ける" do
+    dynamic = Config::Defaults.new.dynamic_timeout
+
+    dynamic.base.should eq 2.0
+    dynamic.reading_speed.should eq 12.0
+    dynamic.min.should eq 3.0
+    dynamic.max.should eq 15.0
+  end
+end

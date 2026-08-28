@@ -32,13 +32,13 @@
   },
 
   "defaults": {
-    "timeout_mode": "dynamic",
-    "timeout": 6.0,
+    "timeout_mode": "fixed",
+    "timeout": 1.0,
     "dynamic_timeout": { "base": 2.0, "reading_speed": 12, "min": 3.0, "max": 15.0 },
     "max_body_length": 200,
     "title_template": "{app_name}: {title}",
     "icon": "app",
-    "opacity": 1.0,
+    "opacity": 0.75,
     "volume": 0.5,
     "sound": "default"
   },
@@ -115,13 +115,13 @@ XSOverlay へ通知を送る。
 
 指定できる項目は次のとおりである。
 
-- **timeout_mode**：`fixed` なら `timeout` の秒数をそのまま使い、`dynamic` なら文字数から計算する。
-- **timeout**：`fixed` のときの表示時間（秒）。
+- **timeout_mode**：`fixed` なら `timeout` の秒数をそのまま使い、`dynamic` なら文字数から計算する。既定は `fixed` である。
+- **timeout**：`fixed` のときの表示時間（秒）。既定は 1.0 である。VR の視界に重なるため、読み切る時間より視界を塞がない短さを優先している。長い通知を読み切りたい場合は `dynamic` へ切り替える。
 - **dynamic_timeout**：`dynamic` のときの係数。`base + 文字数 / reading_speed` を `min` と `max` でクランプした値を表示時間にする。文字数は件名と本文の合計である。`min` と `max` はどちらも 0 より大きい値で指定する。`rules` では係数ごとに書け、書かなかった係数は `defaults` を引き継ぐ（例：`"dynamic_timeout": { "base": 5.0 }`）。
 - **max_body_length**：本文の最大文字数。0 から 5000 の範囲で指定する。超えた分は切り詰め、末尾に省略の記号を付ける。0 を指定すると本文を載せない。無制限を表す値は無い。
 - **title_template**：件名の組み立て方。`{app_name}`、`{app_id}`、`{title}`、`{body}` を展開する。
 - **icon**：`app`（アプリのアイコンを使い、取れなければ `default` に落とす）、`default`、`warning`、`error`、または PNG ファイルのパス。パスを指定した場合は保存時に中身を確かめ、PNG でなければ保存できない。保存後にファイルが差し替わって PNG でなくなった場合は `default` に落とす。
-- **opacity**：透明度。0.0 から 1.0 で指定する。
+- **opacity**：透明度。0.0 から 1.0 で指定し、1.0 が不透明である。既定は 0.75 で、わずかに透ける。不透明にすると、通知が出ている間その範囲の視界が完全に塞がる。
 - **volume**：通知音の音量。0.0 から 1.0 で指定する。
 - **sound**：`default`、`warning`、`error`、音声ファイルのパス、または空文字列（ミュート）。
 
