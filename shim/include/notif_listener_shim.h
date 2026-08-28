@@ -25,7 +25,9 @@ void nls_shutdown(void);
 int32_t nls_get_access_status(void);
 
 // 通知アクセスの許可を要求する (RequestAccessAsync)。
-// 戻り値: nls_get_access_status と同じ。
+// 戻り値: nls_get_access_status と同じ。ただし応答が期限内に返らなかった場合は -4。
+// 期限を置くのは、応答が返らないと起動がそこで止まるためである（issue #28）。
+// 打ち切った場合の理由は nls_last_error に残る。
 // 注意: パッケージ化されていない Win32 アプリでは Denied が返り続ける既知の問題があるため、
 // 本体側は失敗時に Windows 設定画面へ誘導する。
 int32_t nls_request_access(void);

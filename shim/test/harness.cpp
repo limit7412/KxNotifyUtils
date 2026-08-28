@@ -20,6 +20,9 @@ const char* access_status_label(int32_t code) {
     case 0: return "Allowed";
     case 1: return "Denied";
     case 2: return "Unspecified";
+    // 期限切れは他の失敗と分けて出す。応答が返らなかったのか、
+    // 呼び出しそのものが失敗したのかで見るところが変わる（issue #28）。
+    case -4: return "Timeout";
     default: return "Error";
   }
 }
