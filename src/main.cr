@@ -44,9 +44,22 @@ module KxNotifyUtils
     # 多重起動の抑止に使う名前付きミューテックス。
     SINGLE_INSTANCE_NAME = "Local\\KxNotifyUtils"
 
-    # 置き換えた実行ファイルが落ち着くのを待つ時間（issue #10 第 2 段階）。
-    # トレイを作るところまでは一瞬で着く。そこで落ちるものをここで拾う。
-    LAUNCH_SETTLE = 2.seconds
+    # 置き換えて起動したプロセスが常駐へ入ったことを伝える名前付きイベント（issue #29）。
+    READY_EVENT_NAME = "Local\\KxNotifyUtils.Ready"
+
+    # その知らせを待つ期限（issue #29）。
+    #
+    # 通常は 1 秒かからずに解ける。トレイまでは一瞬で着き、その先も待ちは無い。
+    # ここまで長く取ってあるのは、通知アクセスの要求が引っ掛かる場合に合わせたためである。
+    # build_sources は常駐へ入るより手前にあり、#28 で置いた期限のぶん最大 10 秒かかる。
+    # 置き換えた直後の exe は初回の実行であり、Defender の検査もそこへ乗る。
+    #
+    # 短すぎても壊れはしない。期限が来たら抑止を取り直しにいき、
+    # 子が握っていれば取れず、こちらが引く。判断はミューテックスに任せてある。
+    READY_TIMEOUT = 20.seconds
+
+    # 知らせが来たかを見に行く間隔。
+    READY_POLL = 100.milliseconds
 
     def initialize
       # ログを最初に立てる。
@@ -182,6 +195,8 @@ module KxNotifyUtils
       build_sinks
       start_ui
       start_steamvr
+      # ここまで来れば常駐へ入る。置き換えて起動された場合、渡した側がこれを待っている。
+      signal_ready
       main_loop
     ensure
       shutdown
@@ -204,6 +219,22 @@ module KxNotifyUtils
       {% else %}
         true
       {% end %}
+    end
+
+    # 常駐へ入ったことを、置き換えて起動した側へ伝える（issue #29）。
+    #
+    # 呼ぶのは run の最後の 1 か所だけとする。
+    # ここより手前には抑止に掛かる、トレイを作れない、また置き換えへ入るという
+    # 引き返す経路があり、そのどれかで終わるプロセスに「常駐へ入った」と言わせるわけにはいかない。
+    #
+    # 通知ソースの開始（build_sources）より後に置く。
+    # あそこは通知アクセスの要求を通るため、生きたまま長く止まりうる場所であり、
+    # そこを抜けたことを見せるのがこの仕組みの目的である（issue #28）。
+    private def signal_ready : Nil
+      {% if flag?(:windows) %}
+        Runtime::Win32.signal_ready(READY_EVENT_NAME)
+      {% end %}
+      Log.info { "常駐へ入った" }
     end
 
     # sources と sinks の各セクションは、そのアダプタ自身に検証させる。
@@ -644,26 +675,36 @@ module KxNotifyUtils
       @config_handed_over = true
 
       Runtime::Win32.release_single_instance
-      if launch_replacement
+      launch = launch_replacement
+      if launch.ready?
         Log.info { "置き換えた実行ファイルへ渡した: #{staged.tag}" }
         return HandOver::Handed
       end
 
-      # 起動できなかった。置き換えそのものは済んでいるので、
+      # 渡し切れなかった。置き換えそのものは済んでいるので、
       # 次に起動されるのは新しい実行ファイルである。壊れた状態は残らない。
       # 抑止だけが解けたまま常駐を続けるわけにはいかないので取り直す。
-      # 抑止を取り直せなければ、手放した隙に別のプロセスが常駐へ入っている。
+      #
+      # 取り直せるかどうかで、子がどうなったかも決まる。
+      # 子は起動して最初に抑止を取るため、生きているなら取り直せない。
+      # 期限までに知らせてこなかった子については、ここが唯一の判断材料になる。
+      #
+      # 取り直せなければ、手放した隙に別のプロセスが常駐へ入っている。
       # そのまま続けると、同じ通知を 2 つのプロセスが中継することになる。
       # 抑止そのものが避けようとしている状態であり、こちらが引く。
       unless reacquire_single_instance
         # 常駐は別のプロセスのものになった。設定を書く役目もそちらへ渡ったままにする。
-        Log.error { "抑止を取り直せなかった。別のプロセスが常駐しているため、こちらは終わる" }
+        if launch.unconfirmed?
+          Log.error { "置き換えた実行ファイルは生きているが、常駐へ入ったと知らせてこない。こちらは終わる" }
+        else
+          Log.error { "抑止を取り直せなかった。別のプロセスが常駐しているため、こちらは終わる" }
+        end
         return HandOver::Superseded
       end
 
-      # 常駐を続ける。子は落ちているので、設定を書く役目も戻る。
+      # 常駐を続ける。子は抑止を握っていないので、設定を書く役目も戻る。
       @config_handed_over = false
-      Log.error { "置き換えた実行ファイルを起動できなかった。次の起動から新しい版になる" }
+      Log.error { "置き換えた実行ファイルへ渡せなかった。次の起動から新しい版になる" }
       HandOver::Replaced
     rescue exception : Update::Installer::RollbackFailed
       # 正規のパスに実行ファイルが無い。取得しておいたものは捨てない。
@@ -744,26 +785,68 @@ module KxNotifyUtils
       update_tray_state
     end
 
-    # 置き換えた実行ファイルを起動し、すぐに落ちなかったことまでを見る。
-    #
-    # 起動そのものが通っても、新しい側がトレイを作れないなどで run の途中で終わることがある。
-    # そこでこちらも終わると、常駐するプロセスが 1 つも残らない。
-    # 落ちていれば偽を返し、呼び出し側が抑止を取り直して常駐を続ける。
-    #
-    # 見られるのはここまでである。新しい側が常駐へ入るのは SteamVR の初期化の後であり、
-    # あれは VR を立ち上げることもあって数秒では終わらない。
-    # そこまで見届けるには準備完了を伝え合う仕組みが要るが、
-    # この待ちで拾えるのはトレイの失敗のような、常駐に入る前の早い失敗である。
-    private def launch_replacement : Bool
-      process = Process.new(Runtime::Paths.executable_path, [] of String)
-      sleep LAUNCH_SETTLE
-      return true unless process.terminated?
+    # 置き換えた実行ファイルの起動がどこまで進んだか（issue #29）。
+    enum Launch
+      # 常駐へ入ったと知らせてきた。
+      Ready
+      # 起動できなかったか、常駐へ入る前に終わった。
+      Gone
+      # 生きてはいるが、期限までに知らせてこなかった。
+      Unconfirmed
+    end
 
-      Log.error { "置き換えた実行ファイルが起動の直後に終わった" }
-      false
-    rescue exception
-      Log.error(exception: exception) { "置き換えた実行ファイルを起動できなかった" }
-      false
+    # 置き換えた実行ファイルを起動し、常駐へ入ったと知らせてくるまで待つ。
+    #
+    # 以前は 2 秒眠って、生きていれば渡したものとしていた（issue #10 第 2 段階）。
+    # 常駐へ入るのはその先であり、生きたまま止まっているプロセスと
+    # 正常に立ち上がったプロセスを区別できていなかった。
+    #
+    # 待ち方は 2 つを並べて見る。
+    #
+    # - 知らせが来た → 常駐へ入った。通常はここへ 1 秒かからずに着く
+    # - プロセスが終わった → トレイを作れないなどで引き返した。呼び出し側が常駐を取り直す
+    #
+    # どちらも来なければ期限で切る。そこから先の判断は呼び出し側がミューテックスで行う。
+    #
+    # 待つあいだ、こちらのトレイはメッセージを処理しない。
+    # 通常は今までの 2 秒より短く終わり、延びるのは何かがおかしいときである。
+    # そのときこのプロセスは終わるか常駐を取り直すかのどちらかへ進むため、待たせる先が無い。
+    # 他のファイバは進む。WebSocket の接続維持は sleep のあいだに動く。
+    private def launch_replacement : Launch
+      # 待ち受けは起動より前に用意する。
+      # 後に作ると、その間に来た知らせを取り落として期限まで待つことになる。
+      #
+      # 用意できなくても起動そのものは進める。知らせを受け取れないだけであり、
+      # 期限まで待った後の判断はミューテックスが行う。ここで諦めると置き換えが進まない。
+      event = Runtime::Win32.create_ready_event(READY_EVENT_NAME)
+      Log.error { "常駐へ入った知らせを受け取れない。期限まで待つことになる" } unless event
+
+      begin
+        process = Process.new(Runtime::Paths.executable_path, [] of String)
+      rescue exception
+        Log.error(exception: exception) { "置き換えた実行ファイルを起動できなかった" }
+        return Launch::Gone
+      end
+
+      deadline = Time.monotonic + READY_TIMEOUT
+      loop do
+        return Launch::Ready if event && Runtime::Win32.event_signaled?(event)
+
+        if process.terminated?
+          Log.error { "置き換えた実行ファイルが常駐へ入る前に終わった" }
+          return Launch::Gone
+        end
+
+        break if Time.monotonic >= deadline
+        sleep READY_POLL
+      end
+
+      Log.error do
+        "置き換えた実行ファイルが #{READY_TIMEOUT.total_seconds.to_i} 秒たっても常駐へ入ったと知らせてこない"
+      end
+      Launch::Unconfirmed
+    ensure
+      Runtime::Win32.close_event(event) if event
     end
 
     # 見つけている版のアセットを取得して、次の起動に備える。
