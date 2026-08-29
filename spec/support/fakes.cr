@@ -257,6 +257,43 @@ module Fakes
     end
   end
 
+  # SteamVR が動いていないときの経路の代役。
+  class ApplicationConfig < SteamVR::ApplicationConfig
+    property available : Bool = true
+    property auto_launch : Bool = false
+    property added_manifests : Array(String) = [] of String
+    property removed_manifests : Array(String) = [] of String
+    property fail_add : Bool = false
+    property fail_remove : Bool = false
+    property fail_set_auto_launch : Bool = false
+
+    def available? : Bool
+      @available
+    end
+
+    def add_manifest(manifest_path : String) : Bool
+      return false if @fail_add
+      @added_manifests << manifest_path
+      true
+    end
+
+    def remove_manifest(manifest_path : String) : Bool
+      return false if @fail_remove
+      @removed_manifests << manifest_path
+      true
+    end
+
+    def set_auto_launch(app_key : String, enabled : Bool) : Bool
+      return false if @fail_set_auto_launch
+      @auto_launch = enabled
+      true
+    end
+
+    def auto_launch?(app_key : String) : Bool
+      @auto_launch
+    end
+  end
+
   class ManifestStore < SteamVR::ManifestStore
     property files : Hash(String, String) = {} of String => String
     # 真にすると delete が例外を上げる。ファイルがロックされている状況を作る。
