@@ -74,6 +74,8 @@
   "settings.defaults.sound": "Sound",
   "settings.defaults.note": "Icon accepts app / default / warning / error, or a path to a PNG file. Sound accepts default / warning / error, or a path to an audio file; leave it empty to mute.",
   "settings.rules.list_label": "Rules (higher entries take precedence)",
+  "settings.rules.column.order": "No.",
+  "settings.rules.column.overrides": "Overrides",
   "settings.rules.add": "Add",
   "settings.rules.remove": "Remove",
   "settings.rules.move_up": "Up",
