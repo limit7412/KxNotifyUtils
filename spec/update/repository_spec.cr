@@ -100,6 +100,52 @@ describe Update::GitHubRepository do
     end
   end
 
+  # 一覧を最後まで取れたなら latest は要らない（issue #30）。
+  # /releases は下書き以外のすべてを返すため、latest はその中に必ず含まれる。
+  # 取りに行ったかどうかで確かめる。要求を 1 つ減らすことがこの分岐の目的だからである。
+  describe ".catalog" do
+    it "最後まで取れていれば latest を取りに行かない" do
+      listed = [
+        Update::Release.new(Update::Version.new(1, 0, 0), "1.0.0", "https://example.test/1.0.0"),
+      ]
+      asked = false
+
+      catalog = Update::GitHubRepository.catalog(listed, true) do
+        asked = true
+        [] of Update::Release
+      end
+
+      asked.should be_false
+      catalog.complete?.should be_true
+      catalog.releases.map(&.tag).should eq ["1.0.0"]
+    end
+
+    it "切れていれば latest を取りに行って足す" do
+      listed = [
+        Update::Release.new(Update::Version.new(1, 5, 1), "1.5.1", "https://example.test/1.5.1"),
+      ]
+      asked = false
+
+      catalog = Update::GitHubRepository.catalog(listed, false) do
+        asked = true
+        [Update::Release.new(Update::Version.new(2, 0, 0), "2.0.0", "https://example.test/2.0.0")]
+      end
+
+      asked.should be_true
+      catalog.complete?.should be_false
+      catalog.releases.map(&.tag).should eq ["1.5.1", "2.0.0"]
+    end
+
+    it "切れていて latest が一覧と同じなら重ねない" do
+      release = Update::Release.new(
+        Update::Version.new(1, 0, 0), "1.0.0", "https://example.test/1.0.0")
+
+      catalog = Update::GitHubRepository.catalog([release], false) { [release] }
+
+      catalog.releases.map(&.tag).should eq ["1.0.0"]
+    end
+  end
+
   describe ".parse_one" do
     it "1 件の応答を読む" do
       releases = Update::GitHubRepository.parse_one(
