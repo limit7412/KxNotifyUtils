@@ -9,6 +9,8 @@
   "tray.menu.unregister_steamvr": "Unregister SteamVR auto-launch",
   "tray.menu.open_logs": "Open log folder",
   "tray.menu.quit": "Quit",
+  "tray.tip.steamvr_connected": "Connected to SteamVR",
+  "tray.tip.steamvr_disconnected": "Not connected to SteamVR",
   "error.relay": "Relaying a notification",
   "error.source_start": "Starting the Windows notification source",
   "error.source_stop": "Stopping the Windows notification source",

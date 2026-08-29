@@ -9,6 +9,8 @@
   "tray.menu.unregister_steamvr": "SteamVR 自動起動を解除",
   "tray.menu.open_logs": "ログフォルダを開く",
   "tray.menu.quit": "終了",
+  "tray.tip.steamvr_connected": "SteamVR に接続しています",
+  "tray.tip.steamvr_disconnected": "SteamVR に接続していません",
   "error.relay": "通知の中継",
   "error.source_start": "Windows 通知ソースの初期化",
   "error.source_stop": "Windows 通知ソースの停止",
