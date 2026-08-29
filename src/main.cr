@@ -387,6 +387,7 @@ module KxNotifyUtils
         VERSION,
         access_status: -> { access_status_label },
         steamvr_status: -> { steamvr_status_label },
+        steamvr_connected: -> { @openvr.opened? },
         update_status: -> { update_status_label },
         update_url: -> { @update.available(@config.current.update.channel).try(&.url) },
         update_action: -> { update_action_label },

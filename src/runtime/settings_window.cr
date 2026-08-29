@@ -83,6 +83,10 @@ module Runtime
       @version : String,
       @access_status : Proc(String) = -> { I18n.t("status.unknown") },
       @steamvr_status : Proc(String) = -> { I18n.t("status.unknown") },
+      # SteamVR につながっているか。登録と解除のボタンの有効・無効に使う。
+      # OpenVR の IVRApplications は vrserver が動いていないと使えないため、
+      # つながっていない間はどちらも通らない。
+      @steamvr_connected : Proc(Bool) = -> { false },
       # 更新の確認の状態と、新しい版のリリースページ（issue #10）。
       # 版の比較は update コンテキストが持つため、結果だけを受け取る。
       @update_status : Proc(String) = -> { I18n.t("settings.about.update_unchecked") },
@@ -115,6 +119,8 @@ module Runtime
       @update_label = nil.as(UIng::Label?)
       @update_button = nil.as(UIng::Button?)
       @update_action_button = nil.as(UIng::Button?)
+      @steamvr_register_button = nil.as(UIng::Button?)
+      @steamvr_unregister_button = nil.as(UIng::Button?)
       # 未保存の変更があるまま閉じようとしたことを覚えておく。
       # 一度警告を出し、続けてもう一度閉じる操作をしたときに破棄する。
       @close_warned = false
@@ -477,9 +483,24 @@ module Runtime
       @steamvr_label = steamvr_label
       box.append(steamvr_label, false)
 
+      # SteamVR につながっていない間は押せなくする。
+      #
+      # 登録も解除も OpenVR の IVRApplications を通るため、つながっていなければ
+      # 必ず失敗する。押せてしまうと、黙って失敗してエラー通知が出るだけになり、
+      # 何が足りないのかが画面から読めない。
+      #
+      # 押せるかどうかは refresh_status が一定間隔で映し直す。
+      # ここでは押せない状態で作る。開いた直後に一瞬押せて見えるのを避ける。
+      register = button(I18n.t("settings.steamvr.register")) { @on_request_steamvr_register.call; refresh_status }
+      unregister = button(I18n.t("settings.steamvr.unregister")) { @on_request_steamvr_unregister.call; refresh_status }
+      register.disable
+      unregister.disable
+      @steamvr_register_button = register
+      @steamvr_unregister_button = unregister
+
       buttons = UIng::Box.new(:horizontal, padded: true)
-      buttons.append(button(I18n.t("settings.steamvr.register")) { @on_request_steamvr_register.call; refresh_status }, false)
-      buttons.append(button(I18n.t("settings.steamvr.unregister")) { @on_request_steamvr_unregister.call; refresh_status }, false)
+      buttons.append(register, false)
+      buttons.append(unregister, false)
       box.append(buttons, false)
 
       box.append(UIng::Label.new(I18n.t("settings.steamvr.note")), false)
@@ -848,6 +869,10 @@ module Runtime
         label.text = I18n.t("settings.steamvr.status", {"status" => @steamvr_status.call})
       end
       @update_label.try { |label| label.text = @update_status.call }
+      connected = @steamvr_connected.call
+      {@steamvr_register_button, @steamvr_unregister_button}.each do |control|
+        control.try { |target| connected ? target.enable : target.disable }
+      end
       @update_button.try do |control|
         @update_url.call.nil? ? control.disable : control.enable
       end
