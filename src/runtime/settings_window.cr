@@ -103,7 +103,10 @@ module Runtime
       @sliders = {} of String => UIng::Slider
       # スライダの隣に出す現在値。代入では on_changed が動かないため、自分で書き直す。
       @slider_labels = {} of String => UIng::Label
-      @rule_list = nil.as(UIng::Combobox?)
+      @rule_table = nil.as(UIng::Table?)
+      @rule_model = nil.as(UIng::Table::Model?)
+      # テーブルへ知らせてある行数。丸ごと入れ替えるときに、削除を何行ぶん伝えるかに使う。
+      @rule_rows_notified = 0
       @filter_apps = nil.as(UIng::MultilineEntry?)
       @observed = nil.as(UIng::Combobox?)
       @external_change_label = nil.as(UIng::Label?)
@@ -342,26 +345,7 @@ module Runtime
 
       left = UIng::Box.new(:vertical, padded: true)
       left.append(UIng::Label.new(I18n.t("settings.rules.list_label")), false)
-      rule_list = UIng::Combobox.new
-      @rule_list = rule_list
-      rule_list.on_selected do |index|
-        next if @suppress_rule_selection
-
-        errors = [] of String
-        flush_rule_form(errors)
-        if errors.empty?
-          @selected_rule = index
-          # 書き戻した match_app_id を一覧の見出しへ反映する。
-          reload_rule_list
-          load_rule_form
-        else
-          # 読めない入力を持ったまま切り替えると、その入力が失われる。
-          # 選択を戻し、直してもらう。
-          @window.try(&.msg_box_error(I18n.t("settings.rules.cannot_switch"), errors.join("\n")))
-          restore_rule_selection
-        end
-      end
-      left.append(rule_list, false)
+      left.append(build_rule_table, true)
 
       buttons = UIng::Box.new(:horizontal, padded: true)
       buttons.append(button(I18n.t("settings.rules.add")) { add_rule }, false)
@@ -397,6 +381,75 @@ module Runtime
       box.append(left, true)
       box.append(build_rule_form, true)
       box
+    end
+
+    # ルールの一覧（issue #36 Phase 2）。
+    #
+    # ドロップダウンでは開くまで全体が見えず、並べ替えの結果もその場で見えなかった。
+    # テーブルなら全ルールと、どのルールがいくつ上書きしているかまでが常に見える。
+    #
+    # モデルは行数とセルの中身を、このインスタンスの @rules から読む。
+    # 行の増減は reload_rule_list が通知で伝える。
+    #
+    # ハンドラとモデルはインスタンス変数が生かし続ける。
+    # テーブルより先にモデルが回収されると、描画のたびの呼び出しが宙を指す。
+    private def build_rule_table : UIng::Table
+      handler = UIng::Table::Model::Handler.new
+      handler.num_columns { 3 }
+      handler.column_type { |_column| UIng::Table::Value::Type::String }
+      handler.num_rows { @rules.size }
+      handler.cell_value { |row, column| UIng::Table::Value.new(rule_cell(row, column)) }
+
+      model = UIng::Table::Model.new(handler)
+      @rule_model = model
+
+      table = UIng::Table.new(model)
+      @rule_table = table
+      table.selection_mode = UIng::Table::Selection::Mode::ZeroOrOne
+      table.append_text_column(I18n.t("settings.rules.column.order"), 0, -1)
+      table.append_text_column(I18n.t("settings.rules.match_app_id"), 1, -1)
+      table.append_text_column(I18n.t("settings.rules.column.overrides"), 2, -1)
+
+      table.on_selection_changed do |selection|
+        next if @suppress_rule_selection
+
+        handle_rule_selection(selection.num_rows > 0 ? selection.rows.first : -1)
+      end
+      table
+    end
+
+    # 一覧のセルの文字列。
+    #
+    # 行の範囲は自分で確かめる。削除を伝えてから描き直すまでの間に
+    # 消えた行を聞かれることがあり、そのときは空で答える。
+    private def rule_cell(row : Int32, column : Int32) : String
+      rule = @rules[row]?
+      return "" unless rule
+
+      case column
+      when 0 then (row + 1).to_s
+      when 1 then rule.match_app_id.empty? ? I18n.t("settings.rules.unset") : rule.match_app_id
+      else        RULE_OVERRIDE_ROWS.count { |field| !rule_field(rule, field).nil? }.to_s
+      end
+    end
+
+    # 一覧で別のルールが選ばれた。編集中の入力を書き戻してから切り替える。
+    private def handle_rule_selection(index : Int32) : Nil
+      return if index == @selected_rule
+
+      errors = [] of String
+      flush_rule_form(errors)
+      if errors.empty?
+        @selected_rule = index
+        # 書き戻した match_app_id と上書きの数を一覧へ反映する。
+        reload_rule_list
+        load_rule_form
+      else
+        # 読めない入力を持ったまま切り替えると、その入力が失われる。
+        # 選択を戻し、直してもらう。
+        @window.try(&.msg_box_error(I18n.t("settings.rules.cannot_switch"), errors.join("\n")))
+        restore_rule_selection
+      end
     end
 
     private def build_rule_form : UIng::Box
@@ -508,27 +561,40 @@ module Runtime
       reload_observed_apps
     end
 
+    # 一覧を今の @rules に合わせ、選択を戻す。
+    #
+    # テーブルは行の増減を通知で受け取る。行数が変わらなければ全行の変更として、
+    # 変わっていれば旧の行数ぶんの削除と新の行数ぶんの挿入として伝える。
+    # 選択の切り替えの途中でも呼ばれるため、そこでは行の増減を伴わない形に収める。
     private def reload_rule_list : Nil
-      rule_list = @rule_list
-      return unless rule_list
+      model = @rule_model
+      return unless model
 
       @suppress_rule_selection = true
-      rule_list.clear
-      @rules.each_with_index do |rule, index|
-        label = rule.match_app_id.empty? ? I18n.t("settings.rules.unset") : rule.match_app_id
-        rule_list.append("#{index + 1}. #{label}")
+      if @rule_rows_notified == @rules.size
+        @rules.size.times { |index| model.row_changed(index) }
+      else
+        (@rule_rows_notified - 1).downto(0) { |index| model.row_deleted(index) }
+        @rules.size.times { |index| model.row_inserted(index) }
+        @rule_rows_notified = @rules.size
       end
-      rule_list.selected = @selected_rule if @selected_rule >= 0 && @selected_rule < @rules.size
+      apply_rule_selection
       @suppress_rule_selection = false
     end
 
     private def restore_rule_selection : Nil
-      rule_list = @rule_list
-      return unless rule_list
-
       @suppress_rule_selection = true
-      rule_list.selected = @selected_rule if @selected_rule >= 0 && @selected_rule < @rules.size
+      apply_rule_selection
       @suppress_rule_selection = false
+    end
+
+    # 今の @selected_rule をテーブルの選択へ写す。範囲の外なら選択を消す。
+    private def apply_rule_selection : Nil
+      table = @rule_table
+      return unless table
+
+      rows = @selected_rule >= 0 && @selected_rule < @rules.size ? [@selected_rule] : [] of Int32
+      table.selection = UIng::Table::Selection.new(rows)
     end
 
     # 画面の入力をルールへ書き戻す。読めない入力があれば知らせて false を返す。

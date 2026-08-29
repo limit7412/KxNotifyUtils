@@ -168,7 +168,7 @@ WinRT の呼び出しだけは別である。
 - **openvr のインターフェースバージョン**：`IVRSystem_026` と `IVRApplications_008` に固定した。FnTable の並びは `openvr_capi.h` から機械的に写している。起動時に `VR_IsInterfaceVersionValid` で検証し、通らなければ SteamVR 連携を無効にして常駐を続ける。
 - **OpenVR の初期化の種別**：`VRApplication_Background` で初期化する。SteamVR が動いていないときに SteamVR を起こさず、初期化のほうを失敗させる種別はこれだけである。`VRApplication_Overlay` では、設定を見たいだけの手動起動でも SteamVR が起動してしまう（issue #12）。本ツールが OpenVR に求めるのは vrmanifest の登録と自動起動の設定、そして `VREvent_Quit` の受け取りだけで、オーバーレイの描画は行わないため `IVROverlay` を使っていない。この 3 つはいずれも Background で足りる。SteamVR が動いていないことは `VRInitError_Init_NoServerForBackgroundApp` という初期化の失敗として表れるので、この番号だけは異常として扱わず、60 秒ごとの再試行を続ける。vrmanifest に書く `is_dashboard_overlay` はこれとは別物であり、そのままにしてある。あちらは SteamVR がアプリをどう分類し、自動起動でどう扱うかを決めるもので、アプリ自身が `VR_Init` へ渡す種別とは関係しない。
 - **openvrpaths.vrpath の形式差**：`runtime` 配列を一次の情報源とし、読めない場合は `%ProgramFiles(x86)%\Steam\steamapps\common\SteamVR` を試すフォールバックを足した。
-- **アプリ別ルールの一覧ウィジェット**：Table ではなく、リストと編集フォームの組み合わせにした。並べ替えに意味があるため、上下の移動ボタンを付けている。
+- **アプリ別ルールの一覧ウィジェット**：Table と編集フォームの組み合わせにした。並べ替えに意味があるため、上下の移動ボタンを付けている。当初はドロップダウンと編集フォームの組み合わせで始めたが、一覧なのに開くまで全体が見えず、上下の移動ボタンを押しても結果がその場で見えなかったため Table へ移した（issue #36）。先勝ちマッチのため並び順そのものが設定の意味を持つのに、その並びが隠れていたことになる。列は「順 / match_app_id / 上書き」の 3 つで、どのルールが実質空なのかも一覧から分かる。Table はモデルベースであり、行数とセルの中身は `SettingsWindow` が持つルールの配列から読み、行の増減は通知で伝える。
 - **アプリケーションマニフェスト**：本体からは埋め込まない。Common Controls v6 の宣言は uing が埋め込むマニフェストが持っており、同じ RT_MANIFEST リソースを重ねると衝突する。DPI awareness は起動時に `SetProcessDpiAwarenessContext` を呼んで設定する。
 - **THIRD-PARTY-NOTICES の埋め込み**：`.res` ではなくコンパイル時の `read_file` で実行ファイルへ取り込む。埋め込む先が exe である点は変わらず、リソースの ID を管理せずに済む。
 - **シムのスレッド契約**：仕様書は「`nls_init` を呼んだスレッドと同じスレッドから全 API を呼ぶ」としていたが、シムが内部にワーカースレッドを持つ形に変えた。本体側はどのスレッドから呼んでもよい。

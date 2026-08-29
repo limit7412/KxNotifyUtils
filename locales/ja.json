@@ -74,6 +74,8 @@
   "settings.defaults.sound": "通知音",
   "settings.defaults.note": "アイコンは app / default / warning / error か PNG のパスを指定する。通知音は default / warning / error か音声ファイルのパスで、空欄はミュートになる。",
   "settings.rules.list_label": "ルール（上にあるものが優先される）",
+  "settings.rules.column.order": "順",
+  "settings.rules.column.overrides": "上書き",
   "settings.rules.add": "追加",
   "settings.rules.remove": "削除",
   "settings.rules.move_up": "上へ",
