@@ -48,6 +48,25 @@ module Runtime
     # 画面に並べる上書き行。
     RULE_OVERRIDE_ROWS = RULE_FIELDS + DYNAMIC_TIMEOUT_FIELDS.map { |field| "dynamic_timeout.#{field}" }
 
+    # 上書き行の見出しに使う辞書キー（issue #36）。
+    # 生のフィールド名を並べず、既定の通知設定タブと同じ文言を使う。
+    # timeout_mode だけは入力欄へ書くトークンが分かるよう、選択肢を添えた文言にする。
+    # 行を足すときはここにも足す。漏れた行は今までどおりフィールド名がそのまま出る。
+    RULE_FIELD_LABEL_KEYS = {
+      "timeout_mode"                  => "settings.rules.field.timeout_mode",
+      "timeout"                       => "settings.defaults.timeout",
+      "max_body_length"               => "settings.defaults.max_body_length",
+      "title_template"                => "settings.defaults.title_template",
+      "icon"                          => "settings.defaults.icon",
+      "opacity"                       => "settings.defaults.opacity",
+      "volume"                        => "settings.defaults.volume",
+      "sound"                         => "settings.defaults.sound",
+      "dynamic_timeout.base"          => "settings.defaults.dynamic_base",
+      "dynamic_timeout.reading_speed" => "settings.defaults.dynamic_reading_speed",
+      "dynamic_timeout.min"           => "settings.defaults.dynamic_min",
+      "dynamic_timeout.max"           => "settings.defaults.dynamic_max",
+    }
+
     # 表示中に状態のラベルを映し直す間隔。
     # 通知アクセスの確かめ直しがソース側で 5 秒ごとなので、それより短くしても表示は変わらない。
     STATUS_REFRESH_INTERVAL = 2.seconds
@@ -80,6 +99,10 @@ module Runtime
       @checks = {} of String => UIng::Checkbox
       @combos = {} of String => UIng::Combobox
       @spins = {} of String => UIng::Spinbox
+      @radios = {} of String => UIng::RadioButtons
+      @sliders = {} of String => UIng::Slider
+      # スライダの隣に出す現在値。代入では on_changed が動かないため、自分で書き直す。
+      @slider_labels = {} of String => UIng::Label
       @rule_list = nil.as(UIng::Combobox?)
       @filter_apps = nil.as(UIng::MultilineEntry?)
       @observed = nil.as(UIng::Combobox?)
@@ -163,7 +186,8 @@ module Runtime
     end
 
     private def build_window : UIng::Window
-      window = UIng::Window.new(I18n.t("settings.window_title"), 640, 560, false)
+      # ルールタブは左右 2 列で、640 では上書き行の入力欄が狭くなる（issue #36）。
+      window = UIng::Window.new(I18n.t("settings.window_title"), 720, 600, false)
       window.margined = true
 
       root = UIng::Box.new(:vertical, padded: true)
@@ -216,10 +240,23 @@ module Runtime
       form = UIng::Form.new(padded: true)
       form.append(I18n.t("settings.general.log_level"), combo("log_level", LOG_LEVELS), false)
       form.append(I18n.t("settings.general.language"), combo("language", LANGUAGES), false)
-      form.append(I18n.t("settings.general.update_channel"), combo("update_channel", UPDATE_CHANNELS), false)
       box.append(form, false)
-      box.append(check("update.check_enabled", I18n.t("settings.general.update_check")), false)
       box.append(UIng::Label.new(I18n.t("settings.general.language_note")), false)
+
+      # 更新にかかわる項目は 1 つの枠へ寄せる（issue #36）。
+      # ログや言語の間に散らばっていると、チャンネルと自動確認が対になっていることが読めない。
+      group = UIng::Group.new(I18n.t("settings.general.update_group"), margined: true)
+      inner = UIng::Box.new(:vertical, padded: true)
+      inner.append(check("update.check_enabled", I18n.t("settings.general.update_check")), false)
+      update_form = UIng::Form.new(padded: true)
+      update_form.append(
+        I18n.t("settings.general.update_channel"),
+        radio("update_channel", choices("update_channel", UPDATE_CHANNELS)),
+        false,
+      )
+      inner.append(update_form, false)
+      group.child = inner
+      box.append(group, false)
       box
     end
 
@@ -256,7 +293,11 @@ module Runtime
       inner.append(check("sinks.xsoverlay.enabled", I18n.t("settings.sinks.enable")), false)
 
       form = UIng::Form.new(padded: true)
-      form.append(I18n.t("settings.sinks.transport"), combo("sinks.xsoverlay.transport", TRANSPORTS), false)
+      form.append(
+        I18n.t("settings.sinks.transport"),
+        radio("sinks.xsoverlay.transport", choices("transport", TRANSPORTS)),
+        false,
+      )
       form.append(I18n.t("settings.sinks.websocket_port"), spin("sinks.xsoverlay.websocket_port", 1, 65535), false)
       form.append(I18n.t("settings.sinks.udp_port"), spin("sinks.xsoverlay.udp_port", 1, 65535), false)
       inner.append(form, false)
@@ -272,7 +313,7 @@ module Runtime
       form = UIng::Form.new(padded: true)
       form.append(
         I18n.t("settings.defaults.timeout_mode"),
-        combo("defaults.timeout_mode", TIMEOUT_MODES, -> { update_timeout_inputs }),
+        radio("defaults.timeout_mode", choices("timeout_mode", TIMEOUT_MODES), -> { update_timeout_inputs }),
         false,
       )
       form.append(I18n.t("settings.defaults.timeout"), entry("defaults.timeout"), false)
@@ -287,8 +328,8 @@ module Runtime
       )
       form.append(I18n.t("settings.defaults.title_template"), entry("defaults.title_template"), false)
       form.append(I18n.t("settings.defaults.icon"), entry("defaults.icon"), false)
-      form.append(I18n.t("settings.defaults.opacity"), entry("defaults.opacity"), false)
-      form.append(I18n.t("settings.defaults.volume"), entry("defaults.volume"), false)
+      form.append(I18n.t("settings.defaults.opacity"), slider_row("defaults.opacity"), false)
+      form.append(I18n.t("settings.defaults.volume"), slider_row("defaults.volume"), false)
       form.append(I18n.t("settings.defaults.sound"), entry("defaults.sound"), false)
       box.append(form, false)
 
@@ -338,7 +379,11 @@ module Runtime
       filter_group = UIng::Group.new(I18n.t("settings.rules.filter_group"), margined: true)
       filter_box = UIng::Box.new(:vertical, padded: true)
       filter_form = UIng::Form.new(padded: true)
-      filter_form.append(I18n.t("settings.rules.filter_mode"), combo("filter.mode", FILTER_MODES), false)
+      filter_form.append(
+        I18n.t("settings.rules.filter_mode"),
+        radio("filter.mode", choices("filter_mode", FILTER_MODES)),
+        false,
+      )
       filter_box.append(filter_form, false)
       filter_box.append(UIng::Label.new(I18n.t("settings.rules.filter_apps")), false)
       filter_apps = UIng::MultilineEntry.new
@@ -365,7 +410,7 @@ module Runtime
       right.append(UIng::Label.new(I18n.t("settings.rules.inherit_note")), false)
       RULE_OVERRIDE_ROWS.each do |field|
         row = UIng::Box.new(:horizontal, padded: true)
-        row.append(check("rule.override.#{field}", field, -> { update_rule_field_state(field) }), false)
+        row.append(check("rule.override.#{field}", rule_row_label(field), -> { update_rule_field_state(field) }), false)
         row.append(entry("rule.#{field}"), true)
         right.append(row, false)
       end
@@ -393,6 +438,9 @@ module Runtime
       box.append(UIng::Label.new("KxNotifyUtils #{@version}"), false)
       box.append(button(I18n.t("settings.about.open_repository", {"url" => REPOSITORY_URL})) { open_repository }, false)
 
+      # 版の表示・更新・ライセンスの 3 つは別の話なので、区切りを入れる（issue #36）。
+      box.append(UIng::Separator.new(:horizontal), false)
+
       update_label = UIng::Label.new(@update_status.call)
       @update_label = update_label
       box.append(update_label, false)
@@ -410,6 +458,7 @@ module Runtime
       @update_action_button = action_button
       box.append(action_button, false)
 
+      box.append(UIng::Separator.new(:horizontal), false)
       box.append(UIng::Label.new(I18n.t("settings.about.licenses")), false)
 
       notices = UIng::MultilineEntry.new
@@ -421,9 +470,9 @@ module Runtime
 
     # 編集中の下書きを画面へ流し込む。
     private def load_draft : Nil
-      set_combo("log_level", LOG_LEVELS, @draft.log_level)
-      set_combo("language", LANGUAGES, @draft.language)
-      set_combo("update_channel", UPDATE_CHANNELS, @draft.update.channel)
+      set_choice("log_level", LOG_LEVELS, @draft.log_level)
+      set_choice("language", LANGUAGES, @draft.language)
+      set_choice("update_channel", UPDATE_CHANNELS, @draft.update.channel)
       set_check("update.check_enabled", @draft.update.check_enabled)
 
       windows = WinNotification::Settings.from_section(@draft.source(WinNotification::SOURCE_ID))
@@ -432,12 +481,12 @@ module Runtime
 
       xsoverlay = XSOverlay::Settings.from_section(@draft.sink(XSOverlay::SINK_ID))
       set_check("sinks.xsoverlay.enabled", xsoverlay.enabled)
-      set_combo("sinks.xsoverlay.transport", TRANSPORTS, xsoverlay.transport.to_s.downcase)
+      set_choice("sinks.xsoverlay.transport", TRANSPORTS, xsoverlay.transport.to_s.downcase)
       set_spin("sinks.xsoverlay.websocket_port", xsoverlay.websocket_port)
       set_spin("sinks.xsoverlay.udp_port", xsoverlay.udp_port)
 
       defaults = @draft.defaults
-      set_combo("defaults.timeout_mode", TIMEOUT_MODES, defaults.timeout_mode.to_s.downcase)
+      set_choice("defaults.timeout_mode", TIMEOUT_MODES, defaults.timeout_mode.to_s.downcase)
       set_text("defaults.timeout", defaults.timeout.to_s)
       set_text("defaults.dynamic_timeout.base", defaults.dynamic_timeout.base.to_s)
       set_text("defaults.dynamic_timeout.reading_speed", defaults.dynamic_timeout.reading_speed.to_s)
@@ -446,12 +495,12 @@ module Runtime
       set_spin("defaults.max_body_length", defaults.max_body_length)
       set_text("defaults.title_template", defaults.title_template)
       set_text("defaults.icon", defaults.icon)
-      set_text("defaults.opacity", defaults.opacity.to_s)
-      set_text("defaults.volume", defaults.volume.to_s)
+      set_slider("defaults.opacity", defaults.opacity)
+      set_slider("defaults.volume", defaults.volume)
       set_text("defaults.sound", defaults.sound)
       update_timeout_inputs
 
-      set_combo("filter.mode", FILTER_MODES, @draft.filter.mode.to_s.downcase)
+      set_choice("filter.mode", FILTER_MODES, @draft.filter.mode.to_s.downcase)
       @filter_apps.try { |control| control.text = @draft.filter.apps.join("\n") }
 
       reload_rule_list
@@ -785,8 +834,8 @@ module Runtime
       defaults.max_body_length = spin_value("defaults.max_body_length")
       defaults.title_template = text("defaults.title_template")
       defaults.icon = text("defaults.icon")
-      defaults.opacity = number("defaults.opacity", "透明度", errors)
-      defaults.volume = number("defaults.volume", "音量", errors)
+      defaults.opacity = slider_value("defaults.opacity")
+      defaults.volume = slider_value("defaults.volume")
       defaults.sound = text("defaults.sound")
 
       root.filter.mode = ::Config::FilterMode.parse(selected_value("filter.mode", FILTER_MODES))
@@ -925,6 +974,69 @@ module Runtime
       control
     end
 
+    # 2 択はラジオボタンで出す（issue #36）。
+    # ドロップダウンは開くまで他の選択肢が見えない。2 つなら常に並べて見せられる。
+    # 表示は翻訳した文字列を使い、保存値は設定ファイルの英語トークンのまま変えない。
+    private def radio(key : String, labels : Array(String), on_change : Proc(Nil)? = nil) : UIng::RadioButtons
+      control = UIng::RadioButtons.new(labels)
+      control.selected = 0
+      control.on_selected do |_index|
+        mark_dirty
+        on_change.try(&.call)
+      end
+      @radios[key] = control
+      control
+    end
+
+    # 選択肢の表示文字列。並びはトークンの配列と揃える。
+    private def choices(group : String, items : Array(String)) : Array(String)
+      items.map { |item| I18n.t("settings.choice.#{group}.#{item}") }
+    end
+
+    # スライダの目盛り。設定の 0.0〜1.0 を 0.01 刻みで扱う。
+    # 手で書いたこれより細かい値は、この画面から保存すると 0.01 へ丸まる。
+    SLIDER_SCALE = 100
+
+    # 0.0〜1.0 の割合はスライダで編集する（issue #36）。
+    # 入力欄では範囲が画面から読めず、範囲外は保存時の検証で初めて分かる。
+    # 隣に今の値を出す。表記は設定ファイルやルールの上書き欄と同じ 0.0〜1.0 とし、
+    # ここだけ % にして 2 つの表記を混ぜない。
+    private def slider_row(key : String) : UIng::Box
+      row = UIng::Box.new(:horizontal, padded: true)
+      control = UIng::Slider.new(0, SLIDER_SCALE)
+      value_label = UIng::Label.new(format_ratio(0))
+      control.on_changed do |value|
+        value_label.text = format_ratio(value)
+        mark_dirty
+      end
+      @sliders[key] = control
+      @slider_labels[key] = value_label
+      row.append(control, true)
+      row.append(value_label, false)
+      row
+    end
+
+    private def format_ratio(scaled : Int32) : String
+      sprintf("%.2f", scaled.to_f / SLIDER_SCALE)
+    end
+
+    private def slider_value(key : String) : Float64
+      (@sliders[key]?.try(&.value) || 0).to_f / SLIDER_SCALE
+    end
+
+    # 値の代入では on_changed が動かないため、隣のラベルもここで書き直す。
+    private def set_slider(key : String, value : Float64) : Nil
+      scaled = (value * SLIDER_SCALE).round.to_i.clamp(0, SLIDER_SCALE)
+      @sliders[key]?.try { |control| control.value = scaled }
+      @slider_labels[key]?.try { |label| label.text = format_ratio(scaled) }
+    end
+
+    # 上書き行の見出し。辞書に無い行はフィールド名のまま出す。
+    private def rule_row_label(field : String) : String
+      key = RULE_FIELD_LABEL_KEYS[field]?
+      key ? I18n.t(key) : field
+    end
+
     private def spin(key : String, min : Int32, max : Int32) : UIng::Spinbox
       control = UIng::Spinbox.new(min, max)
       control.on_changed { |_value| mark_dirty }
@@ -968,13 +1080,18 @@ module Runtime
       @checks[key]?.try { |control| control.checked = value }
     end
 
+    # 同じキーの選択部品（ラジオかドロップダウン）から、選ばれたトークンを返す。
     private def selected_value(key : String, items : Array(String)) : String
-      index = @combos[key]?.try(&.selected) || 0
+      index = @radios[key]?.try(&.selected) || @combos[key]?.try(&.selected) || 0
+      # 負の添字で配列の後ろへ回り込ませない。未選択は先頭として扱う。
+      return items.first if index < 0
+
       items[index]? || items.first
     end
 
-    private def set_combo(key : String, items : Array(String), value : String) : Nil
+    private def set_choice(key : String, items : Array(String), value : String) : Nil
       index = items.index(value) || 0
+      @radios[key]?.try { |control| control.selected = index }
       @combos[key]?.try { |control| control.selected = index }
     end
 
