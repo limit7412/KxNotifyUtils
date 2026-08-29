@@ -92,19 +92,27 @@ runs:
       #
       # ビルドは通ってしまううえ、Linux では rc.exe を動かせないので手元でも気付けない。
       # 期待値は .rc から読む。両方をリポジトリの中から取るため、文言を直しても追従する。
+      #
+      # Comments を見るのがこの確認の要である。日本語を含むのはこちらだけであり、
+      # ASCII はどのコードページで読んでも同じになるため、FileDescription（アプリ名）
+      # だけを突き合わせても符号化の誤りは素通りする。
       shell: pwsh
       run: |
         $rc = Get-Content res/kxnotifyutils.rc -Raw -Encoding utf8
-        if ($rc -notmatch '(?m)^\s*VALUE "FileDescription", "(.*)\\0"\s*$') {
-          throw "res/kxnotifyutils.rc から FileDescription を読み取れなかった"
-        }
-        $expected = $Matches[1]
+        $info = (Get-Item KxNotifyUtils.exe).VersionInfo
 
-        $actual = (Get-Item KxNotifyUtils.exe).VersionInfo.FileDescription
-        Write-Host "期待値: $expected"
-        Write-Host "実際  : $actual"
-        if ($actual -ne $expected) {
-          throw "exe のバージョン情報が .rc と一致しない（文字化けの疑い）"
+        foreach ($field in @("FileDescription", "Comments")) {
+          if ($rc -notmatch "(?m)^\s*VALUE ""$field"", ""(.*)\\0""\s*$") {
+            throw "res/kxnotifyutils.rc から $field を読み取れなかった"
+          }
+          $expected = $Matches[1]
+          $actual = $info.$field
+
+          Write-Host "${field} 期待値: $expected"
+          Write-Host "${field} 実際  : $actual"
+          if ($actual -ne $expected) {
+            throw "exe の $field が .rc と一致しない（文字化けの疑い）"
+          }
         }
 
     - name: コンソールの exe になっていないことを確かめる
