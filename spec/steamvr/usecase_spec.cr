@@ -1,18 +1,10 @@
 require "../spec_helper"
 
 private def build(exe_path = "D:/tools/KxNotifyUtils.exe")
-  usecase, repository, store, _ = build_with_config(exe_path)
-  {usecase, repository, store}
-end
-
-# SteamVR が動いていないときの経路まで見る場合はこちらを使う。
-private def build_with_config(exe_path = "D:/tools/KxNotifyUtils.exe")
   repository = Fakes::SteamVRRepository.new
   store = Fakes::ManifestStore.new
-  config = Fakes::ApplicationConfig.new
-  usecase = SteamVR::Usecase.new(
-    repository, store, "C:/AppData/KxNotifyUtils/kxnotifyutils.vrmanifest", exe_path, config)
-  {usecase, repository, store, config}
+  usecase = SteamVR::Usecase.new(repository, store, "C:/AppData/KxNotifyUtils/kxnotifyutils.vrmanifest", exe_path)
+  {usecase, repository, store}
 end
 
 describe SteamVR::Usecase do
@@ -40,36 +32,12 @@ describe SteamVR::Usecase do
       repository.auto_launch.should be_true
     end
 
-    # SteamVR が動いていない間でも登録できる（issue #12 で Background 初期化へ変えて以降、
-    # 起動していない手動起動が想定された使い方になった）。
-    it "OpenVR が使えなければ設定ファイルへ書く" do
-      usecase, repository, store, config = build_with_config
+    it "OpenVR が使えないときは登録しない" do
+      usecase, repository, store = build
       repository.opened = false
-
-      usecase.register.should be_true
-      store.files.keys.should eq ["C:/AppData/KxNotifyUtils/kxnotifyutils.vrmanifest"]
-      config.added_manifests.size.should eq 1
-      config.auto_launch.should be_true
-      # OpenVR は触らない。SteamVR が動いていれば、そちらが設定を持っている。
-      repository.added_manifests.should be_empty
-    end
-
-    it "OpenVR も設定ファイルも使えなければ登録せず、マニフェストも書かない" do
-      usecase, repository, store, config = build_with_config
-      repository.opened = false
-      config.available = false
 
       usecase.register.should be_false
       store.files.should be_empty
-    end
-
-    it "設定ファイルへの登録に失敗したら自動起動を有効にしない" do
-      usecase, repository, _, config = build_with_config
-      repository.opened = false
-      config.fail_add = true
-
-      usecase.register.should be_false
-      config.auto_launch.should be_false
     end
 
     it "マニフェスト登録に失敗したら自動起動を有効にしない" do
@@ -121,79 +89,6 @@ describe SteamVR::Usecase do
       usecase.unregister.should eq SteamVR::UnregisterResult::AutoLaunchOnly
       repository.auto_launch.should be_false
       store.files.should_not be_empty
-    end
-
-    it "OpenVR が使えなければ設定ファイルから外す" do
-      usecase, repository, store, config = build_with_config
-      repository.opened = false
-      usecase.register
-
-      usecase.unregister.should eq SteamVR::UnregisterResult::Succeeded
-      config.auto_launch.should be_false
-      config.removed_manifests.size.should eq 1
-      store.files.should be_empty
-      repository.removed_manifests.should be_empty
-    end
-
-    it "OpenVR も設定ファイルも使えなければ Failed を返す" do
-      usecase, repository, _, config = build_with_config
-      repository.opened = false
-      config.available = false
-
-      usecase.unregister.should eq SteamVR::UnregisterResult::Failed
-    end
-  end
-
-  describe "#registered?" do
-    it "OpenVR につながっていればそちらを見る" do
-      usecase, repository, _, config = build_with_config
-      repository.auto_launch = true
-      config.auto_launch = false
-
-      usecase.registered?.should be_true
-    end
-
-    # つながっていない間は設定ファイルが唯一の情報源である。
-    # ここで常に偽を返すと、登録済みなのにトレイが「登録」を出し続ける。
-    it "OpenVR につながっていなければ設定ファイルを見る" do
-      usecase, repository, _, config = build_with_config
-      repository.opened = false
-      config.auto_launch = true
-
-      usecase.registered?.should be_true
-    end
-
-    it "どちらにも届かなければ偽を返す" do
-      usecase, repository, _, config = build_with_config
-      repository.opened = false
-      config.available = false
-      config.auto_launch = true
-
-      usecase.registered?.should be_false
-    end
-  end
-
-  describe "#configurable?" do
-    it "OpenVR につながっていれば真である" do
-      usecase, _, _, config = build_with_config
-      config.available = false
-
-      usecase.configurable?.should be_true
-    end
-
-    it "設定ファイルの置き場所が分かっていれば真である" do
-      usecase, repository, _, _ = build_with_config
-      repository.opened = false
-
-      usecase.configurable?.should be_true
-    end
-
-    it "どちらも無ければ偽である" do
-      usecase, repository, _, config = build_with_config
-      repository.opened = false
-      config.available = false
-
-      usecase.configurable?.should be_false
     end
   end
 

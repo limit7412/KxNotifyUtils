@@ -63,11 +63,6 @@ module Runtime
       update_tooltip
     end
 
-    # 登録と解除を行えるか。接続状態とは別である（issue #12）。
-    # SteamVR が動いていなくても、設定ファイルへ直に書ければ登録できる。
-    # steamvr_available をそのまま使うと、ツールチップの「接続していません」と
-    # メニューの押せなさが連動してしまい、片方を直すともう片方が壊れる。
-    property steamvr_configurable : Bool = false
     property steamvr_registered : Bool = false
     # 更新の進み具合。取得と適用の項目の出し分けに使う。
     property update_state : UpdateState = UpdateState::None
@@ -272,9 +267,9 @@ module Runtime
         append(menu, Command::ReloadConfig, I18n.t("tray.menu.reload_config"))
         separator(menu)
         if @steamvr_registered
-          append(menu, Command::UnregisterSteamVR, I18n.t("tray.menu.unregister_steamvr"), enabled: @steamvr_configurable)
+          append(menu, Command::UnregisterSteamVR, I18n.t("tray.menu.unregister_steamvr"), enabled: @steamvr_available)
         else
-          append(menu, Command::RegisterSteamVR, I18n.t("tray.menu.register_steamvr"), enabled: @steamvr_configurable)
+          append(menu, Command::RegisterSteamVR, I18n.t("tray.menu.register_steamvr"), enabled: @steamvr_available)
         end
         append(menu, Command::OpenLogDirectory, I18n.t("tray.menu.open_logs"))
         append(menu, Command::CheckUpdate, I18n.t("tray.menu.check_update"))

@@ -46,24 +46,12 @@ module SteamVR
 
     APP_KEY = "kairo.kxnotifyutils"
 
-    # app_config は SteamVR が動いていないときの経路である（設定ファイルを直に書く）。
-    # OpenVR を開けているあいだは使わない。あちらが設定をメモリに持っており、
-    # 終了時に書き戻すため、後ろから書いても消される。
     def initialize(
       @repository : Repository,
       @store : ManifestStore,
       @manifest_path : String,
       @exe_path : String,
-      @app_config : ApplicationConfig = NullApplicationConfig.new,
     )
-    end
-
-    # 登録と解除を行える状態か。
-    #
-    # SteamVR につながっていれば OpenVR で、つながっていなくても
-    # 設定ファイルの置き場所が見つかっていれば、そちらで行える。
-    def configurable? : Bool
-      @repository.opened? || @app_config.available?
     end
 
     # vrmanifest の内容を組み立てる。
@@ -107,25 +95,11 @@ module SteamVR
       section.last_exe_path != @exe_path
     end
 
-    # 登録。vrmanifest を生成してから登録し、自動起動を有効にする。
-    #
-    # SteamVR につながっていれば OpenVR で行う。つながっていなければ、
-    # SteamVR の設定ファイルへ直に書く。次に SteamVR が起動したときに読まれる。
+    # 登録。vrmanifest を生成してから OpenVR へ登録し、自動起動を有効にする。
     def register : Bool
-      # 届く先が無ければマニフェストも書かない。
-      # 書いてから断ると、登録されていないファイルが %APPDATA% に残る。
-      unless configurable?
-        Log.error { "SteamVR にも設定ファイルにも届かないため登録できない" }
-        return false
-      end
+      return false unless @repository.opened?
 
       @store.write(@manifest_path, self.class.build_manifest(@exe_path))
-      return register_with_openvr if @repository.opened?
-
-      register_with_files
-    end
-
-    private def register_with_openvr : Bool
       unless @repository.add_application_manifest(@manifest_path)
         Log.error { "vrmanifest の登録に失敗した: #{@manifest_path}" }
         return false
@@ -138,21 +112,6 @@ module SteamVR
       true
     end
 
-    # ここへ来るのは configurable? が真で OpenVR が開けていない場合だけなので、
-    # 置き場所があることは確かめ済みである。
-    private def register_with_files : Bool
-      unless @app_config.add_manifest(@manifest_path)
-        Log.error { "vrmanifest を登録一覧へ足せなかった: #{@manifest_path}" }
-        return false
-      end
-      unless @app_config.set_auto_launch(APP_KEY, true)
-        Log.error { "自動起動を有効にできなかった" }
-        return false
-      end
-      Log.info { "SteamVR の設定へ自動起動を登録した（SteamVR は起動していない）: #{@exe_path}" }
-      true
-    end
-
     # 解除。自動起動を無効にし、登録を外し、生成した vrmanifest も消す。
     #
     # 自動起動を無効にできたかどうかは、マニフェストの登録解除の成否と分けて返す。
@@ -160,8 +119,16 @@ module SteamVR
     # 次回起動時の sync がその記録と実状態の食い違いを「登録が消えた」と読み、
     # 利用者が解除した自動起動を有効に戻してしまう。
     def unregister : UnregisterResult
-      result = @repository.opened? ? unregister_with_openvr : unregister_with_files
-      return result unless result.succeeded?
+      return UnregisterResult::Failed unless @repository.opened?
+
+      unless @repository.set_auto_launch(APP_KEY, false)
+        Log.error { "自動起動の無効化に失敗した" }
+        return UnregisterResult::Failed
+      end
+      unless @repository.remove_application_manifest(@manifest_path)
+        Log.error { "vrmanifest の登録解除に失敗した: #{@manifest_path}" }
+        return UnregisterResult::AutoLaunchOnly
+      end
 
       # ファイルを消せなくても、SteamVR 側の解除そのものは終わっている。
       # ここで例外を通すと呼び出し側は結果を受け取れず、設定に「登録済み」が残る。
@@ -176,50 +143,16 @@ module SteamVR
       UnregisterResult::Succeeded
     end
 
-    private def unregister_with_openvr : UnregisterResult
-      unless @repository.set_auto_launch(APP_KEY, false)
-        Log.error { "自動起動の無効化に失敗した" }
-        return UnregisterResult::Failed
-      end
-      unless @repository.remove_application_manifest(@manifest_path)
-        Log.error { "vrmanifest の登録解除に失敗した: #{@manifest_path}" }
-        return UnregisterResult::AutoLaunchOnly
-      end
-
-      UnregisterResult::Succeeded
-    end
-
-    private def unregister_with_files : UnregisterResult
-      unless @app_config.available?
-        Log.error { "SteamVR にも設定ファイルにも届かないため解除できない" }
-        return UnregisterResult::Failed
-      end
-
-      unless @app_config.set_auto_launch(APP_KEY, false)
-        Log.error { "自動起動を無効にできなかった" }
-        return UnregisterResult::Failed
-      end
-      unless @app_config.remove_manifest(@manifest_path)
-        Log.error { "vrmanifest を登録一覧から外せなかった: #{@manifest_path}" }
-        return UnregisterResult::AutoLaunchOnly
-      end
-
-      UnregisterResult::Succeeded
-    end
-
     # 毎起動時の同期。
     # 登録済みの記録があり実行ファイルが移動していれば、SteamVR 側のキャッシュを確実に更新するため
     # マニフェストの書き換えだけで済ませず再登録まで行う。
-    #
-    # SteamVR が動いていなくても、設定ファイルの置き場所が分かっていれば同じことをする。
-    # あちらが動いていなければキャッシュも無く、次の起動でマニフェストを読み直す。
     def sync(section : ::Config::SteamVRSection) : SyncResult
-      return SyncResult.new(SyncOutcome::UpToDate) unless configurable?
+      return SyncResult.new(SyncOutcome::UpToDate) unless @repository.opened?
       return SyncResult.new(SyncOutcome::UpToDate) unless section.auto_launch_registered
 
       # 記録が登録済みでも、SteamVR の再インストールや設定の初期化で
       # アプリ登録だけが消えていることがある。実状態も確かめる。
-      registered = auto_launch_enabled?
+      registered = @repository.auto_launch?(APP_KEY)
       if !moved?(section) && @store.exists?(@manifest_path) && registered
         return SyncResult.new(SyncOutcome::UpToDate)
       end
@@ -246,15 +179,7 @@ module SteamVR
     end
 
     def registered? : Bool
-      configurable? && auto_launch_enabled?
-    end
-
-    # 自動起動が有効になっているか。
-    # SteamVR につながっていればそちらが正であり、いなければ設定ファイルを読む。
-    private def auto_launch_enabled? : Bool
-      return @repository.auto_launch?(APP_KEY) if @repository.opened?
-
-      @app_config.auto_launch?(APP_KEY)
+      @repository.opened? && @repository.auto_launch?(APP_KEY)
     end
 
     # SteamVR の終了要求を受けたかを返す。受けていれば応答を返してから終了処理へ入る。

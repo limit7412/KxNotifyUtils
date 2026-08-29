@@ -16,7 +16,6 @@ require "./runtime/scheduler"
 require "./runtime/settings_window"
 require "./runtime/tray"
 require "./runtime/win32"
-require "./steamvr/file_application_config"
 require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
@@ -111,10 +110,6 @@ module KxNotifyUtils
         SteamVR::FileManifestStore.new,
         Runtime::Paths.manifest_path,
         Runtime::Paths.executable_path,
-        # SteamVR が動いていないときは、その設定ファイルへ直に書いて登録する。
-        # #12 で Background 初期化へ変えてから、起動していない手動起動が
-        # 想定された使い方になり、そのあいだ登録も解除もできなかった。
-        SteamVR::FileApplicationConfig.new,
       )
       # User-Agent の無い要求を GitHub API は拒む。実行中の版が分かる形にしておく。
       # 確認と取得は同じ境界を使う。相手は同じ GitHub である。
@@ -965,17 +960,9 @@ module KxNotifyUtils
     end
 
     # SteamVR が起動していない状態で手動起動された場合も常駐を続け、scheduler が再試行する。
-    # 接続を試み、登録の決着と同期まで行う。
-    #
-    # open が失敗しても進む。SteamVR が動いていなくても、
-    # その設定ファイルへ直に書ければ登録も同期も行える（issue #12）。
-    # 届く先がまったく無いときだけ何もしない。ここで毎回試すと、
-    # SteamVR を入れていない環境で 60 秒ごとに同じ失敗を書き続けることになる。
     private def start_steamvr : Nil
       @errors.guard("error.steamvr_start") do
-        @openvr.open
-
-        if @steamvr.configurable?
+        if @openvr.open
           register_steamvr unless @config.current.steamvr.auto_launch_configured
           sync_steamvr
         end
@@ -1139,7 +1126,6 @@ module KxNotifyUtils
     private def update_tray_state : Nil
       @tray.paused = @relay.paused
       @tray.steamvr_available = @openvr.opened?
-      @tray.steamvr_configurable = @steamvr.configurable?
       @tray.steamvr_registered = @steamvr.registered?
       @tray.update_state = update_progress
     end
@@ -1153,13 +1139,8 @@ module KxNotifyUtils
       end
     end
 
-    # 「登録状態: 」の後ろに入る値。
-    #
-    # 接続していなくても、設定ファイルから登録の有無は読める。
-    # 接続の有無そのものはトレイのツールチップが出す（issue #27）。
-    # ここで接続を答えると、登録できる状態なのに登録状態が分からないままになる。
     private def steamvr_status_label : String
-      return Runtime::I18n.t("status.steamvr.disconnected") unless @steamvr.configurable?
+      return Runtime::I18n.t("status.steamvr.disconnected") unless @openvr.opened?
       Runtime::I18n.t(@steamvr.registered? ? "status.steamvr.registered" : "status.steamvr.unregistered")
     end
 
