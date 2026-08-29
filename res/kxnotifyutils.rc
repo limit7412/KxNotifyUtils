@@ -25,7 +25,16 @@ FILETYPE VFT_APP
     BLOCK "041104b0"
     {
       VALUE "CompanyName", "limit7412\0"
-      VALUE "FileDescription", "各種通知を XSOverlay へ中継する常駐アプリ\0"
+      // FileDescription はトレイのバルーンにアプリ名として出る。
+      // Windows 10 以降ではバルーンがトーストとして描かれ、パッケージ化していない exe では
+      // ここがその 1 行目になる。説明文を入れると通知のたびに長い 1 行が出るため、名前だけにする。
+      VALUE "FileDescription", "KxNotifyUtils\0"
+      // 説明文はこちらへ置く。exe のプロパティには出るが、通知には出ない。
+      //
+      // 日本語を残す先でもある。ここが全て ASCII になると、
+      // 「バージョン情報が文字化けしていないことを確かめる」CI が
+      // 符号化の誤りを検出できなくなる。ASCII はどのコードページでも同じに読めるためである。
+      VALUE "Comments", "各種通知を XSOverlay へ中継する常駐アプリ\0"
       VALUE "FileVersion", "0.1.0\0"
       VALUE "InternalName", "KxNotifyUtils\0"
       VALUE "OriginalFilename", "KxNotifyUtils.exe\0"
