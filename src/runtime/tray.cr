@@ -52,13 +52,13 @@ module Runtime
     property paused : Bool = false
     # SteamVR 連携が使えるか。使えないときは登録と解除を選べなくする。
     #
-    # ツールチップにも出すため、代入のたびに書き換える（issue #27）。
+    # ツールチップにも出すため、代入のたびに書き換えにいく（issue #27）。
     # 呼び出し側に書き換えを頼むと、状態を入れたのに出ないままの経路が作れてしまう。
+    #
+    # ここで値が変わったかは見ない。判断は update_tooltip が文字列で行う。
     getter? steamvr_available : Bool = false
 
     def steamvr_available=(value : Bool) : Nil
-      return if @steamvr_available == value
-
       @steamvr_available = value
       update_tooltip
     end
@@ -88,6 +88,8 @@ module Runtime
       @taskbar_created = 0_u32
       # メニューを表示している間だけ真。入れ子で開かないための印である。
       @menu_open = false
+      # シェルへ渡してあるツールチップ。同じものを送り直さないために持つ。
+      @tooltip = ""
     end
 
     # メッセージ専用ウィンドウを作り、トレイアイコンを登録する。
@@ -183,9 +185,12 @@ module Runtime
     end
 
     private def try_add_icon : Bool
+      text = tooltip_text
       data = notify_icon_data(LibWin32::NIF_MESSAGE | LibWin32::NIF_ICON | LibWin32::NIF_TIP)
-      Win32.copy_utf16(data.tip.to_unsafe, 128, tooltip_text)
+      Win32.copy_utf16(data.tip.to_unsafe, 128, text)
       @added = LibWin32.shell_notify_icon_w(LibWin32::NIM_ADD, pointerof(data)) != 0
+      @tooltip = text if @added
+      @added
     end
 
     # ツールチップを今の状態に合わせる。
@@ -193,12 +198,25 @@ module Runtime
     # アイコンを登録できていなければ何もしない。書き換える先が無い。
     # Explorer の再起動でアイコンを登録し直す経路は try_add_icon を通るため、
     # そちらでも今の状態が載る。
+    #
+    # 送るかどうかは、状態ではなく出来上がった文字列で決める。
+    # 状態で決めると、言語が決まる前に登録したツールチップが取り残される。
+    # トレイは設定を読むより先に立てる必要があり（設定の検証エラーをバルーンで出すため）、
+    # 登録の時点では既定の ja で作られる。その後 SteamVR が未接続のままだと
+    # 状態は false から動かないため、en を選んだ利用者に日本語が残ったままになる。
+    #
+    # 送れなかったときは覚えない。次の機会にまた送る。
     private def update_tooltip : Nil
       return unless @added
 
+      text = tooltip_text
+      return if text == @tooltip
+
       data = notify_icon_data(LibWin32::NIF_TIP)
-      Win32.copy_utf16(data.tip.to_unsafe, 128, tooltip_text)
-      LibWin32.shell_notify_icon_w(LibWin32::NIM_MODIFY, pointerof(data))
+      Win32.copy_utf16(data.tip.to_unsafe, 128, text)
+      return if LibWin32.shell_notify_icon_w(LibWin32::NIM_MODIFY, pointerof(data)) == 0
+
+      @tooltip = text
     end
 
     # アプリ名の下に SteamVR の状態を置く（issue #27）。
