@@ -51,7 +51,18 @@ module Runtime
     # 中継の一時停止の状態。メニューのチェック表示に使う。
     property paused : Bool = false
     # SteamVR 連携が使えるか。使えないときは登録と解除を選べなくする。
-    property steamvr_available : Bool = false
+    #
+    # ツールチップにも出すため、代入のたびに書き換える（issue #27）。
+    # 呼び出し側に書き換えを頼むと、状態を入れたのに出ないままの経路が作れてしまう。
+    getter? steamvr_available : Bool = false
+
+    def steamvr_available=(value : Bool) : Nil
+      return if @steamvr_available == value
+
+      @steamvr_available = value
+      update_tooltip
+    end
+
     property steamvr_registered : Bool = false
     # 更新の進み具合。取得と適用の項目の出し分けに使う。
     property update_state : UpdateState = UpdateState::None
@@ -173,8 +184,38 @@ module Runtime
 
     private def try_add_icon : Bool
       data = notify_icon_data(LibWin32::NIF_MESSAGE | LibWin32::NIF_ICON | LibWin32::NIF_TIP)
-      Win32.copy_utf16(data.tip.to_unsafe, 128, WINDOW_NAME)
+      Win32.copy_utf16(data.tip.to_unsafe, 128, tooltip_text)
       @added = LibWin32.shell_notify_icon_w(LibWin32::NIM_ADD, pointerof(data)) != 0
+    end
+
+    # ツールチップを今の状態に合わせる。
+    #
+    # アイコンを登録できていなければ何もしない。書き換える先が無い。
+    # Explorer の再起動でアイコンを登録し直す経路は try_add_icon を通るため、
+    # そちらでも今の状態が載る。
+    private def update_tooltip : Nil
+      return unless @added
+
+      data = notify_icon_data(LibWin32::NIF_TIP)
+      Win32.copy_utf16(data.tip.to_unsafe, 128, tooltip_text)
+      LibWin32.shell_notify_icon_w(LibWin32::NIM_MODIFY, pointerof(data))
+    end
+
+    # アプリ名の下に SteamVR の状態を置く（issue #27）。
+    #
+    # 未接続は異常ではない。SteamVR を使わずに常駐だけ立ち上げている場合も未接続であり、
+    # バルーンで知らせたりアイコンを変えたりすると、正しく使っているのに警告が出続ける。
+    # 気になったときに確かめられれば足りるため、ツールチップに置く。
+    #
+    # 接続しているときも書く。行が無いことを「接続している」と読ませると、
+    # 接続しているのか出し損ねているのかを見分けられない。
+    #
+    # szTip の配列は 128 だが、NIM_SETVERSION を呼んでいないため、
+    # シェルが読むのは先頭 64 文字までである可能性がある。
+    # アプリ名と 1 行を足しても、日本語でも英語でも 40 文字に届かない。
+    private def tooltip_text : String
+      state = I18n.t(@steamvr_available ? "tray.tip.steamvr_connected" : "tray.tip.steamvr_disconnected")
+      "#{WINDOW_NAME}\n#{state}"
     end
 
     private def notify_icon_data(flags : UInt32) : LibWin32::NotifyIconData
