@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "../../src/runtime/i18n"
 
 private def incoming(title = "件名", body = "本文", app_name = "Discord", icon = nil)
   Notify::Incoming.new(
@@ -28,6 +29,38 @@ private def settings(**overrides)
 end
 
 describe WinNotification::MessageBuilder do
+  # 簡単設定の最短は、今の見え方と比べる起点として fixed の既定に合わせてある（issue #45）。
+  #
+  # テスト通知の文字数では base + 文字数 / reading_speed が 1.0 を下回り、min でそこまで持ち上がる。
+  # 辞書の文言を伸ばすと文字数が増え、min から浮いて 1 秒でなくなる。
+  # 起点が黙ってずれないよう、辞書側を変えたときにここが落ちるようにしてある。
+  it "最短のプリセットはテスト通知を fixed の既定と同じ 1 秒で出す（issue #45）" do
+    builder = WinNotification::MessageBuilder.new(Fakes::Icons.new)
+    resolved = settings(
+      timeout_mode: Config::TimeoutMode::Dynamic,
+      dynamic_timeout: Config::DynamicTimeout::PRESETS["shortest"],
+    )
+
+    begin
+      Runtime::I18n::LOCALES.each_key do |locale|
+        Runtime::I18n.locale = locale
+        # 件名と本文と app_name は RelayUsecase#send_test が渡すものに揃える。
+        message = builder.build(
+          incoming(
+            title: Runtime::I18n.t("notify.test.title"),
+            body: Runtime::I18n.t("notify.test.body"),
+            app_name: "KxNotifyUtils",
+          ),
+          resolved,
+        )
+
+        message.timeout.should eq(Config::Defaults.new.timeout), "ロケール #{locale} で 1 秒にならない"
+      end
+    ensure
+      Runtime::I18n.locale = Runtime::I18n::DEFAULT_LOCALE
+    end
+  end
+
   it "title テンプレートを展開する" do
     builder = WinNotification::MessageBuilder.new(Fakes::Icons.new)
 

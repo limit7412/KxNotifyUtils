@@ -32,6 +32,47 @@ module Config
       speed = @reading_speed <= 0.0 ? 1.0 : @reading_speed
       (@base + char_count / speed).clamp(@min, @max)
     end
+
+    # 簡単設定で選べる係数の組（issue #45）。
+    #
+    # 4 つの係数を個別に決めるのは、表示時間を少し変えたいだけの利用者には重い。
+    # 短いほうから長いほうへ 5 段階を並べ、どの文字数でも段階の順に表示時間が長くなるようにしてある。
+    #
+    # shortest は、テスト通知が fixed の既定と同じ 1 秒になるところを起点とする。
+    # テスト通知の文字数では base + 文字数 / reading_speed が 1.0 を下回り、min でそこまで持ち上がる。
+    # ここでの reading_speed は読字速度ではなく、1 秒延ばすのに要る文字数である。
+    # 視界を塞がないことを優先する段階なので、実際に読み切れる速度より大きく取ってある。
+    #
+    # standard は Defaults の既定値と同じにする。
+    # 係数を触っていない利用者に、選んだ覚えのないプリセットを表示しないためである。
+    #
+    # 係数は辞書の選択肢の見出し（settings.choice.dynamic_preset.*）と
+    # docs/configuration.md にも書いてある。ここを変えるときは両方を合わせる。
+    PRESETS = {
+      "shortest" => DynamicTimeout.new(base: 0.0, reading_speed: 100.0, min: 1.0, max: 3.0),
+      "short"    => DynamicTimeout.new(base: 1.0, reading_speed: 40.0, min: 2.0, max: 8.0),
+      "standard" => DynamicTimeout.new(base: 2.0, reading_speed: 12.0, min: 3.0, max: 15.0),
+      "long"     => DynamicTimeout.new(base: 3.0, reading_speed: 9.0, min: 5.0, max: 20.0),
+      "longest"  => DynamicTimeout.new(base: 4.0, reading_speed: 6.0, min: 8.0, max: 30.0),
+    }
+
+    # 画面へ並べる順序。Hash はキーを入れた順に返す。
+    PRESET_NAMES = PRESETS.keys
+
+    def self.preset(name : String) : DynamicTimeout?
+      PRESETS[name]?
+    end
+
+    # 今の係数と一致するプリセットの名前。どれとも一致しなければ nil を返す。
+    #
+    # 設定ファイルにはプリセット名ではなく係数の実値を書く。
+    # 名前を持たせると、rules の係数ごとの上書きを解決する経路が名前と実値の 2 通りになり、
+    # どちらが勝つかを決めなければならなくなる。
+    # 画面は係数からここで名前を引き直し、一致しないものをカスタムとして扱う。
+    def preset_name : String?
+      PRESETS.each { |name, preset| return name if preset == self }
+      nil
+    end
   end
 
   # 本文の最大文字数として受け付ける範囲。

@@ -42,6 +42,11 @@ module Runtime
     # 残りを既定の通知設定から埋めて 1 つの値として持たせる。
     DYNAMIC_TIMEOUT_FIELDS = %w[base reading_speed min max]
 
+    # dynamic の簡単設定で選べるもの（issue #45）。
+    # 係数の組であるプリセットに続けて、係数を自分で決めるためのカスタムを末尾へ置く。
+    DYNAMIC_PRESET_CUSTOM = "custom"
+    DYNAMIC_PRESETS       = ::Config::DynamicTimeout::PRESET_NAMES + [DYNAMIC_PRESET_CUSTOM]
+
     # 前後の空白に意味が無く、落として読むフィールド。
     TRIMMED_RULE_FIELDS = %w[timeout_mode timeout max_body_length opacity volume]
 
@@ -326,6 +331,11 @@ module Runtime
         false,
       )
       form.append(I18n.t("settings.defaults.timeout"), entry("defaults.timeout"), false)
+      form.append(
+        I18n.t("settings.defaults.dynamic_preset"),
+        combo("defaults.dynamic_preset", choices("dynamic_preset", DYNAMIC_PRESETS), -> { apply_dynamic_preset }),
+        false,
+      )
       form.append(I18n.t("settings.defaults.dynamic_base"), entry("defaults.dynamic_timeout.base"), false)
       form.append(I18n.t("settings.defaults.dynamic_reading_speed"), entry("defaults.dynamic_timeout.reading_speed"), false)
       form.append(I18n.t("settings.defaults.dynamic_min"), entry("defaults.dynamic_timeout.min"), false)
@@ -566,6 +576,11 @@ module Runtime
       set_text("defaults.dynamic_timeout.reading_speed", defaults.dynamic_timeout.reading_speed.to_s)
       set_text("defaults.dynamic_timeout.min", defaults.dynamic_timeout.min.to_s)
       set_text("defaults.dynamic_timeout.max", defaults.dynamic_timeout.max.to_s)
+      set_choice(
+        "defaults.dynamic_preset",
+        DYNAMIC_PRESETS,
+        defaults.dynamic_timeout.preset_name || DYNAMIC_PRESET_CUSTOM,
+      )
       set_spin("defaults.max_body_length", defaults.max_body_length)
       set_text("defaults.title_template", defaults.title_template)
       set_text("defaults.icon", defaults.icon)
@@ -781,13 +796,34 @@ module Runtime
     end
 
     # timeout_mode に応じて、使わないほうの入力欄を触れなくする。
+    # dynamic の係数は、簡単設定でカスタムを選んだときだけ編集できる（issue #45）。
     private def update_timeout_inputs : Nil
       dynamic = selected_value("defaults.timeout_mode", TIMEOUT_MODES) == "dynamic"
-      %w[defaults.dynamic_timeout.base defaults.dynamic_timeout.reading_speed
-        defaults.dynamic_timeout.min defaults.dynamic_timeout.max].each do |key|
-        dynamic ? @controls[key].enable : @controls[key].disable
+      custom = selected_value("defaults.dynamic_preset", DYNAMIC_PRESETS) == DYNAMIC_PRESET_CUSTOM
+      DYNAMIC_TIMEOUT_FIELDS.each do |field|
+        control = @controls["defaults.dynamic_timeout.#{field}"]
+        dynamic && custom ? control.enable : control.disable
       end
+      dynamic ? @combos["defaults.dynamic_preset"].enable : @combos["defaults.dynamic_preset"].disable
       dynamic ? @controls["defaults.timeout"].disable : @controls["defaults.timeout"].enable
+    end
+
+    # 簡単設定で選ばれたプリセットの係数を入力欄へ流し込む（issue #45）。
+    #
+    # 設定ファイルへ書くのは係数の実値であり、プリセットの名前は残らない。
+    # 画面が持つのは入力欄へ値を入れるところまでで、保存も検証も今までの経路をそのまま通る。
+    #
+    # カスタムでは何も書き込まない。
+    # 直前に選んでいたプリセットの係数がそのまま残り、直したいところだけ直せる。
+    private def apply_dynamic_preset : Nil
+      preset = ::Config::DynamicTimeout.preset(selected_value("defaults.dynamic_preset", DYNAMIC_PRESETS))
+      preset.try do |values|
+        set_text("defaults.dynamic_timeout.base", values.base.to_s)
+        set_text("defaults.dynamic_timeout.reading_speed", values.reading_speed.to_s)
+        set_text("defaults.dynamic_timeout.min", values.min.to_s)
+        set_text("defaults.dynamic_timeout.max", values.max.to_s)
+      end
+      update_timeout_inputs
     end
 
     # ルールの追加と削除と並べ替えは入力欄を通らないため、

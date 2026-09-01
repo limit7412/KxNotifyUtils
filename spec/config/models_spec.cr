@@ -154,6 +154,35 @@ describe Config::DynamicTimeout do
     dynamic.seconds_for(120).should eq 12.0
     dynamic.seconds_for(1000).should eq 15.0
   end
+
+  describe "簡単設定のプリセット（issue #45）" do
+    # 係数を触っていない利用者に、選んだ覚えのないプリセットを表示しないための一致である。
+    it "標準は Defaults の既定値と同じである" do
+      Config::DynamicTimeout::PRESETS["standard"].should eq Config::Defaults.new.dynamic_timeout
+    end
+
+    # 段階の順に長くならないと、長いほうへ選び直したのに短くなる文字数ができる。
+    # 4 つの係数が絡むため、係数を 1 つ変えたときに順序が崩れても目では気付けない。
+    it "どの文字数でも段階の順に表示時間が長くなる" do
+      presets = Config::DynamicTimeout::PRESET_NAMES.map { |name| Config::DynamicTimeout::PRESETS[name] }
+
+      [0, 20, 35, 78, 100, 200, 500, 5000].each do |count|
+        seconds = presets.map(&.seconds_for(count))
+        seconds.should eq(seconds.sort), "#{count} 文字で段階の順に並んでいない: #{seconds}"
+      end
+    end
+
+    it "係数の組からプリセットの名前を引ける" do
+      Config::DynamicTimeout::PRESETS.each do |name, preset|
+        preset.preset_name.should eq name
+      end
+    end
+
+    # 手で書いた係数はどの段階とも一致しない。画面はこの nil をカスタムの表示に使う。
+    it "どのプリセットとも一致しない係数では名前を返さない" do
+      Config::DynamicTimeout.new(base: 2.0, reading_speed: 12.0, min: 3.0, max: 14.0).preset_name.should be_nil
+    end
+  end
 end
 
 describe Config::Defaults do

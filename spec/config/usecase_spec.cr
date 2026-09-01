@@ -205,6 +205,19 @@ describe Config::Usecase do
       target.validate(root).should be_empty
     end
 
+    # 画面が入れた係数が保存の検証で弾かれると、段階を選んだ時点で保存できなくなる（issue #45）。
+    it "簡単設定のどのプリセットも検証を通る" do
+      target, _ = usecase
+
+      Config::DynamicTimeout::PRESETS.each do |name, preset|
+        root = Config::Root.default
+        root.defaults.timeout_mode = Config::TimeoutMode::Dynamic
+        root.defaults.dynamic_timeout = preset
+
+        target.validate(root).should be_empty, "プリセット #{name} が検証を通らない"
+      end
+    end
+
     it "match_app_id が空のルールを弾く" do
       target, _ = usecase
       root = Config::Root.default
