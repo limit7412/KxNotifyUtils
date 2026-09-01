@@ -456,7 +456,7 @@ module KxNotifyUtils
         ensure
           @update_checking = false
           # 見つけた版はトレイの項目を変える。確認はファイバで進むため、
-          # ここで写し直さないと、次に何かが状態を触るまで「更新を取得する」が出ない。
+          # ここで写し直さないと、次に何かが状態を触るまで「更新をダウンロード」が出ない。
           update_tray_state
           flush_pending_update_check
         end
