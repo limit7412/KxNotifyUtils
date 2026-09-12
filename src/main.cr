@@ -40,6 +40,38 @@ module KxNotifyUtils
 
   Log = ::Log.for("main")
 
+  # 監視対象 1 つの生存管理。
+  #
+  # 開始済みか、設定上は有効か、開始の失敗を知らせたかは、ソースごとに別々に持つ。
+  # 1 つにまとめて持つと、片方の開始が失敗している間にもう片方の再試行が
+  # 起きなくなるか、逆に失敗していない側まで通知を出すことになる。
+  class SourceSlot
+    getter repository : Notify::SourceRepository
+    # 設定上は有効か。開始に失敗したまま止まっていないかの判断に使う。
+    property enabled : Bool = false
+    # 開始済みか。設定で有効と無効が切り替わったときの判断に使う。
+    property started : Bool = false
+    # 開始の失敗を利用者へ知らせたか。再試行のたびに同じ通知を出さないために持つ。
+    property start_notified : Bool = false
+
+    def initialize(@repository : Notify::SourceRepository, @key : String)
+    end
+
+    # 失敗の文脈として辞書から引くキー。ソースごとに文言を分ける。
+    def start_key : String
+      "error.source_start.#{@key}"
+    end
+
+    def stop_key : String
+      "error.source_stop.#{@key}"
+    end
+
+    # 有効なのに開始できていない。一定間隔でやり直す対象である。
+    def retry_needed? : Bool
+      @enabled && !@started
+    end
+  end
+
   class Application
     # 多重起動の抑止に使う名前付きミューテックス。
     SINGLE_INSTANCE_NAME = "Local\\KxNotifyUtils"
@@ -76,15 +108,12 @@ module KxNotifyUtils
 
       @win_client = WinNotification::FfiClient.new
       @win_source = WinNotification::Repository.new(@win_client, WinNotification::Settings.new)
+      # 監視対象ごとの生存管理。設定の反映と再試行と終了はこの並びを見て回る。
+      @win_slot = SourceSlot.new(@win_source, "windows")
+      @source_slots = [@win_slot]
       @sinks = [] of Notify::PostRepository
       # 通知先を組み直すかどうかの判断に使う、直前に適用したシンク設定。
       @sink_signature = ""
-      # 監視対象を開始済みか。設定で有効と無効が切り替わったときの判断に使う。
-      @source_started = false
-      # 設定上は有効か。開始に失敗したまま止まっていないかの判断に使う。
-      @source_enabled = false
-      # 開始の失敗を利用者へ知らせたか。再試行のたびに同じ通知を出さないために持つ。
-      @source_start_notified = false
       # SteamVR の同期が必要だったのに終わっていないか。再試行の判断に使う。
       @steamvr_sync_pending = false
       # 設定へ書けなかった SteamVR の記録。書ける機会に書き直すために持つ。
@@ -290,32 +319,42 @@ module KxNotifyUtils
     private def build_sources(root : ::Config::Root = @config.current) : Nil
       settings = WinNotification::Settings.from_section(root.source(WinNotification::SOURCE_ID))
       @win_source.settings = settings
-      @source_enabled = settings.enabled
+      sync_source(@win_slot, settings.enabled) do
+        guide_notification_access unless @win_source.access_status.allowed?
+      end
+    end
 
-      if settings.enabled && !@source_started
-        # 初期化に失敗したソースを並べると毎周期ポーリングに失敗し続けるため、
-        # 開始できたものだけを中継の対象にする。
+    # 監視対象 1 つを設定の有効と無効に合わせる。
+    #
+    # 初期化に失敗したソースを並べると毎周期ポーリングに失敗し続けるため、
+    # 開始できたものだけを中継の対象にする。
+    # 開始できたときだけブロックを呼ぶ。ソースごとの後始末をそこへ置く。
+    private def sync_source(slot : SourceSlot, enabled : Bool, & : -> Nil) : Nil
+      slot.enabled = enabled
+      source = slot.repository
+
+      if enabled && !slot.started
         begin
-          @win_source.start
-          @source_started = true
-          @source_start_notified = false
-          @relay.sources << @win_source unless @relay.sources.includes?(@win_source)
-          guide_notification_access unless @win_source.access_status.allowed?
+          source.start
+          slot.started = true
+          slot.start_notified = false
+          @relay.sources << source unless @relay.sources.includes?(source)
+          yield
         rescue exception
           # 開始できるまで一定間隔で試し直すため、知らせるのは最初の 1 回だけとする。
           # 同じ失敗のたびにトレイ通知を出すと、利用者の手が止まる。
-          if @source_start_notified
-            Log.error(exception: exception) { Runtime::I18n.log_text("error.source_start") }
+          if slot.start_notified
+            Log.error(exception: exception) { Runtime::I18n.log_text(slot.start_key) }
           else
-            @source_start_notified = true
-            @errors.handle("error.source_start", exception)
+            slot.start_notified = true
+            @errors.handle(slot.start_key, exception)
           end
         end
-      elsif !settings.enabled && @source_started
-        @relay.sources.delete(@win_source)
-        @errors.guard("error.source_stop") { @win_source.stop }
-        @source_started = false
-        Log.info { "Windows 通知ソースを無効にした" }
+      elsif !enabled && slot.started
+        @relay.sources.delete(source)
+        @errors.guard(slot.stop_key) { source.stop }
+        slot.started = false
+        Log.info { "監視対象を無効にした: #{source.source_id}" }
       end
     end
 
@@ -1174,7 +1213,7 @@ module KxNotifyUtils
     # 主ループからも、トレイメニュー表示中のタイマーからも呼ぶ。
     private def background_step : Nil
       step_ui
-      retry_source if @source_enabled && !@source_started
+      retry_sources if @source_slots.any?(&.retry_needed?)
       retry_steamvr if steamvr_retry_needed?
       retry_records if @scheduler.retry_record?
       check_update if @scheduler.check_update?
@@ -1202,7 +1241,7 @@ module KxNotifyUtils
     # 起動直後は WinRT の初期化が一時的に失敗することがある。
     # 設定の保存や再読み込みを待つと、その間の通知をすべて取りこぼすため、
     # 有効なのに開始できていない間は一定間隔でやり直す。
-    private def retry_source : Nil
+    private def retry_sources : Nil
       return unless @scheduler.retry_source?
       build_sources
     end
@@ -1244,7 +1283,7 @@ module KxNotifyUtils
       Log.info { "KxNotifyUtils を終了する" }
       flush_records
       @sinks.each { |sink| sink.stop rescue nil }
-      @win_source.stop rescue nil if @source_started
+      @source_slots.each { |slot| slot.repository.stop rescue nil if slot.started }
       @tray.stop rescue nil
       @openvr.close rescue nil
       UIng.uninit rescue nil

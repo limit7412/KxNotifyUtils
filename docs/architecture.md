@@ -26,12 +26,13 @@ src/
     models.cr                        Incoming、Message、Icon、DisplayHints
     repository.cr                    SourceRepository、PostRepository、IconRepository、MessageBuilder
     usecase.cr                       中継の 1 周期（フィルタ、ルール解決、fan-out）
+    template_message_builder.cr      各ソースが継承する共通の整形（テンプレート、表示時間、アイコン）
   win_notification/                ソース実装：Windows 通知
     ffi.cr                           NotifListenerShim の lib 宣言
     ffi_client.cr                    C API を包む ShimClient 実装
     models.cr                        シムが返す JSON に対応する型、sources.windows の設定
     repository.cr                    差分検出を行う SourceRepository 実装
-    usecase.cr                       Incoming とルールから Message を組み立てる
+    usecase.cr                       共通の整形を継承した MessageBuilder
   xsoverlay/                       シンク実装：XSOverlay
     models.cr                        通知オブジェクトとエンベロープ、sinks.xsoverlay の設定
     websocket_repository.cr          WebSocket 送信
@@ -143,7 +144,7 @@ WinRT の呼び出しだけは別である。
 
 1. `src/` に新しいコンテキストのディレクトリを作る。
 2. `Notify::SourceRepository` を継承した repository を書く。`source_id`、`poll_new`、`poll_interval` を実装し、差分検出はこの中に閉じる。
-3. `Notify::MessageBuilder` を継承した usecase を書く。`Incoming` と解決済みのルールから `Notify::Message` を組み立てる。
+3. `Notify::MessageBuilder` を継承した usecase を書く。`Incoming` と解決済みのルールから `Notify::Message` を組み立てる。整形が Windows 通知と同じでよければ `Notify::TemplateMessageBuilder` を継承し、`source_id` だけを返す。
 4. 設定型（`enabled` と個別の項目）を models に置き、`validate` を用意する。
 5. `main.cr` の `build_sources` で組み立て、`register_validators` で検証を登録する。
 6. 設定ファイルの `sources` に新しいキーが増える。既存のキーは変わらない。
