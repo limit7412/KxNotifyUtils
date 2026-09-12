@@ -322,7 +322,19 @@ module Runtime
       ServiceStatus::KNOWN_SERVICES.each do |id, name|
         inner.append(check("sources.service_status.services.#{id}", name), false)
       end
-      inner.append(UIng::Label.new(I18n.t("settings.sources.service_status_note")), false)
+      # 説明文は置かない。何を知らせるかは取得元のページとリポジトリを開けば分かる。
+      inner.append(
+        button(I18n.t("settings.sources.service_status_open_page", {"url" => ServiceStatus::PAGE_URL})) do
+          open_url(ServiceStatus::PAGE_URL)
+        end,
+        false,
+      )
+      inner.append(
+        button(I18n.t("settings.about.open_repository", {"url" => ServiceStatus::REPOSITORY_URL})) do
+          open_url(ServiceStatus::REPOSITORY_URL)
+        end,
+        false,
+      )
 
       group.child = inner
       group
@@ -909,14 +921,16 @@ module Runtime
     private def open_update_page : Nil
       url = @update_url.call
       return unless url
-      {% if flag?(:windows) %}
-        Win32.open_with_shell(url)
-      {% end %}
+      open_url(url)
     end
 
     private def open_repository : Nil
+      open_url(REPOSITORY_URL)
+    end
+
+    private def open_url(url : String) : Nil
       {% if flag?(:windows) %}
-        Win32.open_with_shell(REPOSITORY_URL)
+        Win32.open_with_shell(url)
       {% end %}
     end
 

@@ -89,6 +89,11 @@ module ServiceStatus
     "twitch"     => "Twitch",
   }
 
+  # 取得元の VRCServiceStatusPanel。設定画面から開けるようにする。
+  # 今の状態を見るページと、配信の中身を説明したリポジトリである。
+  PAGE_URL       = "https://vrc-status.oxymoron.link/index.html"
+  REPOSITORY_URL = "https://github.com/limit7412/VRCServiceStatusPanel"
+
   # 既定で知らせるサービス。issue #5 のコメントで決めた 3 つである。
   DEFAULT_ENABLED_SERVICES = %w[vrchat youtube steam]
 

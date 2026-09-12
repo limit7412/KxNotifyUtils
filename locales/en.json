@@ -64,7 +64,7 @@
   "settings.sources.service_status_group": "Service status",
   "settings.sources.service_status_interval": "Check interval (s)",
   "settings.sources.service_status_services": "Services to notify",
-  "settings.sources.service_status_note": "Notifies only when a service's status changes. The feed comes from VRCServiceStatusPanel and updates every minute.",
+  "settings.sources.service_status_open_page": "Open the status page: {url}",
   "settings.sinks.enable": "Enable this sink",
   "settings.sinks.transport": "Transport",
   "settings.sinks.websocket_port": "WebSocket port",
