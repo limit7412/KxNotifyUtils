@@ -16,6 +16,9 @@ require "./runtime/scheduler"
 require "./runtime/settings_window"
 require "./runtime/tray"
 require "./runtime/win32"
+require "./service_status/models"
+require "./service_status/repository"
+require "./service_status/usecase"
 require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
@@ -110,7 +113,12 @@ module KxNotifyUtils
       @win_source = WinNotification::Repository.new(@win_client, WinNotification::Settings.new)
       # 監視対象ごとの生存管理。設定の反映と再試行と終了はこの並びを見て回る。
       @win_slot = SourceSlot.new(@win_source, "windows")
-      @source_slots = [@win_slot]
+      # 外部サービスの障害検知（issue #5）。配信を取る名乗りは更新の確認と同じにする。
+      @status_client = ServiceStatus::HttpFeedClient.new("KxNotifyUtils/#{VERSION}")
+      @status_source = ServiceStatus::Repository.new(
+        @status_client, ServiceStatus::Settings.new, service_status_texts)
+      @status_slot = SourceSlot.new(@status_source, "service_status")
+      @source_slots = [@win_slot, @status_slot]
       @sinks = [] of Notify::PostRepository
       # 通知先を組み直すかどうかの判断に使う、直前に適用したシンク設定。
       @sink_signature = ""
@@ -129,7 +137,10 @@ module KxNotifyUtils
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
-        builders: [WinNotification::MessageBuilder.new(@icons).as(Notify::MessageBuilder)],
+        builders: [
+          WinNotification::MessageBuilder.new(@icons).as(Notify::MessageBuilder),
+          ServiceStatus::MessageBuilder.new(@icons).as(Notify::MessageBuilder),
+        ],
         config: @config.current,
       )
 
@@ -271,6 +282,9 @@ module KxNotifyUtils
       @config.register_validator("sources.#{WinNotification::SOURCE_ID}") do |section|
         WinNotification::Settings.validate(section)
       end
+      @config.register_validator("sources.#{ServiceStatus::SOURCE_ID}") do |section|
+        ServiceStatus::Settings.validate(section)
+      end
       @config.register_validator("sinks.#{XSOverlay::SINK_ID}") do |section|
         XSOverlay::Settings.validate(section)
       end
@@ -283,6 +297,8 @@ module KxNotifyUtils
       # 画面は起動時に組み立てるため、動作中の設定変更には追従させない（issue #4）。
       # 設定を読めなかった場合は既定値の "auto" が使われ、OS の表示言語に従う。
       Runtime::I18n.locale = Runtime::I18n.resolve(@config.current.language)
+      # 障害検知の通知の文言は辞書から引く。言語が決まってから差し替える。
+      @status_source.texts = service_status_texts
 
       # 知らせ済みの版を復元してから最初の確認を行う。
       # 先に確認すると、前回知らせた版をもう一度知らせてしまう。
@@ -322,6 +338,20 @@ module KxNotifyUtils
       sync_source(@win_slot, settings.enabled) do
         guide_notification_access unless @win_source.access_status.allowed?
       end
+
+      status = ServiceStatus::Settings.from_section(root.source(ServiceStatus::SOURCE_ID))
+      @status_source.settings = status
+      sync_source(@status_slot, status.enabled) { }
+    end
+
+    # 障害検知の通知に載せる文言（issue #5）。
+    # 辞書は runtime にあり、ソースから引くと層が逆さになるため、ここで引いて渡す。
+    private def service_status_texts : ServiceStatus::Texts
+      ServiceStatus::Texts.new(
+        degraded: Runtime::I18n.t("notify.service_status.degraded"),
+        major_outage: Runtime::I18n.t("notify.service_status.major_outage"),
+        recovered: Runtime::I18n.t("notify.service_status.recovered"),
+      )
     end
 
     # 監視対象 1 つを設定の有効と無効に合わせる。
