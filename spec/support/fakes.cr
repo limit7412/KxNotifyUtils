@@ -2,6 +2,8 @@ require "../../src/notify/models"
 require "../../src/notify/repository"
 require "../../src/win_notification/models"
 require "../../src/win_notification/repository"
+require "../../src/service_status/models"
+require "../../src/service_status/repository"
 
 # 単体テスト用の差し替え実装。
 # 外部境界をこれらに置き換えることで、usecase を実 XSOverlay にも実通知にも触れず検証できる。
@@ -84,6 +86,26 @@ module Fakes
 
     def load_png_base64(path : String) : String?
       @files[path]?
+    end
+  end
+
+  # 配信 JSON を持たない ServiceStatus::FeedClient 実装。
+  # 応答を順に返す。尽きたら「変わっていない」を返す。
+  class FeedClient < ServiceStatus::FeedClient
+    property responses : Array(ServiceStatus::Response)
+    getter urls : Array(String) = [] of String
+    getter reset_count : Int32 = 0
+
+    def initialize(@responses : Array(ServiceStatus::Response) = [] of ServiceStatus::Response)
+    end
+
+    def fetch(url : String) : ServiceStatus::Response
+      @urls << url
+      @responses.shift? || ServiceStatus::Response.not_modified
+    end
+
+    def reset : Nil
+      @reset_count += 1
     end
   end
 

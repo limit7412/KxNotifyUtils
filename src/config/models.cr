@@ -299,8 +299,21 @@ module Config
     # 設定ファイルが存在しないときに書き出す初期設定。
     def self.default : Root
       root = Root.new
+      # 各セクションの既定値はアダプタの Settings と同じにする。
+      # ここに書き出すのは、設定ファイルを開いた利用者が項目を見つけられるようにするためである。
       root.sources = {
-        "windows" => JSON.parse(%({"enabled": true, "polling_interval_ms": 500})),
+        "windows"        => JSON.parse(%({"enabled": true, "polling_interval_ms": 500})),
+        "service_status" => JSON.parse(<<-JSON),
+          {
+            "enabled": true,
+            "polling_interval_s": 60,
+            "services": {
+              "vrchat": true, "youtube": true, "steam": true,
+              "booth": false, "discord": false, "cloudflare": false, "twitch": false
+            },
+            "feed_url": "https://vrc-status.oxymoron.link/v1/status.json"
+          }
+          JSON
       }
       root.sinks = {
         "xsoverlay" => JSON.parse(

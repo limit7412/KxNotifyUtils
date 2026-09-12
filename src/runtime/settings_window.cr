@@ -6,6 +6,7 @@ require "../config/usecase"
 require "../notify/usecase"
 require "../steamvr/usecase"
 require "../win_notification/models"
+require "../service_status/models"
 require "../xsoverlay/models"
 require "./paths"
 
@@ -296,7 +297,35 @@ module Runtime
 
       group.child = inner
       box.append(group, false)
+      box.append(build_service_status_group, false)
       box
+    end
+
+    # 外部サービスの障害検知（issue #5）。
+    # 取得先の feed_url は画面に出さない。動作を確かめるために設定ファイルで向け直す項目であり、
+    # 普段の利用で触る項目ではないためである。
+    private def build_service_status_group : UIng::Group
+      group = UIng::Group.new(I18n.t("settings.sources.service_status_group"), margined: true)
+      inner = UIng::Box.new(:vertical, padded: true)
+      inner.append(check("sources.service_status.enabled", I18n.t("settings.sources.enable")), false)
+
+      form = UIng::Form.new(padded: true)
+      range = ServiceStatus::Settings::POLLING_INTERVAL_RANGE
+      form.append(
+        I18n.t("settings.sources.service_status_interval"),
+        spin("sources.service_status.polling_interval_s", range.begin, range.end),
+        false,
+      )
+      inner.append(form, false)
+
+      inner.append(UIng::Label.new(I18n.t("settings.sources.service_status_services")), false)
+      ServiceStatus::KNOWN_SERVICES.each do |id, name|
+        inner.append(check("sources.service_status.services.#{id}", name), false)
+      end
+      inner.append(UIng::Label.new(I18n.t("settings.sources.service_status_note")), false)
+
+      group.child = inner
+      group
     end
 
     private def build_sinks_tab : UIng::Box
@@ -562,6 +591,13 @@ module Runtime
       windows = WinNotification::Settings.from_section(@draft.source(WinNotification::SOURCE_ID))
       set_check("sources.windows.enabled", windows.enabled)
       set_spin("sources.windows.polling_interval_ms", windows.polling_interval_ms)
+
+      status = ServiceStatus::Settings.from_section(@draft.source(ServiceStatus::SOURCE_ID))
+      set_check("sources.service_status.enabled", status.enabled)
+      set_spin("sources.service_status.polling_interval_s", status.polling_interval_s)
+      ServiceStatus::KNOWN_SERVICES.each_key do |id|
+        set_check("sources.service_status.services.#{id}", status.service_enabled?(id))
+      end
 
       xsoverlay = XSOverlay::Settings.from_section(@draft.sink(XSOverlay::SINK_ID))
       set_check("sinks.xsoverlay.enabled", xsoverlay.enabled)
@@ -940,6 +976,16 @@ module Runtime
         "enabled"             => checked?("sources.windows.enabled"),
         "polling_interval_ms" => spin_value("sources.windows.polling_interval_ms"),
       }.to_json)
+      # 画面に無い feed_url は下書きのものを引き継ぐ。
+      # 画面に出ていない項目を既定値で上書きすると、設定ファイルで向け直した取得先が保存で戻る。
+      status = ServiceStatus::Settings.from_section(@draft.source(ServiceStatus::SOURCE_ID))
+      status.enabled = checked?("sources.service_status.enabled")
+      status.polling_interval_s = spin_value("sources.service_status.polling_interval_s")
+      # 画面に並べていない id は捨てる。配信に無いサービスの有効を残しても意味が無い。
+      status.services = ServiceStatus::KNOWN_SERVICES.keys.to_h do |id|
+        {id, checked?("sources.service_status.services.#{id}")}
+      end
+      root.sources[ServiceStatus::SOURCE_ID] = JSON.parse(status.to_json)
 
       root.sinks = root.sinks.dup
       root.sinks[XSOverlay::SINK_ID] = JSON.parse({

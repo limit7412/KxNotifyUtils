@@ -14,6 +14,15 @@
     "windows": {
       "enabled": true,
       "polling_interval_ms": 500
+    },
+    "service_status": {
+      "enabled": true,
+      "polling_interval_s": 60,
+      "services": {
+        "vrchat": true, "youtube": true, "steam": true,
+        "booth": false, "discord": false, "cloudflare": false, "twitch": false
+      },
+      "feed_url": "https://vrc-status.oxymoron.link/v1/status.json"
     }
   },
 
@@ -80,6 +89,46 @@ Windows のデスクトップ通知を監視する。
 
 間隔を短くすると通知が出るまでの遅れは減るが、そのぶん CPU を使う。
 500 ミリ秒で体感の遅れはほとんど無い。
+
+## sources.service_status
+
+外部サービスの障害を検知して通知にする（[#5](https://github.com/limit7412/KxNotifyUtils/issues/5)）。
+VR プレイ中に「VRChat 側の障害なのか自環境の問題なのか」を切り分けるためのソースである。
+
+- **enabled**：このソースを使うかどうか。
+- **polling_interval_s**：配信を確認する間隔。30 から 3600 の範囲で指定する。既定は 60 である。
+- **services**：サービスの id を鍵に、そのサービスを知らせるかどうかを書く。書かれていない id は知らせない。既定で有効なのは `vrchat`、`youtube`、`steam` の 3 つである。
+- **feed_url**：配信の URL。既定は VRCServiceStatusPanel の配信である。
+
+取得元は各サービスのステータスページではなく、[VRCServiceStatusPanel](https://github.com/limit7412/VRCServiceStatusPanel) の配信 JSON である。
+あちらが 1 分ごとに各サービスを見て、正常、一部障害、大規模障害、判定不能の 4 段階へ判定済みで配っている。
+配信に含まれるサービスは `vrchat`、`youtube`、`steam`、`booth`、`discord`、`cloudflare`、`twitch` である。
+
+通知が出るのは、サービスの段階が前回の確認から変わったときだけである。
+一部障害と大規模障害への変化はそれぞれ warning と error のアイコンで、復旧は default のアイコンで出る。
+件名は「VRChat: 一部で障害が発生しています」のようになり、本文には配信が添えた一行（インシデント名など）が入る。
+
+起動したときに進行中の障害は知らせない。
+本体は SteamVR の自動起動で立ち上がるため、知らせると VR を始めるたびに同じ障害の通知が出る。
+進行中の障害はログに残る。
+
+判定不能への変化と、判定不能からの復帰も知らせない。
+判定不能は取得元がそのサービスを見られなかったことを表し、サービスの障害ではないためである。
+判定不能を挟んで段階が変わっていれば、判定できるようになった時点で知らせる。
+
+配信を取れなかった場合は警告ログに残すだけで、通知は出さない。
+回線の無い環境で起動するたびに知らされても対処のしようが無いためである。
+
+`polling_interval_s` を 60 より短くしても、変化に早く気付けるわけではない。
+配信そのものが 1 分ごとの更新である。
+
+`feed_url` は設定ウィンドウには出ない。
+動作を確かめるために手元のサーバや dev 環境の配信へ向けるための項目であり、普段の利用で触るものではない。
+設定ウィンドウから保存しても、書いてある値はそのまま残る。
+
+通知の見え方は他のソースと同じく `defaults` と `rules` で決まる。
+`app_id` は `service_status.vrchat` のようにサービスの id を後ろに付けた形なので、
+`match_app_id` に `service_status` と書けば全サービスに、`service_status.vrchat` と書けば VRChat だけにルールを当てられる。
 
 ## sinks.xsoverlay
 

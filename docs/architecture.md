@@ -26,12 +26,17 @@ src/
     models.cr                        Incoming、Message、Icon、DisplayHints
     repository.cr                    SourceRepository、PostRepository、IconRepository、MessageBuilder
     usecase.cr                       中継の 1 周期（フィルタ、ルール解決、fan-out）
+    template_message_builder.cr      各ソースが継承する共通の整形（テンプレート、表示時間、アイコン）
   win_notification/                ソース実装：Windows 通知
     ffi.cr                           NotifListenerShim の lib 宣言
     ffi_client.cr                    C API を包む ShimClient 実装
     models.cr                        シムが返す JSON に対応する型、sources.windows の設定
     repository.cr                    差分検出を行う SourceRepository 実装
-    usecase.cr                       Incoming とルールから Message を組み立てる
+    usecase.cr                       共通の整形を継承した MessageBuilder
+  service_status/                  ソース実装：外部サービスの障害検知
+    models.cr                        配信 JSON に対応する型、sources.service_status の設定
+    repository.cr                    配信の取得と、前回のレベルとの比較を行う SourceRepository 実装
+    usecase.cr                       共通の整形を継承した MessageBuilder
   xsoverlay/                       シンク実装：XSOverlay
     models.cr                        通知オブジェクトとエンベロープ、sinks.xsoverlay の設定
     websocket_repository.cr          WebSocket 送信
@@ -143,7 +148,7 @@ WinRT の呼び出しだけは別である。
 
 1. `src/` に新しいコンテキストのディレクトリを作る。
 2. `Notify::SourceRepository` を継承した repository を書く。`source_id`、`poll_new`、`poll_interval` を実装し、差分検出はこの中に閉じる。
-3. `Notify::MessageBuilder` を継承した usecase を書く。`Incoming` と解決済みのルールから `Notify::Message` を組み立てる。
+3. `Notify::MessageBuilder` を継承した usecase を書く。`Incoming` と解決済みのルールから `Notify::Message` を組み立てる。整形が Windows 通知と同じでよければ `Notify::TemplateMessageBuilder` を継承し、`source_id` だけを返す。
 4. 設定型（`enabled` と個別の項目）を models に置き、`validate` を用意する。
 5. `main.cr` の `build_sources` で組み立て、`register_validators` で検証を登録する。
 6. 設定ファイルの `sources` に新しいキーが増える。既存のキーは変わらない。
@@ -172,6 +177,7 @@ WinRT の呼び出しだけは別である。
 - **アプリ別ルールの一覧ウィジェット**：Table と編集フォームの組み合わせにした。並べ替えに意味があるため、上下の移動ボタンを付けている。当初はドロップダウンと編集フォームの組み合わせで始めたが、一覧なのに開くまで全体が見えず、上下の移動ボタンを押しても結果がその場で見えなかったため Table へ移した（issue #36）。先勝ちマッチのため並び順そのものが設定の意味を持つのに、その並びが隠れていたことになる。列は「順 / match_app_id / 上書き」の 3 つで、どのルールが実質空なのかも一覧から分かる。Table はモデルベースであり、行数とセルの中身は `SettingsWindow` が持つルールの配列から読み、行の増減は通知で伝える。
 - **アプリケーションマニフェスト**：本体からは埋め込まない。Common Controls v6 の宣言は uing が埋め込むマニフェストが持っており、同じ RT_MANIFEST リソースを重ねると衝突する。DPI awareness は起動時に `SetProcessDpiAwarenessContext` を呼んで設定する。
 - **THIRD-PARTY-NOTICES の埋め込み**：`.res` ではなくコンパイル時の `read_file` で実行ファイルへ取り込む。埋め込む先が exe である点は変わらず、リソースの ID を管理せずに済む。
+- **外部サービスの障害検知の取得元**：仕様書 10 章は各サービスのステータスページを本体から直接ポーリングする案だったが、VRCServiceStatusPanel の配信 JSON を 1 本だけ読む形にした（issue #5）。あちらが 1 分ごとに各サービスを判定済みの 4 段階で配っており、Statuspage の読み方や合成監視の判定を本体へ持ち込まずに済む。本体側に残るのは前回のレベルとの比較だけで、`poll_new` の契約にそのまま乗る。取得は別のファイバで待ち、`poll_new` は取れるまで空を返す。主ループの中で HTTP の応答を待つと、その間はトレイも設定画面も止まるためである。
 - **シムのスレッド契約**：仕様書は「`nls_init` を呼んだスレッドと同じスレッドから全 API を呼ぶ」としていたが、シムが内部にワーカースレッドを持つ形に変えた。本体側はどのスレッドから呼んでもよい。
 
 残っているのは、実機でしか確かめられない項目である。

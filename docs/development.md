@@ -162,7 +162,7 @@ uing の postinstall が libui-ng の静的ライブラリを GitHub から取�
 - Explorer を再起動したあと、トレイアイコンが登録し直されること
 - 表示の高さの係数とアイコンの見え方
 
-高さの係数は `WinNotification::MessageBuilder` の `HEIGHT_PER_CHAR` などにある。
+高さの係数は `Notify::TemplateMessageBuilder` の `HEIGHT_PER_CHAR` などにある。
 実表示を見て調整する前提の仮の値である。
 
 ## アイコンを作り直す
