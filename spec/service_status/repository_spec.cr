@@ -200,6 +200,25 @@ describe ServiceStatus::Repository do
       target.poll_new.should be_empty
     end
 
+    it "確認する間隔を縮めたら、直近に取りに行った時刻から新しい間隔で取りに行く" do
+      client = Fakes::FeedClient.new([
+        ServiceStatus::Response.body(feed_json({"vrchat" => 0}, generated: 1)),
+        ServiceStatus::Response.body(feed_json({"vrchat" => 2}, generated: 2)),
+      ])
+      target = repository(client, ServiceStatus::Settings.from_json(%({"polling_interval_s": 3600})))
+      target.start
+
+      now = Time.monotonic
+      target.poll_new(now)
+      target.poll_new(now + 100.seconds).should be_empty
+      client.urls.size.should eq 1
+
+      target.settings = ServiceStatus::Settings.from_json(%({"polling_interval_s": 30}))
+
+      target.poll_new(now + 100.seconds).size.should eq 1
+      client.urls.size.should eq 2
+    end
+
     it "poll_interval は設定の間隔より短い" do
       repository.poll_interval.should eq 1.second
     end

@@ -78,9 +78,10 @@ module ServiceStatus
     # 配信経路がエラーページを返しても、それを丸ごと読み込まないための保険である。
     MAX_BODY_SIZE = 1024 * 1024
 
+    # 取りに行っている最中か。重ねて取りに行かないために持つ。
+    getter? inflight : Bool = false
+
     def initialize(@user_agent : String)
-      # 取りに行っている最中か。重ねて取りに行かないために持つ。
-      @inflight = false
       # 取れて、まだ渡していない結末。
       @result = nil.as(Response?)
       # 条件付き GET に使う前回の ETag と、その URL。URL が変わったら使わない。
@@ -112,32 +113,56 @@ module ServiceStatus
       @inflight = true
       generation = @generation
       spawn(name: "service-status-fetch") do
-        response = request(url)
+        response, etag = request(url)
         # reset をまたいだ結果は、開始し直す前の状態に対するものであり渡さない。
-        @result = response if generation == @generation
+        # ETag も同じである。控えだけ残すと次の取得が 304 になり、
+        # 開始し直した後の状態を一度も読めないまま、その次の変化を初回として捨てる。
+        if generation == @generation
+          @result = response
+          remember_etag(url, etag) if response.kind.body?
+        end
       ensure
         @inflight = false
       end
     end
 
-    private def request(url : String) : Response
+    # 取りに行った結末と、本文が取れたときの ETag を返す。
+    private def request(url : String) : {Response, String?}
       uri = URI.parse(url)
       client = HTTP::Client.new(uri)
       client.connect_timeout = CONNECT_TIMEOUT
       client.read_timeout = READ_TIMEOUT
       begin
-        response = client.get(request_target(uri), headers(url))
-        return Response.not_modified if response.status_code == 304
-        return Response.failed("配信が HTTP #{response.status_code} を返した") unless response.success?
-        return Response.failed("配信の本文が大きすぎる") if response.body.bytesize > MAX_BODY_SIZE
+        client.get(request_target(uri), headers(url)) do |response|
+          next {Response.not_modified, nil} if response.status_code == 304
+          next {Response.failed("配信が HTTP #{response.status_code} を返した"), nil} unless response.success?
 
-        remember_etag(url, response.headers["ETag"]?)
-        Response.body(response.body)
+          body = read_body(response)
+          next {Response.failed("配信の本文が大きすぎる"), nil} if body.nil?
+
+          {Response.body(body), response.headers["ETag"]?}
+        end
       ensure
         client.close
       end
     rescue exception
-      Response.failed(exception.message || exception.class.name)
+      {Response.failed(exception.message || exception.class.name), nil}
+    end
+
+    # 本文を上限まで読む。超えていれば nil を返す。
+    #
+    # 全部読んでから大きさを見るわけにはいかない。取得先は設定で向け直せるため、
+    # 途切れない本文を返す相手に当たると、上限を見る前にメモリへ積み上がる。
+    # Content-Length があれば読む前に断り、無ければ読みながら数える。
+    private def read_body(response : HTTP::Client::Response) : String?
+      if declared = response.headers["Content-Length"]?.try(&.to_i64?)
+        return nil if declared > MAX_BODY_SIZE
+      end
+
+      io = IO::Memory.new
+      copied = IO.copy(response.body_io, io, MAX_BODY_SIZE + 1)
+      return nil if copied > MAX_BODY_SIZE
+      io.to_s
     end
 
     private def headers(url : String) : HTTP::Headers
@@ -199,6 +224,8 @@ module ServiceStatus
       @levels = {} of String => Level
       # 直近に読んだ配信の生成時刻。同じなら未更新である。
       @last_generated = 0_i64
+      # 直近に取りに行った時刻。間隔を変えたときに次の時刻を引き直すために持つ。
+      @last_fetch_at = nil.as(Time::Span?)
       # 次に取りに行く時刻。
       @next_fetch = Time.monotonic
       # 取りに行ったまま、まだ結末を受け取っていないか。
@@ -222,12 +249,20 @@ module ServiceStatus
     # 無効にしたサービスの記録は捨てる。残しておくと、有効に戻したときに
     # 無効にしていた間の変化を知らせることになる。
     # 取得先が変わったときは全部を捨てる。別の配信の前回値と比べる意味が無い。
+    #
+    # 間隔が変わったときは、直近に取りに行った時刻から新しい間隔で次の時刻を引き直す。
+    # 引き直さないと、1 時間から 30 秒へ縮めても、前の間隔で決めた次の時刻まで取りに行かない。
     def settings=(settings : Settings) : Nil
       if settings.feed_url != @settings.feed_url
         reset_diff_state
         @client.reset
       else
         @levels.reject! { |id, _| !settings.service_enabled?(id) }
+        if settings.polling_interval_s != @settings.polling_interval_s
+          if last = @last_fetch_at
+            @next_fetch = last + settings.polling_interval_s.seconds
+          end
+        end
       end
       @settings = settings
     end
@@ -244,8 +279,17 @@ module ServiceStatus
 
     # 取りに行く時刻が来ていれば取りに行き、結末が来ていれば前回と比べる。
     def poll_new : Array(Notify::Incoming)
-      now = Time.monotonic
+      poll_new(Time.monotonic)
+    end
+
+    # 時刻を受け取るのは、間隔の扱いを spec から確かめるためである。
+    def poll_new(now : Time::Span) : Array(Notify::Incoming)
       return [] of Notify::Incoming unless @waiting || now >= @next_fetch
+
+      unless @waiting
+        @last_fetch_at = now
+        @next_fetch = now + @settings.polling_interval_s.seconds
+      end
 
       response = @client.fetch(@settings.feed_url)
       if response.pending?
@@ -254,7 +298,6 @@ module ServiceStatus
       end
 
       @waiting = false
-      @next_fetch = now + @settings.polling_interval_s.seconds
       handle(response)
     end
 
@@ -262,6 +305,7 @@ module ServiceStatus
       @levels.clear
       @last_generated = 0_i64
       @waiting = false
+      @last_fetch_at = nil
       @next_fetch = Time.monotonic
     end
 
