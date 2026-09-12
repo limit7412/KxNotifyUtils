@@ -2,7 +2,7 @@
 
 KxNotifyUtils は、監視対象（**ソース**）から通知を集め、通知先（**シンク**）へ中継する Windows 常駐アプリケーションである。
 
-v1 のソースは Windows のデスクトップ通知、シンクは XSOverlay の Notification API であり、
+ソースは Windows のデスクトップ通知と外部サービスの障害情報、シンクは XSOverlay の Notification API であり、
 VR セッション中でも Discord やメールなどのデスクトップ通知を HMD 内で確認できるようにする。
 
 配布物は `KxNotifyUtils.exe` の 1 ファイルである。
@@ -12,6 +12,7 @@ DLL の同梱も zip の展開も要らず、exe を任意の場所に置けば�
 ## できること
 
 - Windows の通知を取得して XSOverlay へ中継する
+- VRChat、YouTube、Steam などの障害を検知し、状態が変わったときに通知する
 - アプリごとにアイコン、表示時間、通知音、音量、透明度、テキストの整形を変える
 - SteamVR の起動に合わせて自動起動し、SteamVR の終了に合わせて終了する
 - トレイから一時停止、テスト通知、設定の編集を行う
