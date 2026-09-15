@@ -62,6 +62,7 @@
   "settings.sources.access_status": "通知アクセスの許可状態: {status}",
   "settings.sources.open_windows_settings": "Windows の通知設定を開く",
   "settings.sources.service_status_group": "外部サービスの障害検知",
+  "settings.sources.service_status_beta_note": "この機能はβ版です。今後の更新で挙動が変更される可能性があります。",
   "settings.sources.service_status_interval": "確認する間隔 (秒)",
   "settings.sources.service_status_services": "知らせるサービス",
   "settings.sources.service_status_open_page": "状態の確認ページを開く: {url}",

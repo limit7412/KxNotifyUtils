@@ -62,6 +62,7 @@
   "settings.sources.access_status": "Notification access: {status}",
   "settings.sources.open_windows_settings": "Open Windows notification settings",
   "settings.sources.service_status_group": "Service status",
+  "settings.sources.service_status_beta_note": "This feature is in beta. Its behavior may change in future updates.",
   "settings.sources.service_status_interval": "Check interval (s)",
   "settings.sources.service_status_services": "Services to notify",
   "settings.sources.service_status_open_page": "Open the status page: {url}",

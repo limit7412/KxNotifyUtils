@@ -307,6 +307,8 @@ module Runtime
     private def build_service_status_group : UIng::Group
       group = UIng::Group.new(I18n.t("settings.sources.service_status_group"), margined: true)
       inner = UIng::Box.new(:vertical, padded: true)
+      # β版の注意書きは項目より先に置く。有効にする前に読んでもらうためである。
+      inner.append(UIng::Label.new(I18n.t("settings.sources.service_status_beta_note")), false)
       inner.append(check("sources.service_status.enabled", I18n.t("settings.sources.enable")), false)
 
       form = UIng::Form.new(padded: true)
@@ -322,7 +324,7 @@ module Runtime
       ServiceStatus::KNOWN_SERVICES.each do |id, name|
         inner.append(check("sources.service_status.services.#{id}", name), false)
       end
-      # 説明文は置かない。何を知らせるかは取得元のページとリポジトリを開けば分かる。
+      # 何を知らせるかの説明文は置かない。取得元のページとリポジトリを開けば分かる。
       inner.append(
         button(I18n.t("settings.sources.service_status_open_page", {"url" => ServiceStatus::PAGE_URL})) do
           open_url(ServiceStatus::PAGE_URL)
