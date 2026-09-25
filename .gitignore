@@ -14,3 +14,6 @@
 *.exe
 lib/
 res/*.res
+
+# scripts/package.ps1 が作る配布用の zip
+/KxNotifyUtils-*.zip

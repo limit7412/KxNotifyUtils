@@ -85,6 +85,17 @@ GitHub でタグ `X.Y.Z` のリリースを作って公開すると、`.github/w
 
 プレリリースを正式リリースへ昇格した場合は、昇格前の公開時点で exe が添付済みのため何も動かない。
 
+### 配布用の zip
+
+リリースとプレリリースには、exe と並べて `KxNotifyUtils-<バージョン>.zip` も添付する。
+BOOTH ではファイルを添えて頒布するため、そちらへはこの zip をアップロードする。
+
+中身は `KxNotifyUtils/` フォルダの下に置いた exe、`LICENSE.txt`、`THIRD-PARTY-NOTICES.md` である。
+作るのは `scripts/package.ps1` で、手元でも `pwsh scripts/package.ps1 -Version 1.2.3` で同じものを作れる。
+
+exe 単体の添付は外さない。
+更新の確認と自動更新は、リリースに添付された `KxNotifyUtils.exe` を名前で探している。
+
 ### ビルド手順の置き場所
 
 CI とリリースとプレリリースは、いずれも `.github/actions/build-windows` の複合アクションでビルドする。
