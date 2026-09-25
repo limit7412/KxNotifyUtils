@@ -51,8 +51,7 @@
   }
   .toast .ic::before {
     content: ""; position: absolute; inset: -7px; border-radius: 50%;
-    border: 3px solid var(--eye); border-right-color: transparent; border-bottom-color: transparent;
-    transform: rotate(-30deg);
+    border: 3px solid var(--eye);
   }
   .toast .ic svg { width: 26px; height: 26px; fill: #fff; }
   .toast .t {
@@ -166,7 +165,7 @@
     <div class="lead">Windows の通知を VR で受け取る</div>
     <div class="name latin">KxNotifyUtils</div>
   </div>
-  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">KxNotifyUtils: テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
+  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">チャット: 新着メッセージ</div><div class="b">そろそろワールド移動しよう</div></div>
 </section>
 
 <!-- B: 黒と青。斜めの青い帯に商品名 -->
@@ -176,7 +175,7 @@
     <div class="lead">HMD を外さずに通知を確認</div>
     <div class="name latin">KxNotifyUtils</div>
   </div>
-  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">KxNotifyUtils: テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
+  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">チャット: 新着メッセージ</div><div class="b">そろそろワールド移動しよう</div></div>
 </section>
 
 <!-- C: カフェの夜。文字は左、通知は右下 -->
@@ -192,14 +191,14 @@
     <div class="lead">Windows の通知を VR で受け取る</div>
     <div class="name latin">Kx<b>Notify</b>Utils</div>
   </div>
-  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">KxNotifyUtils: テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
+  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">チャット: 新着メッセージ</div><div class="b">そろそろワールド移動しよう</div></div>
 </section>
 
 <!-- D: 銀白。通知が上、商品名が下 -->
 <section class="cand" id="d">
   <div class="strands"></div>
   <div class="glow"></div>
-  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">KxNotifyUtils: テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
+  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">チャット: 新着メッセージ</div><div class="b">そろそろワールド移動しよう</div></div>
   <div class="head">
     <div class="lead">Windows の通知を VR で受け取る</div>
     <div class="name latin">Kx<b>Notify</b>Utils</div>
