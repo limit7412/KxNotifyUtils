@@ -4,19 +4,21 @@
 <meta charset="utf-8">
 <title>KxNotifyUtils BOOTH トップ画像候補</title>
 <link rel="stylesheet" href="node_modules/@fontsource/noto-sans-jp/400.css">
+<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-jp/500.css">
 <link rel="stylesheet" href="node_modules/@fontsource/noto-sans-jp/700.css">
-<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-jp/900.css">
 <link rel="stylesheet" href="node_modules/@fontsource/inter/600.css">
 <link rel="stylesheet" href="node_modules/@fontsource/inter/800.css">
 <style>
-  /* アイコン (tools/generate_icon.py) と同じ配色 */
+  /* 配色は参考写真から拾った。銀白と青、黒に青の差し色、宇宙の紺、夕暮れの桃と橙、カフェの琥珀。
+     アバターや衣装、ワールドは描かない。 */
   :root {
-    --navy: #1F2A37;
-    --navy-deep: #0F1722;
-    --blue: #4C9AFF;
-    --blue-soft: #A9CCFF;
-    --ink: #E8EEF6;
-    --muted: #93A4B8;
+    --silver: #E9EDF2;
+    --silver-dim: #B9C3CF;
+    --ink: #141A24;
+    --eye: #3D8BFF;
+    --eye-deep: #1B4FD8;
+    --space: #070B16;
+    --amber: #FFB25A;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -24,413 +26,234 @@
     font-family: "Noto Sans JP", sans-serif;
     display: flex; flex-wrap: wrap; gap: 24px; padding: 24px;
   }
-  .cand {
-    width: 800px; height: 800px; position: relative; overflow: hidden;
-    color: var(--ink);
-  }
+  .cand { width: 800px; height: 800px; position: relative; overflow: hidden; color: var(--silver); }
   .latin { font-family: "Inter", "Noto Sans JP", sans-serif; }
+
+  /* 見出し。一行の説明と商品名だけ */
+  .head { position: absolute; left: 0; right: 0; text-align: center; }
+  .head .lead { font-size: 28px; font-weight: 500; letter-spacing: 0.12em; }
+  .head .name { font-size: 92px; font-weight: 800; letter-spacing: -0.015em; line-height: 1.1; margin-top: 8px; }
 
   /* XSOverlay の通知ポップアップを模したカード。
      左上に丸いアイコン、中央寄せのタイトル、区切り線、本文の順に並ぶ。 */
   .toast {
-    position: relative;
-    background: rgba(56, 62, 70, 0.95);
-    border-radius: 12px;
-    padding: 0 28px 20px;
+    position: absolute; left: 190px; right: 190px;
+    background: rgba(56, 62, 70, 0.94);
+    border-radius: 12px; padding: 0 28px 18px;
     text-align: center; color: #fff;
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
   }
   .toast .ic {
     position: absolute; left: -16px; top: -16px;
-    width: 54px; height: 54px; border-radius: 50%;
+    width: 52px; height: 52px; border-radius: 50%;
     border: 3px solid #2A2F36;
     display: grid; place-items: center;
     font-weight: 900; font-size: 22px; color: #fff;
+    background: linear-gradient(135deg, #5AA0FF, var(--eye-deep));
   }
   .toast .t {
     font-size: 19px; font-weight: 500; line-height: 1.3;
     margin: 0 8px 0 24px; padding: 14px 0 10px;
     border-bottom: 2px solid rgba(255, 255, 255, 0.2);
   }
-  .toast .b { font-size: 19px; line-height: 1.45; padding-top: 14px; color: #E6EAEF; }
-  .ic.chat { background: linear-gradient(135deg, #7B83FF, #5865F2); }
-  .ic.mail { background: linear-gradient(135deg, #FF8A7A, #E5533D); }
-  .ic.status { background: linear-gradient(135deg, #FFC94D, #F29D12); color: #3A2600; }
-  .ic.app { background: linear-gradient(135deg, #5FD39A, #22A566); }
+  .toast .b { font-size: 19px; line-height: 1.45; padding-top: 12px; color: #E6EAEF; }
 
-  .chip {
-    display: inline-flex; align-items: center; gap: 8px;
-    border-radius: 999px; padding: 8px 18px;
-    font-weight: 700; font-size: 20px; white-space: nowrap;
-  }
-  .appicon { display: block; }
+  .stars { position: absolute; inset: 0; pointer-events: none; }
+  .stars i { position: absolute; border-radius: 50%; background: #fff; }
 
-  /* ---------- A: 王道ダーク ---------- */
-  #a {
-    background:
-      radial-gradient(circle at 78% 30%, rgba(76, 154, 255, 0.38), transparent 55%),
-      radial-gradient(circle at 10% 95%, rgba(76, 154, 255, 0.18), transparent 50%),
-      linear-gradient(160deg, #182232, var(--navy-deep));
-  }
-  #a .tag {
-    position: absolute; left: 56px; top: 56px;
-    background: var(--blue); color: #fff;
-  }
-  #a h1 {
-    position: absolute; left: 56px; top: 118px;
-    font-weight: 900; font-size: 64px; line-height: 1.22; letter-spacing: 0.01em;
-  }
-  #a h1 em { font-style: normal; color: var(--blue); }
-  #a .stack {
-    position: absolute; left: 170px; right: 60px; top: 312px;
-    display: flex; flex-direction: column; gap: 26px;
-    transform: perspective(1400px) rotateY(-10deg) rotateX(4deg);
-    transform-origin: right center;
-  }
-  #a .toast { padding: 0 24px 12px; }
-  #a .toast .ic { width: 48px; height: 48px; font-size: 20px; left: -14px; top: -14px; }
-  #a .toast .t { font-size: 17px; padding: 9px 0 7px; }
-  #a .toast .b { font-size: 18px; padding-top: 8px; }
-  #a .stack .toast:nth-child(2) { margin-left: -40px; margin-right: 40px; }
-  #a .stack .toast:nth-child(3) { opacity: 0.92; }
-  #a .foot {
-    position: absolute; left: 56px; right: 56px; bottom: 50px;
-    display: flex; align-items: center; gap: 18px;
-  }
-  #a .foot .name { font-size: 40px; font-weight: 800; letter-spacing: -0.01em; }
-  #a .foot .sub { font-size: 18px; color: var(--muted); margin-top: 2px; }
-  #a .foot .free {
-    margin-left: auto;
-    border: 2px solid var(--blue); color: var(--blue-soft);
-  }
-
-  /* ---------- B: 明るいポップ ---------- */
-  #b {
-    background:
-      radial-gradient(circle at 50% 30%, #FFFFFF, transparent 60%),
-      linear-gradient(180deg, #EAF2FF, #CFE2FF);
-    color: var(--navy);
-  }
-  #b .icon-wrap {
-    position: absolute; left: 50%; top: 80px; transform: translateX(-50%);
-    filter: drop-shadow(0 20px 30px rgba(31, 42, 55, 0.28));
-  }
-  #b .ring {
-    position: absolute; left: 50%; top: 50px; width: 300px; height: 300px;
-    transform: translateX(-50%); border-radius: 50%;
-    border: 3px dashed rgba(76, 154, 255, 0.45);
-  }
-  #b .toast { position: absolute; width: 290px; background: rgba(56, 62, 70, 0.98); padding: 0 20px 16px; }
-  #b .toast .t { font-size: 17px; }
-  #b .toast .b { font-size: 16px; padding-top: 10px; }
-  #b .toast.l { left: 36px; top: 100px; transform: rotate(-5deg); }
-  #b .toast.r { right: 36px; top: 262px; transform: rotate(4deg); }
-  #b .catch {
-    position: absolute; left: 0; right: 0; top: 410px; text-align: center;
-  }
-  #b .catch .lead { font-size: 30px; font-weight: 700; color: #3C6FB8; }
-  #b .catch h1 { font-size: 88px; font-weight: 900; line-height: 1.15; margin-top: 6px; }
-  #b .catch .name { font-size: 34px; font-weight: 800; margin-top: 16px; letter-spacing: -0.01em; }
-  #b .row {
-    position: absolute; left: 40px; right: 40px; bottom: 64px;
-    display: flex; justify-content: center; gap: 12px;
-  }
-  #b .row .chip { background: #fff; color: var(--navy); box-shadow: 0 6px 14px rgba(31, 42, 55, 0.12); font-size: 19px; }
-  #b .row .chip b { color: var(--blue); }
-
-  /* ---------- C: VR 空間で商品名を主役に ---------- */
-  #c { background: #05080D; }
-  #c .scene {
+  /* ---------- A: 宇宙 ---------- */
+  #a { background: var(--space); }
+  #a .nebula {
     position: absolute; inset: 0;
     background:
-      radial-gradient(ellipse at 50% 30%, rgba(110, 90, 210, 0.45), transparent 55%),
-      radial-gradient(ellipse at 15% 15%, rgba(76, 154, 255, 0.30), transparent 50%),
-      linear-gradient(180deg, #151638 0%, #0B1024 55%, #05080D 100%);
+      radial-gradient(ellipse 60% 40% at 30% 25%, rgba(61, 139, 255, 0.28), transparent 70%),
+      radial-gradient(ellipse 50% 40% at 80% 60%, rgba(27, 79, 216, 0.22), transparent 70%);
   }
-  #c .floor {
-    position: absolute; left: -50%; right: -50%; bottom: -60px; height: 400px;
-    background-image:
-      linear-gradient(rgba(140, 180, 255, 0.32) 2px, transparent 2px),
-      linear-gradient(90deg, rgba(140, 180, 255, 0.32) 2px, transparent 2px);
-    background-size: 70px 70px;
-    transform: perspective(500px) rotateX(62deg);
-    transform-origin: center top;
-    mask-image: linear-gradient(180deg, transparent, #000 45%);
+  /* 地球の縁。画面下に大きな円を置き、大気の青い光を縁に乗せる */
+  #a .earth {
+    position: absolute; left: 50%; top: 640px; width: 2200px; height: 2200px; margin-left: -1100px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 8%, #2C64C8 0%, #143A86 12%, #0B1F4E 26%, #050B1C 45%);
+    box-shadow: 0 0 60px 20px rgba(80, 150, 255, 0.45), 0 0 160px 60px rgba(61, 139, 255, 0.25);
   }
-  #c .head { position: absolute; left: 0; right: 0; top: 150px; text-align: center; }
-  #c .head .lead { font-size: 30px; font-weight: 700; letter-spacing: 0.08em; color: #D5E3F7; }
-  #c .head .name {
-    font-size: 96px; font-weight: 800; letter-spacing: -0.02em; margin-top: 10px;
-    text-shadow: 0 0 40px rgba(120, 170, 255, 0.55);
-  }
-  #c .toast {
-    position: absolute; left: 190px; right: 190px; top: 440px;
-    transform: perspective(900px) rotateX(8deg);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 20px 60px rgba(40, 90, 200, 0.45);
-  }
-  #c .chips {
-    position: absolute; left: 0; right: 0; bottom: 64px;
-    display: flex; justify-content: center; gap: 14px;
-  }
-  #c .chips .chip { border: 2px solid rgba(169, 204, 255, 0.55); color: #DCE8F8; background: rgba(10, 16, 30, 0.6); }
-  #c .chips .chip.free { background: var(--blue); border-color: var(--blue); color: #fff; }
-
-  /* ---------- D: ミニマル ---------- */
-  #d { background: #fff; color: var(--navy); }
-  #d .top {
-    position: absolute; left: 0; right: 0; top: 0; height: 470px;
-    background: linear-gradient(150deg, #5AA6FF, #2F7BE5);
-    color: #fff; padding: 64px 60px;
-  }
-  #d .top .kicker { font-size: 24px; font-weight: 700; opacity: 0.9; }
-  #d .top h1 { font-size: 104px; font-weight: 900; line-height: 1.12; margin-top: 14px; letter-spacing: -0.01em; }
-  #d .toast {
-    position: absolute; left: 60px; right: 60px; top: 395px;
-    background: #383E46;
-  }
-  #d .bottom { position: absolute; left: 60px; right: 60px; top: 555px; }
-  #d .brand { display: flex; align-items: center; gap: 16px; }
-  #d .brand .name { font-size: 44px; font-weight: 800; letter-spacing: -0.01em; }
-  #d ul {
-    list-style: none; margin-top: 26px;
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px;
-  }
-  #d li { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
-  #d li::before {
-    content: ""; flex: none; width: 12px; height: 12px; border-radius: 3px; background: var(--blue);
-  }
-
-  /* 縁取り付きの太字。VRChat 向けアプリの人気商品で多い見出しの書き方 */
-  .outline {
-    font-weight: 900;
-    -webkit-text-stroke: 14px var(--stroke, #10141C);
-    paint-order: stroke fill;
-    text-shadow: 0 8px 0 rgba(0, 0, 0, 0.35);
-  }
-
-  /* ---------- E: 使用シーン型 ---------- */
-  /* assets/scene.jpg に VR 内のスクリーンショットを置くと背景に敷かれる。無いときは描画した部屋を使う */
-  #e {
+  #a .cloud {
+    position: absolute; left: 0; right: 0; top: 640px; height: 160px;
     background:
-      radial-gradient(ellipse at 70% 35%, rgba(255, 190, 120, 0.55), transparent 50%),
-      linear-gradient(180deg, #5B7BB8 0%, #9FB4D8 45%, #E8C9A6 62%, #6B5446 63%, #3A2E28 100%);
+      radial-gradient(ellipse 120px 26px at 18% 40%, rgba(255,255,255,0.35), transparent 70%),
+      radial-gradient(ellipse 200px 30px at 55% 55%, rgba(255,255,255,0.3), transparent 70%),
+      radial-gradient(ellipse 140px 24px at 85% 35%, rgba(255,255,255,0.32), transparent 70%);
   }
-  #e .shot { position: absolute; inset: 0; background: url(assets/scene.jpg) center / cover no-repeat; }
-  #e .floor {
-    position: absolute; left: -50%; right: -50%; bottom: -40px; height: 320px;
-    background-image:
-      linear-gradient(rgba(255, 230, 200, 0.18) 2px, transparent 2px),
-      linear-gradient(90deg, rgba(255, 230, 200, 0.18) 2px, transparent 2px);
-    background-size: 80px 80px;
-    transform: perspective(500px) rotateX(60deg); transform-origin: center top;
+  /* 右手の白いリング光 */
+  #a .ring {
+    position: absolute; right: -950px; top: -850px; width: 1200px; height: 1200px; border-radius: 50%;
+    border: 6px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 0 40px rgba(255, 255, 255, 0.6), inset 0 0 40px rgba(255, 255, 255, 0.4);
   }
-  #e .dim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.25), transparent 35%, transparent 60%, rgba(0,0,0,0.55)); }
-  #e .pill {
-    position: absolute; left: 44px; top: 40px;
-    background: #10141C; color: #fff; font-size: 22px; padding: 8px 20px;
-  }
-  #e .catch { position: absolute; left: 40px; top: 112px; transform: rotate(-4deg); transform-origin: left top; }
-  #e .catch .l1 { font-size: 64px; color: #fff; line-height: 1.2; }
-  #e .catch .l2 { font-size: 92px; color: #FFE14D; line-height: 1.15; }
-  #e .toast {
-    position: absolute; left: 150px; right: 150px; top: 390px;
-    transform: perspective(900px) rotateY(-12deg) rotateX(4deg);
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 24px 50px rgba(0, 0, 0, 0.5);
-  }
-  #e .toast .t { font-size: 22px; }
-  #e .toast .b { font-size: 24px; }
-  #e .feat {
-    position: absolute; left: 40px; bottom: 124px;
-    display: flex; flex-direction: column; gap: 8px;
-  }
-  #e .feat span {
-    align-self: flex-start;
-    background: rgba(16, 20, 28, 0.85); color: #fff; font-weight: 700; font-size: 22px;
-    padding: 6px 16px; border-left: 6px solid #FFE14D;
-  }
-  #e .brand { position: absolute; left: 40px; bottom: 36px; display: flex; align-items: center; gap: 14px; }
-  #e .brand .name { font-size: 54px; color: #fff; --stroke: #10141C; -webkit-text-stroke-width: 10px; }
-  #e .sticker {
-    position: absolute; right: 36px; bottom: 44px; width: 150px; height: 150px; border-radius: 50%;
-    background: #FF4D5E; color: #fff; display: grid; place-items: center; text-align: center;
-    font-weight: 900; font-size: 50px; line-height: 1; transform: rotate(10deg);
-    box-shadow: 0 0 0 7px #fff, 0 12px 24px rgba(0, 0, 0, 0.35);
-  }
-  #e .sticker small { display: block; font-size: 18px; margin-bottom: 6px; }
+  #a .head { top: 190px; }
+  #a .head .lead { color: var(--silver-dim); }
+  #a .head .name { color: var(--silver); text-shadow: 0 0 40px rgba(61, 139, 255, 0.55); }
+  #a .toast { top: 440px; }
 
-  /* ---------- F: 困りごと提起型 ---------- */
-  #f { background: #FFD83D; color: #10141C; }
-  #f .rays {
-    position: absolute; left: 50%; top: 250px; width: 1600px; height: 1600px; margin: -800px 0 0 -800px;
-    background: repeating-conic-gradient(rgba(255, 255, 255, 0.55) 0deg 4deg, transparent 4deg 12deg);
-    mask-image: radial-gradient(circle, transparent 18%, #000 45%);
+  /* ---------- B: 夕暮れの星空 ---------- */
+  #b {
+    background:
+      radial-gradient(ellipse 50% 45% at 20% 85%, #FF9C7A 0%, rgba(255, 156, 122, 0) 70%),
+      radial-gradient(ellipse 45% 40% at 70% 20%, #FFB98A 0%, rgba(255, 185, 138, 0) 70%),
+      radial-gradient(ellipse 60% 50% at 85% 70%, #7A5BD8 0%, rgba(122, 91, 216, 0) 70%),
+      linear-gradient(200deg, #2C4FB8 0%, #4E63C9 35%, #B872B9 70%, #FFA07E 100%);
   }
-  #f .worry { position: absolute; left: 0; right: 0; top: 60px; text-align: center; transform: rotate(-3deg); --stroke: #fff; }
-  #f .outline { text-shadow: none; filter: drop-shadow(0 6px 0 #10141C); }
-  #f .worry .l1 { font-size: 44px; }
-  #f .worry .l2 { font-size: 96px; line-height: 1.12; }
-  #f .worry .l2 em { font-style: normal; color: #E8313F; }
-  #f .arrow {
-    position: absolute; left: 50%; top: 392px; width: 0; height: 0; margin-left: -60px;
-    border-left: 60px solid transparent; border-right: 60px solid transparent; border-top: 56px solid #E8313F;
+  #b .haze {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 30% 20% at 40% 40%, rgba(255,255,255,0.25), transparent 70%),
+      radial-gradient(ellipse 35% 18% at 65% 62%, rgba(120, 200, 255, 0.25), transparent 70%);
   }
-  #f .answer {
-    position: absolute; left: 0; right: 0; top: 440px; bottom: 0;
-    background: #1F2A37; color: #fff; padding: 36px 48px 0;
+  /* 針葉樹の影。三角を重ねただけの形 */
+  #b .trees { position: absolute; left: 0; right: 0; bottom: 0; height: 200px; }
+  #b .trees svg { position: absolute; left: 0; bottom: 0; width: 100%; height: 100%; }
+  #b .head { top: 150px; }
+  #b .head .lead { color: #fff; text-shadow: 0 2px 12px rgba(40, 30, 80, 0.5); }
+  #b .head .name { color: #fff; text-shadow: 0 4px 24px rgba(40, 30, 80, 0.55); }
+  #b .toast { top: 400px; }
+
+  /* ---------- C: カフェの夜 ---------- */
+  #c { background: linear-gradient(180deg, #1B1C1F 0%, #26272B 55%, #141517 100%); }
+  #c .lights {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle 120px at 15% 22%, rgba(255, 178, 90, 0.55), transparent 70%),
+      radial-gradient(circle 90px at 50% 12%, rgba(255, 178, 90, 0.45), transparent 70%),
+      radial-gradient(circle 140px at 86% 26%, rgba(255, 178, 90, 0.5), transparent 70%),
+      radial-gradient(circle 70px at 70% 40%, rgba(255, 178, 90, 0.35), transparent 70%);
+    filter: blur(8px);
   }
-  #f .answer .lead { font-size: 34px; font-weight: 900; text-align: center; }
-  #f .answer .lead em { font-style: normal; color: #FFD83D; }
-  #f .toast { margin: 34px 60px 0; }
-  #f .brand { position: absolute; left: 48px; right: 48px; bottom: 34px; display: flex; align-items: center; gap: 14px; }
-  #f .brand .name { font-size: 44px; font-weight: 800; }
-  #f .brand .chip { margin-left: auto; background: #FFD83D; color: #10141C; font-size: 24px; }
+  /* 吊り下げ照明の線と、カウンターの板 */
+  #c .cords { position: absolute; inset: 0; }
+  #c .cords i { position: absolute; top: 0; width: 2px; background: rgba(255, 255, 255, 0.18); }
+  #c .cords i::after {
+    content: ""; position: absolute; left: -8px; bottom: -18px; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--amber); box-shadow: 0 0 24px 8px rgba(255, 178, 90, 0.55);
+  }
+  #c .counter {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 110px;
+    background: linear-gradient(180deg, #7A5A3E 0 14px, #5B4330 14px 100%);
+    box-shadow: 0 -20px 40px rgba(0, 0, 0, 0.45);
+  }
+  #c .tiles {
+    position: absolute; left: 0; right: 0; bottom: 110px; height: 90px;
+    background-image: linear-gradient(rgba(255,255,255,0.06) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,0.06) 2px, transparent 2px);
+    background-size: 60px 45px;
+    opacity: 0.9;
+  }
+  #c .head { top: 210px; }
+  #c .head .lead { color: #D9CBB8; }
+  #c .head .name { color: #F2EBE0; }
+  #c .head .name b { color: var(--eye); font-weight: inherit; }
+  #c .toast { top: 460px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 178, 90, 0.18); }
+
+  /* ---------- D: 銀白 ---------- */
+  #d { background: linear-gradient(160deg, #FFFFFF 0%, #EEF2F7 60%, #DCE4EE 100%); color: var(--ink); }
+  /* 髪の流れを思わせる、斜めの細い筋 */
+  #d .strands {
+    position: absolute; inset: -200px;
+    background: repeating-linear-gradient(115deg, rgba(185, 195, 207, 0.0) 0 22px, rgba(185, 195, 207, 0.35) 22px 24px, rgba(255,255,255,0) 24px 60px);
+    mask-image: radial-gradient(ellipse 60% 70% at 70% 30%, #000, transparent 75%);
+  }
+  /* 瞳の青い光 */
+  #d .glow {
+    position: absolute; left: 50%; top: 470px; width: 520px; height: 220px; margin-left: -260px;
+    background: radial-gradient(ellipse at 50% 50%, rgba(61, 139, 255, 0.55), rgba(61, 139, 255, 0) 70%);
+    filter: blur(6px);
+  }
+  #d .head { top: 200px; }
+  #d .head .lead { color: #5C6B7D; }
+  #d .head .name { color: var(--ink); }
+  #d .head .name b { color: var(--eye); font-weight: inherit; }
+  #d .toast { top: 450px; box-shadow: 0 24px 48px rgba(20, 26, 36, 0.28); }
 </style>
 </head>
 <body>
 
-<!-- A: 王道ダーク。見出しと通知カードの束で「何が起きるか」を一目で伝える -->
+<!-- A: 宇宙。地球の縁と白いリング光。銀白の文字に青い光 -->
 <section class="cand" id="a">
-  <span class="chip tag">XSOverlay 対応</span>
-  <h1>Windowsの通知を<br><em>VRの中</em>で受け取る</h1>
-  <div class="stack">
-    <div class="toast"><div class="ic chat">#</div><div class="t">チャット</div><div class="b">新着メッセージが 2 件あります</div></div>
-    <div class="toast"><div class="ic mail">✉</div><div class="t">メール</div><div class="b">明日のイベントについて</div></div>
-    <div class="toast"><div class="ic status">!</div><div class="t">VRChat</div><div class="b">一部で障害が発生しています</div></div>
-  </div>
-  <div class="foot">
-    <svg class="appicon" width="76" height="76" data-bell></svg>
-    <div><div class="name latin">KxNotifyUtils</div><div class="sub">exe 1 つで動く / SteamVR と連動して自動起動</div></div>
-    <span class="chip free">無料</span>
-  </div>
-</section>
-
-<!-- B: 明るいポップ。アイコンを主役にして一覧で目を引く -->
-<section class="cand" id="b">
+  <div class="nebula"></div>
+  <div class="stars" data-stars="140"></div>
   <div class="ring"></div>
-  <div class="icon-wrap"><svg class="appicon" width="240" height="240" data-bell></svg></div>
-  <div class="toast l"><div class="ic chat">#</div><div class="t">チャット</div><div class="b">新着メッセージ</div></div>
-  <div class="toast r"><div class="ic mail">✉</div><div class="t">メール</div><div class="b">明日のイベントについて</div></div>
-  <div class="catch">
-    <div class="lead">HMD を外さずに</div>
-    <h1>通知を VR へ</h1>
-    <div class="name latin">KxNotifyUtils</div>
-  </div>
-  <div class="row">
-    <span class="chip"><b>●</b> XSOverlay 対応</span>
-    <span class="chip"><b>●</b> SteamVR 連動</span>
-    <span class="chip"><b>●</b> 障害も通知</span>
-  </div>
-</section>
-
-<!-- C: VR 空間で商品名を主役にする。人気の通知ツールに多い、名前と実際の通知だけを見せる構成 -->
-<section class="cand" id="c">
-  <div class="scene"></div>
-  <div class="floor"></div>
+  <div class="earth"></div>
+  <div class="cloud"></div>
   <div class="head">
     <div class="lead">Windows の通知を VR で受け取る</div>
     <div class="name latin">KxNotifyUtils</div>
   </div>
-  <div class="toast"><div class="ic chat">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
-  <div class="chips">
-    <span class="chip free">無料</span>
-    <span class="chip">XSOverlay 対応</span>
-    <span class="chip">SteamVR と連動</span>
-  </div>
+  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
 </section>
 
-<!-- D: ミニマル。大きな文字と機能の箇条書きで説明的に -->
+<!-- B: 夕暮れの星空。桃と橙と青の空に、針葉樹の影 -->
+<section class="cand" id="b">
+  <div class="haze"></div>
+  <div class="stars" data-stars="90" data-max="500"></div>
+  <div class="head">
+    <div class="lead">HMD を外さずに通知を確認</div>
+    <div class="name latin">KxNotifyUtils</div>
+  </div>
+  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
+  <div class="trees"><svg viewBox="0 0 800 260" preserveAspectRatio="none" data-trees></svg></div>
+</section>
+
+<!-- C: カフェの夜。琥珀の照明とカウンター。青の差し色 -->
+<section class="cand" id="c">
+  <div class="lights"></div>
+  <div class="cords">
+    <i style="left:120px;height:150px"></i>
+    <i style="left:400px;height:90px"></i>
+    <i style="left:690px;height:180px"></i>
+  </div>
+  <div class="tiles"></div>
+  <div class="counter"></div>
+  <div class="head">
+    <div class="lead">Windows の通知を VR で受け取る</div>
+    <div class="name latin">Kx<b>Notify</b>Utils</div>
+  </div>
+  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
+</section>
+
+<!-- D: 銀白。白地に髪の筋と、瞳の青い光 -->
 <section class="cand" id="d">
-  <div class="top">
-    <div class="kicker">XSOverlay 向け 通知中継ツール</div>
-    <h1>通知を、<br>VRへ。</h1>
+  <div class="strands"></div>
+  <div class="glow"></div>
+  <div class="head">
+    <div class="lead">Windows の通知を VR で受け取る</div>
+    <div class="name latin">Kx<b>Notify</b>Utils</div>
   </div>
-  <div class="toast"><div class="ic app">✓</div><div class="t">テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
-  <div class="bottom">
-    <div class="brand">
-      <svg class="appicon" width="72" height="72" data-bell></svg>
-      <span class="name latin">KxNotifyUtils</span>
-    </div>
-    <ul>
-      <li>Windows の通知を中継</li>
-      <li>VRChat などの障害を検知</li>
-      <li>アプリごとに見た目を調整</li>
-      <li>SteamVR と連動して起動</li>
-    </ul>
-  </div>
-</section>
-
-<!-- E: 使用シーン型。VR 内の画面に縁取りの見出しを重ねる。スキ数上位の VR アプリに最も多い構成 -->
-<section class="cand" id="e">
-  <div class="floor"></div>
-  <div class="shot"></div>
-  <div class="dim"></div>
-  <span class="chip pill">XSOverlay 対応</span>
-  <div class="catch">
-    <div class="outline l1">HMD を外さずに</div>
-    <div class="outline l2">通知が見える！</div>
-  </div>
-  <div class="toast"><div class="ic chat">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
-  <div class="feat">
-    <span>アプリごとにアイコンや音を変えられる</span>
-    <span>VRChat などの障害もお知らせ</span>
-    <span>SteamVR と一緒に起動・終了</span>
-  </div>
-  <div class="brand">
-    <svg class="appicon" width="64" height="64" data-bell></svg>
-    <span class="name latin outline">KxNotifyUtils</span>
-  </div>
-  <div class="sticker"><div><small>ぜんぶ</small>無料</div></div>
-</section>
-
-<!-- F: 困りごと提起型。よくある不満を大きく書き、その答えとして通知を見せる -->
-<section class="cand" id="f">
-  <div class="rays"></div>
-  <div class="worry">
-    <div class="outline l1">通知が来るたびに</div>
-    <div class="outline l2">HMD 外すの<br><em>めんどくさい！</em></div>
-  </div>
-  <div class="arrow"></div>
-  <div class="answer">
-    <div class="lead">その通知、<em>VR の中</em>で見られます</div>
-    <div class="toast"><div class="ic mail">✉</div><div class="t">メール</div><div class="b">明日のイベントについて</div></div>
-    <div class="brand">
-      <svg class="appicon" width="60" height="60" data-bell></svg>
-      <span class="name latin">KxNotifyUtils</span>
-      <span class="chip">無料 / XSOverlay 対応</span>
-    </div>
-  </div>
+  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
 </section>
 
 <script>
-  // tools/generate_icon.py のベルと同じ形を SVG で描く。座標はアイコン一辺を 1 とした中心基準。
-  function bellPath(s) {
-    const c = s / 2, pts = [];
-    for (let i = 0; i <= 40; i++) {
-      const t = i / 40, y = -0.24 + 0.36 * t, half = 0.10 + 0.20 * Math.pow(t, 1.5);
-      pts.push([c + half * s, c + y * s]);
+  // 星。位置と大きさは固定の擬似乱数で決め、書き出すたびに変わらないようにする
+  function rng(seed) { return () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296; }
+  document.querySelectorAll(".stars").forEach((el, k) => {
+    const r = rng(7 + k), n = +el.dataset.stars, maxY = +(el.dataset.max || 800);
+    for (let i = 0; i < n; i++) {
+      const s = document.createElement("i"), size = 1 + r() * 2.4;
+      s.style.cssText = `left:${r() * 800}px;top:${r() * maxY}px;width:${size}px;height:${size}px;opacity:${0.35 + r() * 0.65}`;
+      el.appendChild(s);
     }
-    const right = pts.map(p => p.join(",")).join(" L");
-    const left = pts.slice().reverse().map(p => [2 * c - p[0], p[1]].join(",")).join(" L");
-    // 本体の上端は丸く閉じる
-    const top = `A ${0.10 * s} ${0.06 * s} 0 0 1 ${pts[0][0]},${pts[0][1]}`;
-    return `M${right} L${left} ${top} Z`;
-  }
-  document.querySelectorAll("svg[data-bell]").forEach(svg => {
-    const s = 100;
-    svg.setAttribute("viewBox", `0 0 ${s} ${s}`);
-    const id = "g" + Math.random().toString(36).slice(2);
-    svg.innerHTML = `
-      <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#2B4A73"/><stop offset="1" stop-color="#1F2A37"/>
-      </linearGradient></defs>
-      <rect width="100" height="100" rx="22" fill="url(#${id})"/>
-      <g fill="#fff">
-        <path d="${bellPath(s)}"/>
-        <circle cx="50" cy="${50 - 28}" r="4.5"/>
-        <rect x="${50 - 34}" y="${50 + 12}" width="68" height="5" rx="2.5"/>
-        <circle cx="50" cy="${50 + 24}" r="7"/>
-      </g>`;
   });
+
+  // 針葉樹の影。三角を三段重ねた形を並べる
+  const trees = document.querySelector("[data-trees]");
+  if (trees) {
+    const r = rng(3); let d = "";
+    for (let x = -20; x < 830; x += 26 + r() * 22) {
+      const h = 70 + r() * 90, w = 16 + r() * 12, base = 260;
+      for (let t = 0; t < 3; t++) {
+        const y = base - h * (0.35 + t * 0.32), ww = w * (1 - t * 0.22), top = y - h * 0.42;
+        d += `M${x - ww},${y} L${x},${top} L${x + ww},${y} Z `;
+      }
+      d += `M${x - 2},${base} L${x - 2},${base - h * 0.3} L${x + 2},${base - h * 0.3} L${x + 2},${base} Z `;
+    }
+    trees.innerHTML = `<path d="${d}" fill="#1C1A3A" opacity="0.92"/>`;
+  }
 </script>
 </body>
 </html>
