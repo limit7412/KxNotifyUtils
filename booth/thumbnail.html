@@ -34,29 +34,33 @@
   .head .lead { font-size: 28px; font-weight: 500; letter-spacing: 0.12em; }
   .head .name { font-size: 92px; font-weight: 800; letter-spacing: -0.015em; line-height: 1.1; margin-top: 8px; }
 
-  /* XSOverlay の通知ポップアップを模したカード。
-     左上に丸いアイコン、中央寄せのタイトル、区切り線、本文の順に並ぶ。 */
+  /* XSOverlay に実際に出る KxNotifyUtils の通知を模したカード。
+     半透明の灰色の板に、明るめのタイトル帯と本文。左上に丸いアイコンと青い弧が付く。 */
   .toast {
     position: absolute; left: 190px; right: 190px;
-    background: rgba(56, 62, 70, 0.94);
-    border-radius: 12px; padding: 0 28px 18px;
+    background: rgba(62, 68, 78, 0.82);
+    border-radius: 14px; padding: 6px 6px 8px;
     text-align: center; color: #fff;
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
   }
   .toast .ic {
-    position: absolute; left: -16px; top: -16px;
-    width: 52px; height: 52px; border-radius: 50%;
-    border: 3px solid #2A2F36;
+    position: absolute; left: -14px; top: -8px; z-index: 1;
+    width: 54px; height: 54px; border-radius: 50%;
+    background: #1B2028; border: 3px solid #2C323C;
     display: grid; place-items: center;
-    font-weight: 900; font-size: 22px; color: #fff;
-    background: linear-gradient(135deg, #5AA0FF, var(--eye-deep));
   }
+  .toast .ic::before {
+    content: ""; position: absolute; inset: -7px; border-radius: 50%;
+    border: 3px solid var(--eye); border-right-color: transparent; border-bottom-color: transparent;
+    transform: rotate(-30deg);
+  }
+  .toast .ic svg { width: 26px; height: 26px; fill: #fff; }
   .toast .t {
     font-size: 19px; font-weight: 500; line-height: 1.3;
-    margin: 0 8px 0 24px; padding: 14px 0 10px;
-    border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.12); border-radius: 10px;
+    padding: 10px 24px 10px 44px;
   }
-  .toast .b { font-size: 19px; line-height: 1.45; padding-top: 12px; color: #E6EAEF; }
+  .toast .b { font-size: 19px; line-height: 1.45; padding: 30px 24px 24px; color: #EDF0F4; }
 
   /* JustNotification（星空と山の影、中央に一行と商品名、その下に通知）と構成が重ならないよう、
      星空と地平の影は使わず、文字も中央に積まない。 */
@@ -79,7 +83,7 @@
   #a .head { left: auto; right: 56px; top: 96px; text-align: right; }
   #a .head .lead { color: var(--silver-dim); }
   #a .head .name { color: var(--silver); font-size: 80px; text-shadow: 0 0 40px rgba(61, 139, 255, 0.5); }
-  #a .toast { left: auto; right: 56px; width: 430px; top: 330px; }
+  #a .toast { left: auto; right: 56px; width: 470px; top: 330px; }
 
   /* ---------- B: 黒と青 ---------- */
   /* 黒い服に青い差し色。斜めの青い帯に商品名を乗せる */
@@ -162,7 +166,7 @@
     <div class="lead">Windows の通知を VR で受け取る</div>
     <div class="name latin">KxNotifyUtils</div>
   </div>
-  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
+  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">KxNotifyUtils: テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
 </section>
 
 <!-- B: 黒と青。斜めの青い帯に商品名 -->
@@ -172,7 +176,7 @@
     <div class="lead">HMD を外さずに通知を確認</div>
     <div class="name latin">KxNotifyUtils</div>
   </div>
-  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
+  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">KxNotifyUtils: テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
 </section>
 
 <!-- C: カフェの夜。文字は左、通知は右下 -->
@@ -188,14 +192,14 @@
     <div class="lead">Windows の通知を VR で受け取る</div>
     <div class="name latin">Kx<b>Notify</b>Utils</div>
   </div>
-  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
+  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">KxNotifyUtils: テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
 </section>
 
 <!-- D: 銀白。通知が上、商品名が下 -->
 <section class="cand" id="d">
   <div class="strands"></div>
   <div class="glow"></div>
-  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
+  <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2.5a1.6 1.6 0 0 1 1.6 1.6v.6c2.6.7 4.4 3 4.4 5.8v4l1.7 2.3a.8.8 0 0 1-.6 1.3H4.9a.8.8 0 0 1-.6-1.3L6 14.5v-4c0-2.8 1.8-5.1 4.4-5.8v-.6A1.6 1.6 0 0 1 12 2.5zM9.6 19.5h4.8a2.4 2.4 0 0 1-4.8 0z"/></svg></div><div class="t">KxNotifyUtils: テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div>
   <div class="head">
     <div class="lead">Windows の通知を VR で受け取る</div>
     <div class="name latin">Kx<b>Notify</b>Utils</div>
