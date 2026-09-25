@@ -8,12 +8,12 @@ name: Auto Pre-release
 # 同じ次期バージョンの `-testN` が既にあれば N を 1 つ進める。
 # パッチ以外（マイナー・メジャー）を上げたいプレリリースは、従来どおり手動で作成する。
 #
-# exe の生成と添付は release.yml に任せず、このワークフロー内で行う。
+# exe と zip の生成と添付は release.yml に任せず、このワークフロー内で行う。
 # GITHUB_TOKEN で作成したリリースは、ワークフローの連鎖起動を防ぐ GitHub Actions の
 # 仕様により `release` イベントを発火させないため、release.yml はここで作ったプレリリース
 # に対しては動かない。
 # 安定版リリースは手動作成であり、その場合は `release` イベントが発火して release.yml が
-# exe の添付を行う。
+# exe と zip の添付を行う。
 
 on:
   push:
@@ -194,6 +194,14 @@ jobs:
         with:
           version: ${{ steps.version.outputs.version }}
 
+      - name: 配布用の zip を作る
+        id: package
+        # BOOTH へ頒布するときに使う。中身と名前は scripts/package.ps1 が決める。
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/package.ps1 -Version "$env:INPUT_VERSION"
+
       - name: プレリリースを作る
         uses: softprops/action-gh-release@v2
         with:
@@ -203,6 +211,9 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: KxNotifyUtils.exe
+          # exe 単体の添付は外さない。更新の確認と自動更新が名前で探している。
+          files: |
+            KxNotifyUtils.exe
+            ${{ steps.package.outputs.path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
