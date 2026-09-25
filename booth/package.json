@@ -1,0 +1,15 @@
+{
+  "name": "kxnotifyutils-booth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "@fontsource/noto-sans-jp": "^5.2.0",
+    "@fontsource/inter": "^5.2.0"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

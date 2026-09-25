@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>KxNotifyUtils BOOTH トップ画像候補</title>
+<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-jp/400.css">
+<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-jp/700.css">
+<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-jp/900.css">
+<link rel="stylesheet" href="node_modules/@fontsource/inter/600.css">
+<link rel="stylesheet" href="node_modules/@fontsource/inter/800.css">
+<style>
+  /* アイコン (tools/generate_icon.py) と同じ配色 */
+  :root {
+    --navy: #1F2A37;
+    --navy-deep: #0F1722;
+    --blue: #4C9AFF;
+    --blue-soft: #A9CCFF;
+    --ink: #E8EEF6;
+    --muted: #93A4B8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #555;
+    font-family: "Noto Sans JP", sans-serif;
+    display: flex; flex-wrap: wrap; gap: 24px; padding: 24px;
+  }
+  .cand {
+    width: 800px; height: 800px; position: relative; overflow: hidden;
+    color: var(--ink);
+  }
+  .latin { font-family: "Inter", "Noto Sans JP", sans-serif; }
+
+  /* XSOverlay の通知ポップアップを模したカード */
+  .toast {
+    display: flex; align-items: center; gap: 18px;
+    background: rgba(24, 32, 44, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    padding: 18px 24px 18px 18px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+    color: #fff;
+  }
+  .toast .ic {
+    flex: none; width: 60px; height: 60px; border-radius: 14px;
+    display: grid; place-items: center;
+    font-weight: 900; font-size: 26px; color: #fff;
+  }
+  .toast .t { font-weight: 700; font-size: 22px; line-height: 1.3; }
+  .toast .b { font-size: 18px; color: #C5D0DD; line-height: 1.4; margin-top: 2px; }
+  .ic.chat { background: linear-gradient(135deg, #7B83FF, #5865F2); }
+  .ic.mail { background: linear-gradient(135deg, #FF8A7A, #E5533D); }
+  .ic.status { background: linear-gradient(135deg, #FFC94D, #F29D12); color: #3A2600; }
+  .ic.app { background: linear-gradient(135deg, #5FD39A, #22A566); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    border-radius: 999px; padding: 8px 18px;
+    font-weight: 700; font-size: 20px; white-space: nowrap;
+  }
+  .appicon { display: block; }
+
+  /* ---------- A: 王道ダーク ---------- */
+  #a {
+    background:
+      radial-gradient(circle at 78% 30%, rgba(76, 154, 255, 0.38), transparent 55%),
+      radial-gradient(circle at 10% 95%, rgba(76, 154, 255, 0.18), transparent 50%),
+      linear-gradient(160deg, #182232, var(--navy-deep));
+  }
+  #a .tag {
+    position: absolute; left: 56px; top: 56px;
+    background: var(--blue); color: #fff;
+  }
+  #a h1 {
+    position: absolute; left: 56px; top: 118px;
+    font-weight: 900; font-size: 64px; line-height: 1.22; letter-spacing: 0.01em;
+  }
+  #a h1 em { font-style: normal; color: var(--blue); }
+  #a .stack {
+    position: absolute; left: 150px; right: 56px; top: 330px;
+    display: flex; flex-direction: column; gap: 16px;
+    transform: perspective(1400px) rotateY(-10deg) rotateX(4deg);
+    transform-origin: right center;
+  }
+  #a .stack .toast:nth-child(2) { margin-left: -40px; margin-right: 40px; }
+  #a .stack .toast:nth-child(3) { opacity: 0.92; }
+  #a .foot {
+    position: absolute; left: 56px; right: 56px; bottom: 50px;
+    display: flex; align-items: center; gap: 18px;
+  }
+  #a .foot .name { font-size: 40px; font-weight: 800; letter-spacing: -0.01em; }
+  #a .foot .sub { font-size: 18px; color: var(--muted); margin-top: 2px; }
+  #a .foot .free {
+    margin-left: auto;
+    border: 2px solid var(--blue); color: var(--blue-soft);
+  }
+
+  /* ---------- B: 明るいポップ ---------- */
+  #b {
+    background:
+      radial-gradient(circle at 50% 30%, #FFFFFF, transparent 60%),
+      linear-gradient(180deg, #EAF2FF, #CFE2FF);
+    color: var(--navy);
+  }
+  #b .icon-wrap {
+    position: absolute; left: 50%; top: 80px; transform: translateX(-50%);
+    filter: drop-shadow(0 20px 30px rgba(31, 42, 55, 0.28));
+  }
+  #b .ring {
+    position: absolute; left: 50%; top: 50px; width: 300px; height: 300px;
+    transform: translateX(-50%); border-radius: 50%;
+    border: 3px dashed rgba(76, 154, 255, 0.45);
+  }
+  #b .toast { position: absolute; width: 270px; background: rgba(24, 32, 44, 0.97); padding: 14px 18px 14px 14px; }
+  #b .toast .ic { width: 48px; height: 48px; font-size: 20px; border-radius: 12px; }
+  #b .toast .t { font-size: 19px; }
+  #b .toast .b { font-size: 15px; }
+  #b .toast.l { left: 28px; top: 96px; transform: rotate(-5deg); }
+  #b .toast.r { right: 28px; top: 262px; transform: rotate(4deg); }
+  #b .catch {
+    position: absolute; left: 0; right: 0; top: 410px; text-align: center;
+  }
+  #b .catch .lead { font-size: 30px; font-weight: 700; color: #3C6FB8; }
+  #b .catch h1 { font-size: 88px; font-weight: 900; line-height: 1.15; margin-top: 6px; }
+  #b .catch .name { font-size: 34px; font-weight: 800; margin-top: 16px; letter-spacing: -0.01em; }
+  #b .row {
+    position: absolute; left: 40px; right: 40px; bottom: 64px;
+    display: flex; justify-content: center; gap: 12px;
+  }
+  #b .row .chip { background: #fff; color: var(--navy); box-shadow: 0 6px 14px rgba(31, 42, 55, 0.12); font-size: 19px; }
+  #b .row .chip b { color: var(--blue); }
+
+  /* ---------- C: HMD 視点 ---------- */
+  #c { background: #05080D; }
+  #c .scene {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 50% 38%, rgba(120, 90, 200, 0.55), transparent 55%),
+      radial-gradient(ellipse at 20% 20%, rgba(76, 154, 255, 0.35), transparent 50%),
+      linear-gradient(180deg, #1A1640 0%, #0B1024 55%, #05080D 100%);
+  }
+  #c .floor {
+    position: absolute; left: -50%; right: -50%; bottom: -80px; height: 420px;
+    background-image:
+      linear-gradient(rgba(140, 180, 255, 0.35) 2px, transparent 2px),
+      linear-gradient(90deg, rgba(140, 180, 255, 0.35) 2px, transparent 2px);
+    background-size: 70px 70px;
+    transform: perspective(500px) rotateX(62deg);
+    transform-origin: center top;
+    mask-image: linear-gradient(180deg, transparent, #000 40%);
+  }
+  /* レンズの縁 */
+  #c .lens {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 62% 58% at 50% 46%, transparent 70%, rgba(0, 0, 0, 0.92) 100%);
+  }
+  #c .toast {
+    position: absolute; left: 110px; right: 110px; top: 190px;
+    background: rgba(20, 26, 38, 0.88);
+    box-shadow: 0 0 0 1px rgba(169, 204, 255, 0.25), 0 0 60px rgba(76, 154, 255, 0.45);
+  }
+  #c .toast.small { top: 312px; left: 150px; right: 150px; opacity: 0.8; transform: scale(0.94); }
+  #c .hud {
+    position: absolute; left: 56px; top: 56px;
+    font-size: 18px; color: var(--blue-soft); letter-spacing: 0.12em;
+  }
+  #c .hud::before {
+    content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    background: #FF5A5A; margin-right: 10px; vertical-align: 1px;
+    box-shadow: 0 0 10px #FF5A5A;
+  }
+  #c .bottom {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 0 56px 52px;
+    background: linear-gradient(180deg, transparent, rgba(5, 8, 13, 0.95) 40%);
+  }
+  #c h1 { font-size: 60px; font-weight: 900; line-height: 1.22; }
+  #c h1 em { font-style: normal; color: var(--blue); }
+  #c .meta { display: flex; align-items: center; gap: 16px; margin-top: 22px; }
+  #c .meta .name { font-size: 30px; font-weight: 800; }
+  #c .meta .chip { border: 2px solid rgba(169, 204, 255, 0.5); color: var(--blue-soft); font-size: 17px; padding: 6px 14px; }
+
+  /* ---------- D: ミニマル ---------- */
+  #d { background: #fff; color: var(--navy); }
+  #d .top {
+    position: absolute; left: 0; right: 0; top: 0; height: 470px;
+    background: linear-gradient(150deg, #5AA6FF, #2F7BE5);
+    color: #fff; padding: 64px 60px;
+  }
+  #d .top .kicker { font-size: 24px; font-weight: 700; opacity: 0.9; }
+  #d .top h1 { font-size: 104px; font-weight: 900; line-height: 1.12; margin-top: 14px; letter-spacing: -0.01em; }
+  #d .toast {
+    position: absolute; left: 60px; right: 60px; top: 395px;
+    background: #1F2A37;
+  }
+  #d .bottom { position: absolute; left: 60px; right: 60px; top: 555px; }
+  #d .brand { display: flex; align-items: center; gap: 16px; }
+  #d .brand .name { font-size: 44px; font-weight: 800; letter-spacing: -0.01em; }
+  #d ul {
+    list-style: none; margin-top: 26px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px;
+  }
+  #d li { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  #d li::before {
+    content: ""; flex: none; width: 12px; height: 12px; border-radius: 3px; background: var(--blue);
+  }
+</style>
+</head>
+<body>
+
+<!-- A: 王道ダーク。見出しと通知カードの束で「何が起きるか」を一目で伝える -->
+<section class="cand" id="a">
+  <span class="chip tag">XSOverlay 対応</span>
+  <h1>Windowsの通知を<br><em>VRの中</em>で受け取る</h1>
+  <div class="stack">
+    <div class="toast"><div class="ic chat">#</div><div><div class="t">チャット</div><div class="b">新着メッセージが 2 件あります</div></div></div>
+    <div class="toast"><div class="ic mail">✉</div><div><div class="t">メール</div><div class="b">明日のイベントについて</div></div></div>
+    <div class="toast"><div class="ic status">!</div><div><div class="t">VRChat</div><div class="b">一部で障害が発生しています</div></div></div>
+  </div>
+  <div class="foot">
+    <svg class="appicon" width="76" height="76" data-bell></svg>
+    <div><div class="name latin">KxNotifyUtils</div><div class="sub">exe 1 つで動く / SteamVR と連動して自動起動</div></div>
+    <span class="chip free">無料</span>
+  </div>
+</section>
+
+<!-- B: 明るいポップ。アイコンを主役にして一覧で目を引く -->
+<section class="cand" id="b">
+  <div class="ring"></div>
+  <div class="icon-wrap"><svg class="appicon" width="240" height="240" data-bell></svg></div>
+  <div class="toast l"><div class="ic chat">#</div><div><div class="t">チャット</div><div class="b">新着メッセージ</div></div></div>
+  <div class="toast r"><div class="ic mail">✉</div><div><div class="t">メール</div><div class="b">明日のイベントについて</div></div></div>
+  <div class="catch">
+    <div class="lead">HMD を外さずに</div>
+    <h1>通知を VR へ</h1>
+    <div class="name latin">KxNotifyUtils</div>
+  </div>
+  <div class="row">
+    <span class="chip"><b>●</b> XSOverlay 対応</span>
+    <span class="chip"><b>●</b> SteamVR 連動</span>
+    <span class="chip"><b>●</b> 障害も通知</span>
+  </div>
+</section>
+
+<!-- C: HMD 視点。VR 空間に通知が浮かぶ様子で使用感を伝える -->
+<section class="cand" id="c">
+  <div class="scene"></div>
+  <div class="floor"></div>
+  <div class="toast"><div class="ic chat">#</div><div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div></div>
+  <div class="toast small"><div class="ic status">!</div><div><div class="t">YouTube</div><div class="b">復旧しました</div></div></div>
+  <div class="lens"></div>
+  <div class="hud latin">IN VR</div>
+  <div class="bottom">
+    <h1>HMD を被ったまま<br><em>通知</em>を見逃さない</h1>
+    <div class="meta">
+      <svg class="appicon" width="56" height="56" data-bell></svg>
+      <span class="name latin">KxNotifyUtils</span>
+      <span class="chip">XSOverlay 対応</span>
+      <span class="chip">無料</span>
+    </div>
+  </div>
+</section>
+
+<!-- D: ミニマル。大きな文字と機能の箇条書きで説明的に -->
+<section class="cand" id="d">
+  <div class="top">
+    <div class="kicker">XSOverlay 向け 通知中継ツール</div>
+    <h1>通知を、<br>VRへ。</h1>
+  </div>
+  <div class="toast"><div class="ic app">✓</div><div><div class="t">テスト通知</div><div class="b">通知はこの見た目と音で届きます</div></div></div>
+  <div class="bottom">
+    <div class="brand">
+      <svg class="appicon" width="72" height="72" data-bell></svg>
+      <span class="name latin">KxNotifyUtils</span>
+    </div>
+    <ul>
+      <li>Windows の通知を中継</li>
+      <li>VRChat などの障害を検知</li>
+      <li>アプリごとに見た目を調整</li>
+      <li>SteamVR と連動して起動</li>
+    </ul>
+  </div>
+</section>
+
+<script>
+  // tools/generate_icon.py のベルと同じ形を SVG で描く。座標はアイコン一辺を 1 とした中心基準。
+  function bellPath(s) {
+    const c = s / 2, pts = [];
+    for (let i = 0; i <= 40; i++) {
+      const t = i / 40, y = -0.24 + 0.36 * t, half = 0.10 + 0.20 * Math.pow(t, 1.5);
+      pts.push([c + half * s, c + y * s]);
+    }
+    const right = pts.map(p => p.join(",")).join(" L");
+    const left = pts.slice().reverse().map(p => [2 * c - p[0], p[1]].join(",")).join(" L");
+    // 本体の上端は丸く閉じる
+    const top = `A ${0.10 * s} ${0.06 * s} 0 0 1 ${pts[0][0]},${pts[0][1]}`;
+    return `M${right} L${left} ${top} Z`;
+  }
+  document.querySelectorAll("svg[data-bell]").forEach(svg => {
+    const s = 100;
+    svg.setAttribute("viewBox", `0 0 ${s} ${s}`);
+    const id = "g" + Math.random().toString(36).slice(2);
+    svg.innerHTML = `
+      <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#2B4A73"/><stop offset="1" stop-color="#1F2A37"/>
+      </linearGradient></defs>
+      <rect width="100" height="100" rx="22" fill="url(#${id})"/>
+      <g fill="#fff">
+        <path d="${bellPath(s)}"/>
+        <circle cx="50" cy="${50 - 28}" r="4.5"/>
+        <rect x="${50 - 34}" y="${50 + 12}" width="68" height="5" rx="2.5"/>
+        <circle cx="50" cy="${50 + 24}" r="7"/>
+      </g>`;
+  });
+</script>
+</body>
+</html>
