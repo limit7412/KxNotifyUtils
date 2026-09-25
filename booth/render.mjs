@@ -16,7 +16,7 @@ const page = await browser.newPage({ viewport: { width: 1800, height: 1800 }, de
 await page.goto("file://" + path.join(dir, "thumbnail.html"));
 await page.evaluate(() => document.fonts.ready);
 
-for (const id of ["a", "b", "c", "d"]) {
+for (const id of ["a", "b", "c", "d", "e", "f"]) {
   const file = path.join(out, `thumbnail-${id}.png`);
   await page.locator(`#${id}`).screenshot({ path: file });
   console.log(file);

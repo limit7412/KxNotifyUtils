@@ -199,6 +199,91 @@
   #d li::before {
     content: ""; flex: none; width: 12px; height: 12px; border-radius: 3px; background: var(--blue);
   }
+
+  /* 縁取り付きの太字。VRChat 向けアプリの人気商品で多い見出しの書き方 */
+  .outline {
+    font-weight: 900;
+    -webkit-text-stroke: 14px var(--stroke, #10141C);
+    paint-order: stroke fill;
+    text-shadow: 0 8px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  /* ---------- E: 使用シーン型 ---------- */
+  /* assets/scene.jpg に VR 内のスクリーンショットを置くと背景に敷かれる。無いときは描画した部屋を使う */
+  #e {
+    background:
+      radial-gradient(ellipse at 70% 35%, rgba(255, 190, 120, 0.55), transparent 50%),
+      linear-gradient(180deg, #5B7BB8 0%, #9FB4D8 45%, #E8C9A6 62%, #6B5446 63%, #3A2E28 100%);
+  }
+  #e .shot { position: absolute; inset: 0; background: url(assets/scene.jpg) center / cover no-repeat; }
+  #e .floor {
+    position: absolute; left: -50%; right: -50%; bottom: -40px; height: 320px;
+    background-image:
+      linear-gradient(rgba(255, 230, 200, 0.18) 2px, transparent 2px),
+      linear-gradient(90deg, rgba(255, 230, 200, 0.18) 2px, transparent 2px);
+    background-size: 80px 80px;
+    transform: perspective(500px) rotateX(60deg); transform-origin: center top;
+  }
+  #e .dim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0.25), transparent 35%, transparent 60%, rgba(0,0,0,0.55)); }
+  #e .pill {
+    position: absolute; left: 44px; top: 40px;
+    background: #10141C; color: #fff; font-size: 22px; padding: 8px 20px;
+  }
+  #e .catch { position: absolute; left: 40px; top: 112px; transform: rotate(-4deg); transform-origin: left top; }
+  #e .catch .l1 { font-size: 64px; color: #fff; line-height: 1.2; }
+  #e .catch .l2 { font-size: 92px; color: #FFE14D; line-height: 1.15; }
+  #e .toast {
+    position: absolute; left: 150px; right: 150px; top: 390px;
+    transform: perspective(900px) rotateY(-12deg) rotateX(4deg);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 24px 50px rgba(0, 0, 0, 0.5);
+  }
+  #e .toast .t { font-size: 22px; }
+  #e .toast .b { font-size: 24px; }
+  #e .feat {
+    position: absolute; left: 40px; bottom: 124px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #e .feat span {
+    align-self: flex-start;
+    background: rgba(16, 20, 28, 0.85); color: #fff; font-weight: 700; font-size: 22px;
+    padding: 6px 16px; border-left: 6px solid #FFE14D;
+  }
+  #e .brand { position: absolute; left: 40px; bottom: 36px; display: flex; align-items: center; gap: 14px; }
+  #e .brand .name { font-size: 54px; color: #fff; --stroke: #10141C; -webkit-text-stroke-width: 10px; }
+  #e .sticker {
+    position: absolute; right: 36px; bottom: 44px; width: 150px; height: 150px; border-radius: 50%;
+    background: #FF4D5E; color: #fff; display: grid; place-items: center; text-align: center;
+    font-weight: 900; font-size: 50px; line-height: 1; transform: rotate(10deg);
+    box-shadow: 0 0 0 7px #fff, 0 12px 24px rgba(0, 0, 0, 0.35);
+  }
+  #e .sticker small { display: block; font-size: 18px; margin-bottom: 6px; }
+
+  /* ---------- F: 困りごと提起型 ---------- */
+  #f { background: #FFD83D; color: #10141C; }
+  #f .rays {
+    position: absolute; left: 50%; top: 250px; width: 1600px; height: 1600px; margin: -800px 0 0 -800px;
+    background: repeating-conic-gradient(rgba(255, 255, 255, 0.55) 0deg 4deg, transparent 4deg 12deg);
+    mask-image: radial-gradient(circle, transparent 18%, #000 45%);
+  }
+  #f .worry { position: absolute; left: 0; right: 0; top: 60px; text-align: center; transform: rotate(-3deg); --stroke: #fff; }
+  #f .outline { text-shadow: none; filter: drop-shadow(0 6px 0 #10141C); }
+  #f .worry .l1 { font-size: 44px; }
+  #f .worry .l2 { font-size: 96px; line-height: 1.12; }
+  #f .worry .l2 em { font-style: normal; color: #E8313F; }
+  #f .arrow {
+    position: absolute; left: 50%; top: 392px; width: 0; height: 0; margin-left: -60px;
+    border-left: 60px solid transparent; border-right: 60px solid transparent; border-top: 56px solid #E8313F;
+  }
+  #f .answer {
+    position: absolute; left: 0; right: 0; top: 440px; bottom: 0;
+    background: #1F2A37; color: #fff; padding: 36px 48px 0;
+  }
+  #f .answer .lead { font-size: 34px; font-weight: 900; text-align: center; }
+  #f .answer .lead em { font-style: normal; color: #FFD83D; }
+  #f .toast { margin: 34px 60px 0; }
+  #f .brand { position: absolute; left: 48px; right: 48px; bottom: 34px; display: flex; align-items: center; gap: 14px; }
+  #f .brand .name { font-size: 44px; font-weight: 800; }
+  #f .brand .chip { margin-left: auto; background: #FFD83D; color: #10141C; font-size: 24px; }
 </style>
 </head>
 <body>
@@ -271,6 +356,48 @@
       <li>アプリごとに見た目を調整</li>
       <li>SteamVR と連動して起動</li>
     </ul>
+  </div>
+</section>
+
+<!-- E: 使用シーン型。VR 内の画面に縁取りの見出しを重ねる。スキ数上位の VR アプリに最も多い構成 -->
+<section class="cand" id="e">
+  <div class="floor"></div>
+  <div class="shot"></div>
+  <div class="dim"></div>
+  <span class="chip pill">XSOverlay 対応</span>
+  <div class="catch">
+    <div class="outline l1">HMD を外さずに</div>
+    <div class="outline l2">通知が見える！</div>
+  </div>
+  <div class="toast"><div class="ic chat">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
+  <div class="feat">
+    <span>アプリごとにアイコンや音を変えられる</span>
+    <span>VRChat などの障害もお知らせ</span>
+    <span>SteamVR と一緒に起動・終了</span>
+  </div>
+  <div class="brand">
+    <svg class="appicon" width="64" height="64" data-bell></svg>
+    <span class="name latin outline">KxNotifyUtils</span>
+  </div>
+  <div class="sticker"><div><small>ぜんぶ</small>無料</div></div>
+</section>
+
+<!-- F: 困りごと提起型。よくある不満を大きく書き、その答えとして通知を見せる -->
+<section class="cand" id="f">
+  <div class="rays"></div>
+  <div class="worry">
+    <div class="outline l1">通知が来るたびに</div>
+    <div class="outline l2">HMD 外すの<br><em>めんどくさい！</em></div>
+  </div>
+  <div class="arrow"></div>
+  <div class="answer">
+    <div class="lead">その通知、<em>VR の中</em>で見られます</div>
+    <div class="toast"><div class="ic mail">✉</div><div class="t">メール</div><div class="b">明日のイベントについて</div></div>
+    <div class="brand">
+      <svg class="appicon" width="60" height="60" data-bell></svg>
+      <span class="name latin">KxNotifyUtils</span>
+      <span class="chip">無料 / XSOverlay 対応</span>
+    </div>
   </div>
 </section>
 
