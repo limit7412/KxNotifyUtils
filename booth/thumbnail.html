@@ -58,76 +58,58 @@
   }
   .toast .b { font-size: 19px; line-height: 1.45; padding-top: 12px; color: #E6EAEF; }
 
-  .stars { position: absolute; inset: 0; pointer-events: none; }
-  .stars i { position: absolute; border-radius: 50%; background: #fff; }
+  /* JustNotification（星空と山の影、中央に一行と商品名、その下に通知）と構成が重ならないよう、
+     星空と地平の影は使わず、文字も中央に積まない。 */
 
-  /* ---------- A: 宇宙 ---------- */
-  #a { background: var(--space); }
-  #a .nebula {
-    position: absolute; inset: 0;
-    background:
-      radial-gradient(ellipse 60% 40% at 30% 25%, rgba(61, 139, 255, 0.28), transparent 70%),
-      radial-gradient(ellipse 50% 40% at 80% 60%, rgba(27, 79, 216, 0.22), transparent 70%);
-  }
-  /* 地球の縁。画面下に大きな円を置き、大気の青い光を縁に乗せる */
+  /* ---------- A: 軌道上 ---------- */
+  /* 地球を左下に大きく置き、文字は右上に寄せる */
+  #a { background: linear-gradient(200deg, #0B1226 0%, var(--space) 60%); }
   #a .earth {
-    position: absolute; left: 50%; top: 640px; width: 2200px; height: 2200px; margin-left: -1100px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 50% 8%, #2C64C8 0%, #143A86 12%, #0B1F4E 26%, #050B1C 45%);
-    box-shadow: 0 0 60px 20px rgba(80, 150, 255, 0.45), 0 0 160px 60px rgba(61, 139, 255, 0.25);
+    position: absolute; left: -1000px; top: 200px; width: 1600px; height: 1600px; border-radius: 50%;
+    background: radial-gradient(circle at 70% 30%, #4C8DF0 0%, #1E4FB4 18%, #0E2A6E 38%, #050B1C 60%);
+    box-shadow: 0 0 50px 14px rgba(90, 160, 255, 0.5), 0 0 140px 50px rgba(61, 139, 255, 0.22);
   }
   #a .cloud {
-    position: absolute; left: 0; right: 0; top: 640px; height: 160px;
+    position: absolute; left: -1000px; top: 200px; width: 1600px; height: 1600px; border-radius: 50%;
     background:
-      radial-gradient(ellipse 120px 26px at 18% 40%, rgba(255,255,255,0.35), transparent 70%),
-      radial-gradient(ellipse 200px 30px at 55% 55%, rgba(255,255,255,0.3), transparent 70%),
-      radial-gradient(ellipse 140px 24px at 85% 35%, rgba(255,255,255,0.32), transparent 70%);
+      radial-gradient(ellipse 90px 22px at 82% 24%, rgba(255,255,255,0.45), transparent 70%),
+      radial-gradient(ellipse 140px 26px at 88% 36%, rgba(255,255,255,0.35), transparent 70%),
+      radial-gradient(ellipse 110px 20px at 78% 46%, rgba(255,255,255,0.4), transparent 70%);
   }
-  /* 右手の白いリング光 */
-  #a .ring {
-    position: absolute; right: -950px; top: -850px; width: 1200px; height: 1200px; border-radius: 50%;
-    border: 6px solid rgba(255, 255, 255, 0.85);
-    box-shadow: 0 0 40px rgba(255, 255, 255, 0.6), inset 0 0 40px rgba(255, 255, 255, 0.4);
-  }
-  #a .head { top: 190px; }
+  #a .head { left: auto; right: 56px; top: 96px; text-align: right; }
   #a .head .lead { color: var(--silver-dim); }
-  #a .head .name { color: var(--silver); text-shadow: 0 0 40px rgba(61, 139, 255, 0.55); }
-  #a .toast { top: 440px; }
+  #a .head .name { color: var(--silver); font-size: 80px; text-shadow: 0 0 40px rgba(61, 139, 255, 0.5); }
+  #a .toast { left: auto; right: 56px; width: 430px; top: 330px; }
 
-  /* ---------- B: 夕暮れの星空 ---------- */
-  #b {
-    background:
-      radial-gradient(ellipse 50% 45% at 20% 85%, #FF9C7A 0%, rgba(255, 156, 122, 0) 70%),
-      radial-gradient(ellipse 45% 40% at 70% 20%, #FFB98A 0%, rgba(255, 185, 138, 0) 70%),
-      radial-gradient(ellipse 60% 50% at 85% 70%, #7A5BD8 0%, rgba(122, 91, 216, 0) 70%),
-      linear-gradient(200deg, #2C4FB8 0%, #4E63C9 35%, #B872B9 70%, #FFA07E 100%);
+  /* ---------- B: 黒と青 ---------- */
+  /* 黒い服に青い差し色。斜めの青い帯に商品名を乗せる */
+  #b { background: linear-gradient(160deg, #1A1F28 0%, #0F131A 100%); }
+  #b .band {
+    position: absolute; left: -200px; right: -200px; top: 270px; height: 200px;
+    background: linear-gradient(90deg, #2A62E8, #3D8BFF);
+    transform: rotate(-8deg);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
   }
-  #b .haze {
-    position: absolute; inset: 0;
-    background:
-      radial-gradient(ellipse 30% 20% at 40% 40%, rgba(255,255,255,0.25), transparent 70%),
-      radial-gradient(ellipse 35% 18% at 65% 62%, rgba(120, 200, 255, 0.25), transparent 70%);
+  #b .band::before {
+    content: ""; position: absolute; inset: 14px 0;
+    border-top: 2px solid rgba(255, 255, 255, 0.35); border-bottom: 2px solid rgba(255, 255, 255, 0.35);
   }
-  /* 針葉樹の影。三角を重ねただけの形 */
-  #b .trees { position: absolute; left: 0; right: 0; bottom: 0; height: 200px; }
-  #b .trees svg { position: absolute; left: 0; bottom: 0; width: 100%; height: 100%; }
-  #b .head { top: 150px; }
-  #b .head .lead { color: #fff; text-shadow: 0 2px 12px rgba(40, 30, 80, 0.5); }
-  #b .head .name { color: #fff; text-shadow: 0 4px 24px rgba(40, 30, 80, 0.55); }
-  #b .toast { top: 400px; }
+  #b .head { left: 56px; right: auto; top: 90px; text-align: left; }
+  #b .head .lead { color: var(--silver-dim); }
+  #b .head .name { color: #fff; font-size: 84px; margin-top: 190px; transform: rotate(-8deg); transform-origin: left center; }
+  #b .toast { left: 300px; right: 56px; top: 560px; }
 
   /* ---------- C: カフェの夜 ---------- */
+  /* 文字を左に寄せ、通知を右下に置く */
   #c { background: linear-gradient(180deg, #1B1C1F 0%, #26272B 55%, #141517 100%); }
   #c .lights {
     position: absolute; inset: 0;
     background:
-      radial-gradient(circle 120px at 15% 22%, rgba(255, 178, 90, 0.55), transparent 70%),
-      radial-gradient(circle 90px at 50% 12%, rgba(255, 178, 90, 0.45), transparent 70%),
-      radial-gradient(circle 140px at 86% 26%, rgba(255, 178, 90, 0.5), transparent 70%),
-      radial-gradient(circle 70px at 70% 40%, rgba(255, 178, 90, 0.35), transparent 70%);
+      radial-gradient(circle 110px at 62% 18%, rgba(255, 178, 90, 0.5), transparent 70%),
+      radial-gradient(circle 140px at 88% 30%, rgba(255, 178, 90, 0.5), transparent 70%),
+      radial-gradient(circle 70px at 76% 44%, rgba(255, 178, 90, 0.35), transparent 70%);
     filter: blur(8px);
   }
-  /* 吊り下げ照明の線と、カウンターの板 */
   #c .cords { position: absolute; inset: 0; }
   #c .cords i { position: absolute; top: 0; width: 2px; background: rgba(255, 255, 255, 0.18); }
   #c .cords i::after {
@@ -143,42 +125,37 @@
     position: absolute; left: 0; right: 0; bottom: 110px; height: 90px;
     background-image: linear-gradient(rgba(255,255,255,0.06) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,0.06) 2px, transparent 2px);
     background-size: 60px 45px;
-    opacity: 0.9;
   }
-  #c .head { top: 210px; }
+  #c .head { left: 56px; right: auto; top: 250px; text-align: left; }
   #c .head .lead { color: #D9CBB8; }
-  #c .head .name { color: #F2EBE0; }
+  #c .head .name { color: #F2EBE0; font-size: 84px; }
   #c .head .name b { color: var(--eye); font-weight: inherit; }
-  #c .toast { top: 460px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 178, 90, 0.18); }
+  #c .toast { left: 320px; right: 56px; top: 500px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 178, 90, 0.18); }
 
   /* ---------- D: 銀白 ---------- */
+  /* 白地。通知を上に置き、商品名を下に置く */
   #d { background: linear-gradient(160deg, #FFFFFF 0%, #EEF2F7 60%, #DCE4EE 100%); color: var(--ink); }
-  /* 髪の流れを思わせる、斜めの細い筋 */
   #d .strands {
     position: absolute; inset: -200px;
     background: repeating-linear-gradient(115deg, rgba(185, 195, 207, 0.0) 0 22px, rgba(185, 195, 207, 0.35) 22px 24px, rgba(255,255,255,0) 24px 60px);
     mask-image: radial-gradient(ellipse 60% 70% at 70% 30%, #000, transparent 75%);
   }
-  /* 瞳の青い光 */
   #d .glow {
-    position: absolute; left: 50%; top: 470px; width: 520px; height: 220px; margin-left: -260px;
-    background: radial-gradient(ellipse at 50% 50%, rgba(61, 139, 255, 0.55), rgba(61, 139, 255, 0) 70%);
+    position: absolute; left: 50%; top: 180px; width: 560px; height: 240px; margin-left: -280px;
+    background: radial-gradient(ellipse at 50% 50%, rgba(61, 139, 255, 0.5), rgba(61, 139, 255, 0) 70%);
     filter: blur(6px);
   }
-  #d .head { top: 200px; }
+  #d .toast { top: 210px; box-shadow: 0 24px 48px rgba(20, 26, 36, 0.28); }
+  #d .head { top: 430px; }
   #d .head .lead { color: #5C6B7D; }
   #d .head .name { color: var(--ink); }
   #d .head .name b { color: var(--eye); font-weight: inherit; }
-  #d .toast { top: 450px; box-shadow: 0 24px 48px rgba(20, 26, 36, 0.28); }
 </style>
 </head>
 <body>
 
-<!-- A: 宇宙。地球の縁と白いリング光。銀白の文字に青い光 -->
+<!-- A: 軌道上。地球を左下に大きく置き、文字は右上 -->
 <section class="cand" id="a">
-  <div class="nebula"></div>
-  <div class="stars" data-stars="140"></div>
-  <div class="ring"></div>
   <div class="earth"></div>
   <div class="cloud"></div>
   <div class="head">
@@ -188,25 +165,22 @@
   <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
 </section>
 
-<!-- B: 夕暮れの星空。桃と橙と青の空に、針葉樹の影 -->
+<!-- B: 黒と青。斜めの青い帯に商品名 -->
 <section class="cand" id="b">
-  <div class="haze"></div>
-  <div class="stars" data-stars="90" data-max="500"></div>
+  <div class="band"></div>
   <div class="head">
     <div class="lead">HMD を外さずに通知を確認</div>
     <div class="name latin">KxNotifyUtils</div>
   </div>
   <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
-  <div class="trees"><svg viewBox="0 0 800 260" preserveAspectRatio="none" data-trees></svg></div>
 </section>
 
-<!-- C: カフェの夜。琥珀の照明とカウンター。青の差し色 -->
+<!-- C: カフェの夜。文字は左、通知は右下 -->
 <section class="cand" id="c">
   <div class="lights"></div>
   <div class="cords">
-    <i style="left:120px;height:150px"></i>
-    <i style="left:400px;height:90px"></i>
-    <i style="left:690px;height:180px"></i>
+    <i style="left:496px;height:130px"></i>
+    <i style="left:700px;height:210px"></i>
   </div>
   <div class="tiles"></div>
   <div class="counter"></div>
@@ -217,43 +191,17 @@
   <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
 </section>
 
-<!-- D: 銀白。白地に髪の筋と、瞳の青い光 -->
+<!-- D: 銀白。通知が上、商品名が下 -->
 <section class="cand" id="d">
   <div class="strands"></div>
   <div class="glow"></div>
+  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
   <div class="head">
     <div class="lead">Windows の通知を VR で受け取る</div>
     <div class="name latin">Kx<b>Notify</b>Utils</div>
   </div>
-  <div class="toast"><div class="ic">#</div><div class="t">チャット</div><div class="b">そろそろワールド移動しよう</div></div>
 </section>
 
-<script>
-  // 星。位置と大きさは固定の擬似乱数で決め、書き出すたびに変わらないようにする
-  function rng(seed) { return () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296; }
-  document.querySelectorAll(".stars").forEach((el, k) => {
-    const r = rng(7 + k), n = +el.dataset.stars, maxY = +(el.dataset.max || 800);
-    for (let i = 0; i < n; i++) {
-      const s = document.createElement("i"), size = 1 + r() * 2.4;
-      s.style.cssText = `left:${r() * 800}px;top:${r() * maxY}px;width:${size}px;height:${size}px;opacity:${0.35 + r() * 0.65}`;
-      el.appendChild(s);
-    }
-  });
 
-  // 針葉樹の影。三角を三段重ねた形を並べる
-  const trees = document.querySelector("[data-trees]");
-  if (trees) {
-    const r = rng(3); let d = "";
-    for (let x = -20; x < 830; x += 26 + r() * 22) {
-      const h = 70 + r() * 90, w = 16 + r() * 12, base = 260;
-      for (let t = 0; t < 3; t++) {
-        const y = base - h * (0.35 + t * 0.32), ww = w * (1 - t * 0.22), top = y - h * 0.42;
-        d += `M${x - ww},${y} L${x},${top} L${x + ww},${y} Z `;
-      }
-      d += `M${x - 2},${base} L${x - 2},${base - h * 0.3} L${x + 2},${base - h * 0.3} L${x + 2},${base} Z `;
-    }
-    trees.innerHTML = `<path d="${d}" fill="#1C1A3A" opacity="0.92"/>`;
-  }
-</script>
 </body>
 </html>
