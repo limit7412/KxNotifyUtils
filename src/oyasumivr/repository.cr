@@ -110,7 +110,8 @@ module OyasumiVR
       @clock : Proc(Time::Span) = -> { Time.monotonic },
     )
       @interval = 5.seconds
-      @asleep = false
+      # 直近に読めた睡眠モード。見つけてから一度も読めていなければ nil である。
+      @asleep = nil.as(Bool?)
       @failures = 0
       @next_at = Time::Span.zero
       @inflight = false
@@ -119,8 +120,11 @@ module OyasumiVR
     end
 
     def state : Sleep::SignalState
-      return Sleep::SignalState::Unknown unless @enabled && @port
-      @asleep ? Sleep::SignalState::Asleep : Sleep::SignalState::Awake
+      # 見つけただけで読む前の拍を Awake とすると、睡眠モード中に見つけ直したときに
+      # 起きている間の上書きが下りてしまう。読めるまでは Unknown とする。
+      asleep = @asleep
+      return Sleep::SignalState::Unknown unless @enabled && @port && !asleep.nil?
+      asleep ? Sleep::SignalState::Asleep : Sleep::SignalState::Awake
     end
 
     def status : Status
@@ -133,7 +137,13 @@ module OyasumiVR
     end
 
     # 設定を反映する。使うかどうかが変わったときは、探すところからやり直す。
+    #
+    # 間隔を縮めたときは、次に読む時刻も新しい間隔に合わせて早める。
+    # 旧い間隔で決めた時刻のままだと、60 秒から 1 秒へ縮めても 60 秒近く読まない。
     def configure(enabled : Bool, interval : Time::Span) : Nil
+      if interval != @interval && @enabled && @port
+        @next_at = {@next_at, @clock.call + interval}.min
+      end
       @interval = interval
       return if enabled == @enabled
 
@@ -141,7 +151,7 @@ module OyasumiVR
       @generation += 1
       @inflight = false
       @port = nil
-      @asleep = false
+      @asleep = nil
       @failures = 0
       @next_at = @clock.call
     end
@@ -173,6 +183,7 @@ module OyasumiVR
       if found
         Log.info { "OyasumiVR を見つけた（ポート #{found}）" }
         @port = found
+        @asleep = nil
         @failures = 0
         @next_at = @clock.call
       else
@@ -205,7 +216,7 @@ module OyasumiVR
 
       Log.info { "OyasumiVR を見失った: #{result.message}" }
       @port = nil
-      @asleep = false
+      @asleep = nil
       @failures = 0
       @next_at = @clock.call
     ensure

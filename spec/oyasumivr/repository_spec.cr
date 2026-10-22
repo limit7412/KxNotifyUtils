@@ -17,7 +17,8 @@ private class FakeClient < OyasumiVR::Client
 
   def sleep_mode(port : Int32) : Bool
     @read_ports << port
-    result = @modes.shift? || Exception.new("応答しない")
+    # false を返す場面があるため、|| で既定の失敗に倒さない。
+    result = @modes.empty? ? Exception.new("応答しない") : @modes.shift
     raise result if result.is_a?(Exception)
     result
   end
@@ -67,6 +68,41 @@ describe OyasumiVR::Repository do
     client.read_ports.should eq [51234, 51234]
     target.status.should eq OyasumiVR::Status::Asleep
     target.state.should eq Sleep::SignalState::Asleep
+  end
+
+  # 睡眠モード中に見つけ直したとき、読む前の拍を Awake とすると起きている間の上書きが下りる。
+  it "見つけてから最初に読めるまでは Unknown とする" do
+    client = FakeClient.new
+    client.ports = [51234] of Int32?
+    client.modes = [true] of Bool | Exception
+    target = repository(client, Monotonic.new)
+    target.configure(true, 5.seconds)
+
+    target.tick
+    target.port.should eq 51234
+    target.state.should eq Sleep::SignalState::Unknown
+    target.status.should eq OyasumiVR::Status::NotFound
+
+    target.tick
+    target.state.should eq Sleep::SignalState::Asleep
+  end
+
+  it "確認間隔を縮めたら、次に読む時刻も新しい間隔に合わせる" do
+    client = FakeClient.new
+    client.ports = [51234] of Int32?
+    client.modes = [false, false] of Bool | Exception
+    clock = Monotonic.new
+    target = repository(client, clock)
+    target.configure(true, 60.seconds)
+    target.tick
+    target.tick
+    client.read_ports.size.should eq 1
+
+    target.configure(true, 1.second)
+    clock.now = 1.second
+    target.tick
+
+    client.read_ports.size.should eq 2
   end
 
   it "見つからなければ 30 秒おいて探し直す" do
