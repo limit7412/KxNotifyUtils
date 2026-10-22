@@ -96,6 +96,8 @@ module Runtime
       # 更新の確認の状態と、新しい版のリリースページ（issue #10）。
       # 版の比較は update コンテキストが持つため、結果だけを受け取る。
       @update_status : Proc(String) = -> { I18n.t("settings.about.update_unchecked") },
+      # OyasumiVR 連携の状態（issue #54）。
+      @oyasumivr_status : Proc(String) = -> { I18n.t("status.unknown") },
       @update_url : Proc(String?) = -> { nil.as(String?) },
       # 取得と適用の操作の、見出しと押せるかどうか（issue #10 第 2 段階）。
       # 何を押せるかは composition root が決める。
@@ -123,6 +125,7 @@ module Runtime
       @access_label = nil.as(UIng::Label?)
       @steamvr_label = nil.as(UIng::Label?)
       @update_label = nil.as(UIng::Label?)
+      @oyasumivr_label = nil.as(UIng::Label?)
       @update_button = nil.as(UIng::Button?)
       @update_action_button = nil.as(UIng::Button?)
       @steamvr_register_button = nil.as(UIng::Button?)
@@ -292,6 +295,19 @@ module Runtime
       manual_form.append(I18n.t("settings.general.sleep_manual_duration"), spin("sleep.manual_duration_h", 1, 24), false)
       inner.append(manual_form, false)
       inner.append(UIng::Label.new(I18n.t("settings.general.sleep_manual_note")), false)
+      inner.append(check("sleep.oyasumivr.enabled", I18n.t("settings.general.sleep_oyasumivr_enabled")), false)
+      oyasumivr_form = UIng::Form.new(padded: true)
+      oyasumivr_form.append(
+        I18n.t("settings.general.sleep_oyasumivr_interval"),
+        spin("sleep.oyasumivr.poll_interval_s", 1, 60),
+        false,
+      )
+      inner.append(oyasumivr_form, false)
+      oyasumivr_label = UIng::Label.new(
+        I18n.t("settings.general.sleep_oyasumivr_status", {"status" => I18n.t("status.unknown")}))
+      @oyasumivr_label = oyasumivr_label
+      inner.append(oyasumivr_label, false)
+      inner.append(UIng::Label.new(I18n.t("settings.general.sleep_oyasumivr_note")), false)
       group.child = inner
       group
     end
@@ -626,6 +642,8 @@ module Runtime
       set_text("sleep.schedule.start", @draft.sleep.schedule.start_time)
       set_text("sleep.schedule.end", @draft.sleep.schedule.end_time)
       set_spin("sleep.manual_duration_h", @draft.sleep.manual_duration_h)
+      set_check("sleep.oyasumivr.enabled", @draft.sleep.oyasumivr.enabled)
+      set_spin("sleep.oyasumivr.poll_interval_s", @draft.sleep.oyasumivr.poll_interval_s)
 
       windows = WinNotification::Settings.from_section(@draft.source(WinNotification::SOURCE_ID))
       set_check("sources.windows.enabled", windows.enabled)
@@ -982,6 +1000,9 @@ module Runtime
         label.text = I18n.t("settings.steamvr.status", {"status" => @steamvr_status.call})
       end
       @update_label.try { |label| label.text = @update_status.call }
+      @oyasumivr_label.try do |label|
+        label.text = I18n.t("settings.general.sleep_oyasumivr_status", {"status" => @oyasumivr_status.call})
+      end
       connected = @steamvr_connected.call
       {@steamvr_register_button, @steamvr_unregister_button}.each do |control|
         control.try { |target| connected ? target.enable : target.disable }
@@ -1015,6 +1036,8 @@ module Runtime
       root.sleep.schedule.start_time = trimmed("sleep.schedule.start")
       root.sleep.schedule.end_time = trimmed("sleep.schedule.end")
       root.sleep.manual_duration_h = spin_value("sleep.manual_duration_h")
+      root.sleep.oyasumivr.enabled = checked?("sleep.oyasumivr.enabled")
+      root.sleep.oyasumivr.poll_interval_s = spin_value("sleep.oyasumivr.poll_interval_s")
 
       root.sources = root.sources.dup
       root.sources[WinNotification::SOURCE_ID] = JSON.parse({

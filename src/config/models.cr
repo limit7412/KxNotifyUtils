@@ -341,6 +341,20 @@ module Config
     end
   end
 
+  # OyasumiVR 連携の設定（issue #54）。
+  class SleepOyasumiVR
+    include JSON::Serializable
+
+    property enabled : Bool = false
+
+    # 睡眠モードを読みに行く間隔。
+    # 切り替えに追従するまでの遅れはこの長さまでになる。
+    property poll_interval_s : Int32 = 5
+
+    def initialize
+    end
+  end
+
   # sleep セクション（issue #54）。
   # 睡眠中と判断する入力ごとに項目を持つ。
   class SleepSection
@@ -351,6 +365,8 @@ module Config
     property manual_duration_h : Int32 = 8
 
     property schedule : SleepSchedule = SleepSchedule.new
+
+    property oyasumivr : SleepOyasumiVR = SleepOyasumiVR.new
 
     def initialize
     end

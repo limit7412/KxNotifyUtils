@@ -187,5 +187,14 @@
   "tray.menu.stop_sleep": "End sleep mode",
   "tray.tip.sleep.manual": "Sleep pause (manual)",
   "settings.general.sleep_manual_duration": "Sleep mode length (hours)",
-  "settings.general.sleep_manual_note": "How long \"Start sleep mode\" in the tray pauses relaying. If the schedule is enabled, it lasts until the next end time instead. \"End sleep mode\" also works during the scheduled range and resumes relaying until that range ends."
+  "settings.general.sleep_manual_note": "How long \"Start sleep mode\" in the tray pauses relaying. If the schedule is enabled, it lasts until the next end time instead. \"End sleep mode\" also works during the scheduled range and resumes relaying until that range ends.",
+  "tray.tip.sleep.oyasumivr": "Sleep pause (OyasumiVR)",
+  "settings.general.sleep_oyasumivr_enabled": "Do not relay while OyasumiVR sleep mode is on",
+  "settings.general.sleep_oyasumivr_interval": "Sleep mode check interval (seconds)",
+  "settings.general.sleep_oyasumivr_status": "OyasumiVR: {status}",
+  "settings.general.sleep_oyasumivr_note": "Requires OyasumiVR 1.11.0 or later running on the same PC. No OyasumiVR settings are needed. \"End sleep mode\" during OyasumiVR sleep mode resumes relaying until sleep mode turns off.",
+  "status.oyasumivr.disabled": "not in use",
+  "status.oyasumivr.not_found": "not found",
+  "status.oyasumivr.connected": "connected",
+  "status.oyasumivr.asleep": "in sleep mode"
 }

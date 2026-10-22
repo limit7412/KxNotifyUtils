@@ -349,6 +349,20 @@ describe Config::Usecase do
       end
     end
 
+    it "1 から 60 を外れた sleep.oyasumivr.poll_interval_s を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+
+      [0, 61].each do |seconds|
+        root.sleep.oyasumivr.poll_interval_s = seconds
+        target.validate(root).map(&.message).any?(&.includes?("sleep.oyasumivr.poll_interval_s")).should be_true
+      end
+      [1, 60].each do |seconds|
+        root.sleep.oyasumivr.poll_interval_s = seconds
+        target.validate(root).should be_empty
+      end
+    end
+
     it "開始と終了が同じ sleep.schedule を弾く" do
       target, _ = usecase
       root = Config::Root.default

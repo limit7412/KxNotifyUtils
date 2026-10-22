@@ -11,5 +11,7 @@ module Sleep
     Manual
     # スケジュールの時間帯に入っている。
     Schedule
+    # OyasumiVR が睡眠モードに入っている。
+    OyasumiVR
   end
 end

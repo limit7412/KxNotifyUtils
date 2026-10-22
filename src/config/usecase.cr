@@ -336,6 +336,10 @@ module Config
       if start && finish && start == finish
         errors << ValidationError.new("全般", "sleep.schedule.start と sleep.schedule.end は別の時刻で指定する")
       end
+
+      unless (1..60).includes?(root.sleep.oyasumivr.poll_interval_s)
+        errors << ValidationError.new("全般", "sleep.oyasumivr.poll_interval_s は 1 から 60 の範囲で指定する")
+      end
     end
 
     # defaults とルール解決後の値に共通する数値範囲とファイル存在の検証。
