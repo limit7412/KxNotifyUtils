@@ -176,5 +176,11 @@
   "settings.dialog.update_unsaved_body": "Applying the update restarts the app. Save your changes or close the settings window, then press the button again.",
   "settings.about.update_broken": "The executable is missing from its original path (see the log for recovery steps)",
   "notify.update_postponed.title": "The update was not applied",
-  "notify.update_postponed.body": "Some records could not be written to the settings file. Make it writable and try again."
+  "notify.update_postponed.body": "Some records could not be written to the settings file. Make it writable and try again.",
+  "tray.tip.sleep.schedule": "Sleep pause (schedule)",
+  "settings.general.sleep_group": "Pause while sleeping",
+  "settings.general.sleep_schedule_enabled": "Do not relay during a set time range",
+  "settings.general.sleep_schedule_start": "Start time",
+  "settings.general.sleep_schedule_end": "End time",
+  "settings.general.sleep_schedule_note": "Use 24-hour HH:MM (e.g. 23:30). If the start is later than the end, the range crosses midnight. Notifications that arrive while paused are discarded. Test notifications are still sent."
 }

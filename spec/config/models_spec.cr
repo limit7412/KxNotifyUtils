@@ -206,3 +206,77 @@ describe Config::Defaults do
     dynamic.max.should eq 15.0
   end
 end
+
+describe Config::SleepSchedule do
+  describe ".parse_minutes" do
+    it "HH:MM を 0 時からの分へ読み替える" do
+      Config::SleepSchedule.parse_minutes("00:00").should eq 0
+      Config::SleepSchedule.parse_minutes("08:30").should eq 510
+      Config::SleepSchedule.parse_minutes("23:59").should eq 1439
+    end
+
+    it "形式に合わない時刻は読まない" do
+      %w[24:00 12:60 8:00 08:0 0800 08-00 ab:cd 08:00:00].each do |text|
+        Config::SleepSchedule.parse_minutes(text).should be_nil, "#{text} を読んでしまった"
+      end
+      Config::SleepSchedule.parse_minutes("").should be_nil
+    end
+  end
+
+  describe "#active?" do
+    it "同じ日の範囲では開始を含み終了を含まない" do
+      schedule = Config::SleepSchedule.from_json(%({"enabled": true, "start": "01:00", "end": "08:00"}))
+
+      schedule.active?(Time.local(2026, 10, 22, 0, 59)).should be_false
+      schedule.active?(Time.local(2026, 10, 22, 1, 0)).should be_true
+      schedule.active?(Time.local(2026, 10, 22, 7, 59)).should be_true
+      schedule.active?(Time.local(2026, 10, 22, 8, 0)).should be_false
+    end
+
+    it "開始が終了より後なら日を跨ぐ" do
+      schedule = Config::SleepSchedule.from_json(%({"enabled": true, "start": "23:00", "end": "07:00"}))
+
+      schedule.active?(Time.local(2026, 10, 22, 22, 59)).should be_false
+      schedule.active?(Time.local(2026, 10, 22, 23, 0)).should be_true
+      schedule.active?(Time.local(2026, 10, 23, 0, 0)).should be_true
+      schedule.active?(Time.local(2026, 10, 23, 6, 59)).should be_true
+      schedule.active?(Time.local(2026, 10, 23, 7, 0)).should be_false
+      schedule.active?(Time.local(2026, 10, 23, 12, 0)).should be_false
+    end
+
+    it "無効なら範囲内でも入らない" do
+      schedule = Config::SleepSchedule.from_json(%({"enabled": false, "start": "01:00", "end": "08:00"}))
+
+      schedule.active?(Time.local(2026, 10, 22, 3, 0)).should be_false
+    end
+
+    # 検証は弾くが、手で書き換えた設定を読み直すまでの間に備える。
+    it "開始と終了が同じか、読めない時刻ではどの時刻も入らない" do
+      same = Config::SleepSchedule.from_json(%({"enabled": true, "start": "01:00", "end": "01:00"}))
+      broken = Config::SleepSchedule.from_json(%({"enabled": true, "start": "1:00", "end": "08:00"}))
+
+      [0, 1, 3, 12].each do |hour|
+        same.active?(Time.local(2026, 10, 22, hour, 0)).should be_false
+        broken.active?(Time.local(2026, 10, 22, hour, 0)).should be_false
+      end
+    end
+  end
+
+  it "設定ファイルには start と end のキーで書く" do
+    json = JSON.parse(Config::SleepSchedule.new.to_json)
+
+    json["start"].as_s.should eq "01:00"
+    json["end"].as_s.should eq "08:00"
+    json["enabled"].as_bool.should be_false
+  end
+end
+
+describe "Config::Root の sleep セクション" do
+  it "sleep が無い設定ファイルは無効の既定値で読む" do
+    root = Config::Root.from_json(%({}))
+
+    root.sleep.schedule.enabled.should be_false
+    root.sleep.schedule.start_time.should eq "01:00"
+    root.sleep.schedule.end_time.should eq "08:00"
+  end
+end
