@@ -272,7 +272,24 @@ module Runtime
       inner.append(update_form, false)
       group.child = inner
       box.append(group, false)
+      box.append(build_sleep_group, false)
       box
+    end
+
+    # 睡眠時の停止（issue #54）。
+    # 時刻はテキストで受け、形式は保存時の検証で確かめる。
+    # libui-ng の時刻ピッカーは Windows で秒まで出し、分までしか使わない設定には合わない。
+    private def build_sleep_group : UIng::Group
+      group = UIng::Group.new(I18n.t("settings.general.sleep_group"), margined: true)
+      inner = UIng::Box.new(:vertical, padded: true)
+      inner.append(check("sleep.schedule.enabled", I18n.t("settings.general.sleep_schedule_enabled")), false)
+      form = UIng::Form.new(padded: true)
+      form.append(I18n.t("settings.general.sleep_schedule_start"), entry("sleep.schedule.start"), false)
+      form.append(I18n.t("settings.general.sleep_schedule_end"), entry("sleep.schedule.end"), false)
+      inner.append(form, false)
+      inner.append(UIng::Label.new(I18n.t("settings.general.sleep_schedule_note")), false)
+      group.child = inner
+      group
     end
 
     private def build_sources_tab : UIng::Box
@@ -601,6 +618,9 @@ module Runtime
       set_choice("language", LANGUAGES, @draft.language)
       set_choice("update_channel", UPDATE_CHANNELS, @draft.update.channel)
       set_check("update.check_enabled", @draft.update.check_enabled)
+      set_check("sleep.schedule.enabled", @draft.sleep.schedule.enabled)
+      set_text("sleep.schedule.start", @draft.sleep.schedule.start_time)
+      set_text("sleep.schedule.end", @draft.sleep.schedule.end_time)
 
       windows = WinNotification::Settings.from_section(@draft.source(WinNotification::SOURCE_ID))
       set_check("sources.windows.enabled", windows.enabled)
@@ -986,6 +1006,9 @@ module Runtime
       # 画面を開いている間に更新の確認が終わると現在の設定だけが変わるため、
       # steamvr セクションと同じく、下書きの古い記録で上書きしない。
       root.update.notified_version = @config.current.update.notified_version
+      root.sleep.schedule.enabled = checked?("sleep.schedule.enabled")
+      root.sleep.schedule.start_time = trimmed("sleep.schedule.start")
+      root.sleep.schedule.end_time = trimmed("sleep.schedule.end")
 
       root.sources = root.sources.dup
       root.sources[WinNotification::SOURCE_ID] = JSON.parse({

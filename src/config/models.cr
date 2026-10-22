@@ -274,6 +274,71 @@ module Config
     end
   end
 
+  # 睡眠時の停止のスケジュール（issue #54）。
+  #
+  # 時刻は "HH:MM" の 24 時間表記で、ローカル時刻として読む。
+  # 開始が終了より後なら日を跨ぐ範囲とする。23:00 から 07:00 のような寝る時間帯を 1 つで書くためである。
+  class SleepSchedule
+    include JSON::Serializable
+
+    property enabled : Bool = false
+
+    # end は Crystal の予約語であり、そのままでは名前にできない。
+    # 対になる start も揃えて、キー名を明示した別名で持つ。
+    @[JSON::Field(key: "start")]
+    property start_time : String = "01:00"
+
+    @[JSON::Field(key: "end")]
+    property end_time : String = "08:00"
+
+    def initialize
+    end
+
+    # "HH:MM" を 0 時からの分へ読み替える。形式に合わなければ nil を返す。
+    #
+    # 主ループの 1 拍ごとに呼ばれるため、正規表現を使わずに文字を直に見る。
+    def self.parse_minutes(text : String) : Int32?
+      return nil unless text.size == 5 && text[2] == ':'
+      return nil unless {text[0], text[1], text[3], text[4]}.all?(&.ascii_number?)
+
+      hour = text[0].to_i * 10 + text[1].to_i
+      minute = text[3].to_i * 10 + text[4].to_i
+      return nil unless hour < 24 && minute < 60
+      hour * 60 + minute
+    end
+
+    # time がスケジュールの範囲に入っているか。
+    #
+    # 範囲は開始時刻を含み、終了時刻を含まない。
+    # 無効なとき、時刻を読めないとき、開始と終了が同じときは、どの時刻も範囲に入らない。
+    # 読めない時刻や同じ時刻は検証で弾いているが、手で書き換えた設定を読み直すまでの間に備える。
+    def active?(time : Time) : Bool
+      return false unless @enabled
+      start = SleepSchedule.parse_minutes(@start_time)
+      finish = SleepSchedule.parse_minutes(@end_time)
+      return false unless start && finish
+      return false if start == finish
+
+      now = time.hour * 60 + time.minute
+      if start < finish
+        start <= now && now < finish
+      else
+        now >= start || now < finish
+      end
+    end
+  end
+
+  # sleep セクション（issue #54）。
+  # 睡眠中と判断する入力ごとに項目を持つ。
+  class SleepSection
+    include JSON::Serializable
+
+    property schedule : SleepSchedule = SleepSchedule.new
+
+    def initialize
+    end
+  end
+
   # 設定ファイル全体。
   #
   # sources と sinks は識別子をキーにした生の JSON として保持する。
@@ -289,6 +354,7 @@ module Config
     property rules : Array(Rule) = [] of Rule
     property steamvr : SteamVRSection = SteamVRSection.new
     property update : UpdateSection = UpdateSection.new
+    property sleep : SleepSection = SleepSection.new
     property log_level : String = "info"
     # UI の言語。"auto" は OS の表示言語に従う。反映は次回の起動時である（issue #4）。
     property language : String = "auto"

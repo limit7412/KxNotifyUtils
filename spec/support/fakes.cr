@@ -81,6 +81,15 @@ module Fakes
     end
   end
 
+  # 睡眠中かを外から切り替えられる SleepGate。
+  class SleepGate < Notify::SleepGate
+    property sleeping : Bool = false
+
+    def sleeping? : Bool
+      @sleeping
+    end
+  end
+
   class Icons < Notify::IconRepository
     property files : Hash(String, String) = {} of String => String
 

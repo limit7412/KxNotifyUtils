@@ -306,6 +306,46 @@ describe Config::Usecase do
       end
     end
 
+    it "既定の sleep.schedule は検証を通る" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.sleep.schedule.enabled = true
+
+      target.validate(root).should be_empty
+    end
+
+    it "HH:MM で読めない sleep.schedule の時刻を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.sleep.schedule.start_time = "25:00"
+      root.sleep.schedule.end_time = "7:00"
+
+      messages = target.validate(root).map(&.message)
+      messages.any?(&.includes?("sleep.schedule.start")).should be_true
+      messages.any?(&.includes?("sleep.schedule.end")).should be_true
+    end
+
+    # 無効でも値はファイルに残り、有効にした時点でそのまま使われる。
+    it "無効にしていても sleep.schedule の時刻を検証する" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.sleep.schedule.enabled = false
+      root.sleep.schedule.start_time = "abc"
+
+      target.validate(root).map(&.message).any?(&.includes?("sleep.schedule.start")).should be_true
+    end
+
+    it "開始と終了が同じ sleep.schedule を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+      root.sleep.schedule.start_time = "03:00"
+      root.sleep.schedule.end_time = "03:00"
+
+      errors = target.validate(root)
+      errors.size.should eq 1
+      errors.first.section.should eq "全般"
+    end
+
     it "未知の log_level を弾く" do
       target, _ = usecase
       root = Config::Root.default

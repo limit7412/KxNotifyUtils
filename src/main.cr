@@ -19,6 +19,8 @@ require "./runtime/win32"
 require "./service_status/models"
 require "./service_status/repository"
 require "./service_status/usecase"
+require "./sleep/models"
+require "./sleep/usecase"
 require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
@@ -134,6 +136,10 @@ module KxNotifyUtils
       @update_broken = false
       # その旨を知らせ済みか。起動時に起きた場合はトレイがまだ無いので、後で知らせ直す。
       @update_broken_notified = false
+      # 睡眠中は中継しない（issue #54）。
+      @sleep = Sleep::Usecase.new(@config.current.sleep)
+      # 直前に見た止めている理由。切り替わりをログとトレイへ伝えるために持つ。
+      @sleep_reason = Sleep::Reason::None
       @relay = Notify::RelayUsecase.new(
         sources: [] of Notify::SourceRepository,
         sinks: @sinks,
@@ -142,6 +148,7 @@ module KxNotifyUtils
           ServiceStatus::MessageBuilder.new(@icons).as(Notify::MessageBuilder),
         ],
         config: @config.current,
+        sleep_gate: @sleep,
       )
 
       @openvr = SteamVR::OpenVRRepository.new
@@ -320,6 +327,7 @@ module KxNotifyUtils
     private def apply(root : ::Config::Root) : Nil
       Runtime::Logging.setup(@log_backend, root.log_level)
       @relay.config = root
+      @sleep.config = root.sleep
       @icons.clear
       build_sources(root)
       rebuild_sinks(root)
@@ -1243,6 +1251,7 @@ module KxNotifyUtils
     # 主ループからも、トレイメニュー表示中のタイマーからも呼ぶ。
     private def background_step : Nil
       step_ui
+      sync_sleep_state
       retry_sources if @source_slots.any?(&.retry_needed?)
       retry_steamvr if steamvr_retry_needed?
       retry_records if @scheduler.retry_record?
@@ -1250,6 +1259,23 @@ module KxNotifyUtils
       @scheduler.step
       # 他のファイバへ実行を渡す。WebSocket の接続維持はここで進む。
       Fiber.yield
+    end
+
+    # 止めている理由が変わったら、ログとトレイへ伝える（issue #54）。
+    #
+    # スケジュールは時刻だけで切り替わり、設定の保存のような契機が無い。
+    # そのため主ループの 1 拍ごとに見て、変わったときだけ伝える。
+    private def sync_sleep_state : Nil
+      reason = @sleep.reason
+      return if reason == @sleep_reason
+
+      if reason.none?
+        Log.info { "睡眠中の停止を解いた（#{@sleep_reason}）" }
+      else
+        Log.info { "睡眠中のため中継を止めた（#{reason}）" }
+      end
+      @sleep_reason = reason
+      @tray.sleep_reason = reason
     end
 
     # OpenVR につながっていないか、自動登録の決着がついていない間は試し直す。

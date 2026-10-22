@@ -176,5 +176,11 @@
   "settings.dialog.update_unsaved_body": "更新を適用するとアプリが再起動します。編集中の内容を保存するか、設定ウィンドウを閉じてから、もう一度押してください。",
   "settings.about.update_broken": "実行ファイルが元の場所に無い（復旧の手順はログに残している）",
   "notify.update_postponed.title": "更新を適用しませんでした",
-  "notify.update_postponed.body": "設定へ書き込めていない記録があります。設定ファイルを書き込める状態にしてから、もう一度お試しください"
+  "notify.update_postponed.body": "設定へ書き込めていない記録があります。設定ファイルを書き込める状態にしてから、もう一度お試しください",
+  "tray.tip.sleep.schedule": "睡眠中のため中継を止めています（スケジュール）",
+  "settings.general.sleep_group": "睡眠時の停止",
+  "settings.general.sleep_schedule_enabled": "決まった時間帯は中継しない",
+  "settings.general.sleep_schedule_start": "開始時刻",
+  "settings.general.sleep_schedule_end": "終了時刻",
+  "settings.general.sleep_schedule_note": "時刻は 24 時間表記の HH:MM で書く（例 23:30）。開始が終了より後なら日を跨ぐ。止めている間に届いた通知は破棄し、テスト通知は止めない。"
 }

@@ -45,6 +45,15 @@ module Notify
     end
   end
 
+  # 中継を止めるかを問い合わせる境界（issue #54）。
+  #
+  # 睡眠中かどうかは時刻や外部アプリの状態から決まり、notify はその決め方を知らない。
+  # 実装は sleep コンテキストが提供する。
+  abstract class SleepGate
+    # true の間は中継しない。主ループの 1 拍ごとに呼ぶため、待ちを伴う処理を入れない。
+    abstract def sleeping? : Bool
+  end
+
   # ルールが指定したアイコンファイルを読み出す境界。
   # usecase 自身は I/O を行わないため、ファイル読み出しはこの抽象越しに行う。
   abstract class IconRepository

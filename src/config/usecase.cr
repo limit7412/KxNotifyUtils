@@ -248,6 +248,7 @@ module Config
       validate_settings("既定の通知設定", root.defaults.to_resolved, errors)
       validate_rules(root, errors)
       validate_general(root, errors)
+      validate_sleep(root, errors)
       errors
     end
 
@@ -311,6 +312,25 @@ module Config
           "全般",
           "update.channel は #{UPDATE_CHANNELS.join(" / ")} のいずれかで指定する",
         )
+      end
+    end
+
+    # 睡眠時の停止（issue #54）。設定画面では全般タブに置くため、同じ見出しで返す。
+    #
+    # 無効にしていても時刻は検証する。値はファイルに残り、有効にした時点でそのまま使われるためである。
+    private def validate_sleep(root : Root, errors : Array(ValidationError)) : Nil
+      schedule = root.sleep.schedule
+      start = SleepSchedule.parse_minutes(schedule.start_time)
+      finish = SleepSchedule.parse_minutes(schedule.end_time)
+      unless start
+        errors << ValidationError.new("全般", "sleep.schedule.start は 00:00 から 23:59 の HH:MM で指定する")
+      end
+      unless finish
+        errors << ValidationError.new("全般", "sleep.schedule.end は 00:00 から 23:59 の HH:MM で指定する")
+      end
+      # 同じ時刻では範囲が空になる。終日止めたいなら一時停止を使えばよく、ここでは誤記として扱う。
+      if start && finish && start == finish
+        errors << ValidationError.new("全般", "sleep.schedule.start と sleep.schedule.end は別の時刻で指定する")
       end
     end
 

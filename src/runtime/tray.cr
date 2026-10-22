@@ -1,4 +1,5 @@
 require "log"
+require "../sleep/models"
 require "./i18n"
 require "./win32"
 
@@ -64,6 +65,16 @@ module Runtime
     end
 
     property steamvr_registered : Bool = false
+
+    # 睡眠中で中継を止めている理由（issue #54）。ツールチップに出す。
+    # SteamVR の状態と同じく、代入のたびに書き換えにいく。
+    getter sleep_reason : Sleep::Reason = Sleep::Reason::None
+
+    def sleep_reason=(value : Sleep::Reason) : Nil
+      @sleep_reason = value
+      update_tooltip
+    end
+
     # 更新の進み具合。取得と適用の項目の出し分けに使う。
     property update_state : UpdateState = UpdateState::None
 
@@ -228,12 +239,33 @@ module Runtime
     # 接続しているときも書く。行が無いことを「接続している」と読ませると、
     # 接続しているのか出し損ねているのかを見分けられない。
     #
+    # 睡眠中で中継を止めている間は、その理由を 3 行目に足す（issue #54）。
+    # 止めていない間は行を出さない。中継していることが普通の状態であり、
+    # SteamVR の行と違って「出し損ねているのか」を見分ける必要が無い。
+    #
     # szTip の配列は 128 だが、NIM_SETVERSION を呼んでいないため、
     # シェルが読むのは先頭 64 文字までである可能性がある。
-    # アプリ名と 1 行を足しても、日本語でも英語でも 40 文字に届かない。
+    # 終端の NUL を除いた 63 文字に収まることを spec で確かめている。
     private def tooltip_text : String
-      state = I18n.t(@steamvr_available ? "tray.tip.steamvr_connected" : "tray.tip.steamvr_disconnected")
-      "#{WINDOW_NAME}\n#{state}"
+      Tray.tooltip_text(@steamvr_available, @sleep_reason)
+    end
+
+    # ツールチップの文字列。状態を持たないので spec から直に呼べる。
+    def self.tooltip_text(steamvr_available : Bool, sleep_reason : Sleep::Reason) : String
+      lines = [WINDOW_NAME]
+      lines << I18n.t(steamvr_available ? "tray.tip.steamvr_connected" : "tray.tip.steamvr_disconnected")
+      sleep_key(sleep_reason).try { |key| lines << I18n.t(key) }
+      lines.join('\n')
+    end
+
+    # 理由ごとの辞書キー。
+    # 網羅の case にしておき、理由を足したときにここへの追加を忘れればコンパイルで止まるようにする。
+    # 辞書側の書き忘れは、キー名がそのまま出ていないかを見る spec が拾う。
+    private def self.sleep_key(reason : Sleep::Reason) : String?
+      case reason
+      in .none?     then nil
+      in .schedule? then "tray.tip.sleep.schedule"
+      end
     end
 
     private def notify_icon_data(flags : UInt32) : LibWin32::NotifyIconData

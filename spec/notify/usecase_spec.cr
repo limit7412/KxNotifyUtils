@@ -10,12 +10,13 @@ private def incoming(app_id = "com.squirrel.Discord.Discord", source = "windows"
   )
 end
 
-private def build_usecase(sources, sinks, config = Config::Root.default)
+private def build_usecase(sources, sinks, config = Config::Root.default, sleep_gate : Notify::SleepGate? = nil)
   Notify::RelayUsecase.new(
     sources: sources,
     sinks: sinks,
     builders: [WinNotification::MessageBuilder.new(Fakes::Icons.new).as(Notify::MessageBuilder)],
     config: config,
+    sleep_gate: sleep_gate,
   )
 end
 
@@ -65,6 +66,40 @@ describe Notify::RelayUsecase do
     usecase.tick
 
     sink.sent.should be_empty
+  end
+
+  describe "睡眠中の停止" do
+    it "睡眠中は送信しない" do
+      source = Fakes::Source.new("windows", [[incoming]])
+      sink = Fakes::Sink.new("xsoverlay")
+      gate = Fakes::SleepGate.new
+      gate.sleeping = true
+      usecase = build_usecase([source.as(Notify::SourceRepository)], [sink.as(Notify::PostRepository)], sleep_gate: gate)
+
+      usecase.tick
+
+      sink.sent.should be_empty
+    end
+
+    # 止めている間もポーリングを続けないと、差分検出に溜まった通知が起きた時点で一度に流れる。
+    it "睡眠中もポーリングを続け、届いた通知は起きた後に流さない" do
+      later = Notify::Incoming.new(
+        source: "windows", app_id: "com.example.A", app_name: "A", title: "起きた後の件名", body: "")
+      source = Fakes::Source.new("windows", [[incoming], [later]])
+      sink = Fakes::Sink.new("xsoverlay")
+      gate = Fakes::SleepGate.new
+      gate.sleeping = true
+      usecase = build_usecase([source.as(Notify::SourceRepository)], [sink.as(Notify::PostRepository)], sleep_gate: gate)
+
+      now = Time.monotonic
+      usecase.tick(now)
+      gate.sleeping = false
+      usecase.tick(now + 1.second)
+
+      source.poll_count.should eq 2
+      sink.sent.size.should eq 1
+      sink.sent.first.title.should contain "起きた後の件名"
+    end
   end
 
   describe "フィルタ" do

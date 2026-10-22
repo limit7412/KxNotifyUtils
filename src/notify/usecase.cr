@@ -31,6 +31,8 @@ module Notify
       @sinks : Array(PostRepository),
       builders : Array(MessageBuilder),
       @config : ::Config::Root,
+      # 睡眠中は中継しない（issue #54）。無ければ常に中継する。
+      @sleep_gate : SleepGate? = nil,
     )
       @builders = {} of String => MessageBuilder
       builders.each { |b| @builders[b.source_id] = b }
@@ -49,6 +51,10 @@ module Notify
     # 時計が元の値へ追いつくまでどのソースもポーリングされなくなるためである。
     def tick(now : Time::Span = Time.monotonic) : Nil
       snapshot = @config
+      # 止めている間もポーリングは続ける。
+      # 差分検出はソースの中にあり、ポーリングを止めると、再開した時点で溜まった通知を一度に流すことになる。
+      # 止めている間に届いた通知は破棄する。Windows の通知であれば通知センターに残っている。
+      suppressed = @paused || (@sleep_gate.try(&.sleeping?) || false)
       @sources.each do |source|
         next unless source.ready?
         due = @next_due[source.source_id]?
@@ -62,7 +68,7 @@ module Notify
           next
         end
 
-        next if @paused
+        next if suppressed
         incomings.each { |incoming| relay(incoming, snapshot) }
       end
 
