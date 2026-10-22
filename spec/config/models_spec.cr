@@ -262,6 +262,27 @@ describe Config::SleepSchedule do
     end
   end
 
+  describe "#next_end" do
+    it "今日の終了時刻がまだ来ていなければ今日の終了時刻を返す" do
+      schedule = Config::SleepSchedule.from_json(%({"enabled": true, "start": "01:00", "end": "08:00"}))
+
+      schedule.next_end(Time.local(2026, 10, 22, 3, 0)).should eq Time.local(2026, 10, 22, 8, 0)
+    end
+
+    it "今日の終了時刻を過ぎていれば翌日の終了時刻を返す" do
+      schedule = Config::SleepSchedule.from_json(%({"enabled": true, "start": "23:00", "end": "07:00"}))
+
+      schedule.next_end(Time.local(2026, 10, 22, 23, 30)).should eq Time.local(2026, 10, 23, 7, 0)
+      schedule.next_end(Time.local(2026, 10, 22, 7, 0)).should eq Time.local(2026, 10, 23, 7, 0)
+    end
+
+    it "終了時刻を読めなければ nil を返す" do
+      schedule = Config::SleepSchedule.from_json(%({"enabled": true, "start": "01:00", "end": "8:00"}))
+
+      schedule.next_end(Time.local(2026, 10, 22, 3, 0)).should be_nil
+    end
+  end
+
   it "設定ファイルには start と end のキーで書く" do
     json = JSON.parse(Config::SleepSchedule.new.to_json)
 
@@ -278,5 +299,6 @@ describe "Config::Root の sleep セクション" do
     root.sleep.schedule.enabled.should be_false
     root.sleep.schedule.start_time.should eq "01:00"
     root.sleep.schedule.end_time.should eq "08:00"
+    root.sleep.manual_duration_h.should eq 8
   end
 end

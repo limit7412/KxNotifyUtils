@@ -319,6 +319,10 @@ module Config
     #
     # 無効にしていても時刻は検証する。値はファイルに残り、有効にした時点でそのまま使われるためである。
     private def validate_sleep(root : Root, errors : Array(ValidationError)) : Nil
+      unless (1..24).includes?(root.sleep.manual_duration_h)
+        errors << ValidationError.new("全般", "sleep.manual_duration_h は 1 から 24 の範囲で指定する")
+      end
+
       schedule = root.sleep.schedule
       start = SleepSchedule.parse_minutes(schedule.start_time)
       finish = SleepSchedule.parse_minutes(schedule.end_time)

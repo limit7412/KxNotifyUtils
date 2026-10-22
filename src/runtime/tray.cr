@@ -31,6 +31,8 @@ module Runtime
       Quit              = 10
       DownloadUpdate    = 11
       ApplyUpdate       = 12
+      StartSleep        = 13
+      StopSleep         = 14
     end
 
     # 更新の進み具合。メニューに出す項目を選ぶために持つ（issue #10 第 2 段階）。
@@ -264,6 +266,7 @@ module Runtime
     private def self.sleep_key(reason : Sleep::Reason) : String?
       case reason
       in .none?     then nil
+      in .manual?   then "tray.tip.sleep.manual"
       in .schedule? then "tray.tip.sleep.schedule"
       end
     end
@@ -292,6 +295,13 @@ module Runtime
       @menu_open = true
       begin
         append(menu, Command::TogglePause, I18n.t(@paused ? "tray.menu.resume" : "tray.menu.pause"), checked: @paused)
+        # 睡眠中は、どの入力で止まっていても終了を出す（issue #54）。
+        # スケジュールで止まっている最中に起きた場合も、ここから中継を戻せるようにするためである。
+        if @sleep_reason.none?
+          append(menu, Command::StartSleep, I18n.t("tray.menu.start_sleep"))
+        else
+          append(menu, Command::StopSleep, I18n.t("tray.menu.stop_sleep"))
+        end
         append(menu, Command::SendTestMessage, I18n.t("tray.menu.send_test"))
         separator(menu)
         append(menu, Command::OpenSettings, I18n.t("tray.menu.settings"))

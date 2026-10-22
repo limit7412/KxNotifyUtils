@@ -288,6 +288,10 @@ module Runtime
       form.append(I18n.t("settings.general.sleep_schedule_end"), entry("sleep.schedule.end"), false)
       inner.append(form, false)
       inner.append(UIng::Label.new(I18n.t("settings.general.sleep_schedule_note")), false)
+      manual_form = UIng::Form.new(padded: true)
+      manual_form.append(I18n.t("settings.general.sleep_manual_duration"), spin("sleep.manual_duration_h", 1, 24), false)
+      inner.append(manual_form, false)
+      inner.append(UIng::Label.new(I18n.t("settings.general.sleep_manual_note")), false)
       group.child = inner
       group
     end
@@ -621,6 +625,7 @@ module Runtime
       set_check("sleep.schedule.enabled", @draft.sleep.schedule.enabled)
       set_text("sleep.schedule.start", @draft.sleep.schedule.start_time)
       set_text("sleep.schedule.end", @draft.sleep.schedule.end_time)
+      set_spin("sleep.manual_duration_h", @draft.sleep.manual_duration_h)
 
       windows = WinNotification::Settings.from_section(@draft.source(WinNotification::SOURCE_ID))
       set_check("sources.windows.enabled", windows.enabled)
@@ -1009,6 +1014,7 @@ module Runtime
       root.sleep.schedule.enabled = checked?("sleep.schedule.enabled")
       root.sleep.schedule.start_time = trimmed("sleep.schedule.start")
       root.sleep.schedule.end_time = trimmed("sleep.schedule.end")
+      root.sleep.manual_duration_h = spin_value("sleep.manual_duration_h")
 
       root.sources = root.sources.dup
       root.sources[WinNotification::SOURCE_ID] = JSON.parse({
