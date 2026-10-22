@@ -24,7 +24,7 @@ src/
   main.cr                          composition root（build_sources / build_sinks / 依存注入）
   notify/                          中立ドメイン（他コンテキストに依存しない）
     models.cr                        Incoming、Message、Icon、DisplayHints
-    repository.cr                    SourceRepository、PostRepository、IconRepository、MessageBuilder
+    repository.cr                    SourceRepository、PostRepository、IconRepository、MessageBuilder、SleepGate
     usecase.cr                       中継の 1 周期（フィルタ、ルール解決、fan-out）
     template_message_builder.cr      各ソースが継承する共通の整形（テンプレート、表示時間、アイコン）
   win_notification/                ソース実装：Windows 通知
@@ -41,6 +41,9 @@ src/
     models.cr                        通知オブジェクトとエンベロープ、sinks.xsoverlay の設定
     websocket_repository.cr          WebSocket 送信
     udp_repository.cr                UDP 送信（レガシー）
+  sleep/                           睡眠時の停止
+    models.cr                        止めている理由
+    usecase.cr                       入力を合わせて睡眠中かを決める SleepGate 実装
   steamvr/                         SteamVR 連携
     ffi.cr                           openvr_api の lib 宣言と FnTable
     repository.cr                    OpenVR 呼び出しと vrmanifest 書き出しの抽象
@@ -96,6 +99,9 @@ Windows の通知では `id` の集合を比べるが、ログファイルを読
 `notify/usecase` に残るのはパイプラインの順序と fan-out だけである。
 
 ## 中継の流れ
+
+一時停止しているか、睡眠中であれば、ポーリングだけを行い、取れた通知は破棄する。
+睡眠中かは `SleepGate` に問い合わせる。notify は睡眠中の決め方を知らず、時刻や外部アプリの状態を見るのは sleep コンテキストである。
 
 新しい通知 1 件ごとに、次の順で処理する。
 
