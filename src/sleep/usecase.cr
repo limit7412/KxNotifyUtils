@@ -96,7 +96,14 @@ module Sleep
     # 時刻で期限を判定できるスケジュールと違い、切れたことは問い合わせの時点でしか分からない。
     # 主ループが毎周期 reason を呼ぶため、ここで下ろしても取りこぼさない。
     # 見失った間（Unknown）は下ろさない。一時的に読めなかっただけで、起きているのにまた止まるのを避ける。
+    #
+    # 連携を無効にしたときも下ろす。無効の間に睡眠モードが切れて入り直しても、それを見る手段が無い。
+    # 残したまま有効に戻すと、次に切れるのを見るまで睡眠モード中も中継し続ける。
     private def oyasumivr_active? : Bool
+      unless @config.oyasumivr.enabled
+        @awake_oyasumivr = false
+        return false
+      end
       state = oyasumivr_state
       @awake_oyasumivr = false if state.awake?
       state.asleep? && !@awake_oyasumivr

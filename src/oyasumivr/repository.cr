@@ -35,12 +35,34 @@ module OyasumiVR
 
     SLEEP_MODE_PATH = "/OyasumiVR/SleepMode"
 
+    # 名前の合う応答を見つけても、127.0.0.1 のそのポートで OyasumiVR が名乗るまでは採らない。
+    #
+    # 同じ LAN の別の PC で動く OyasumiVR も問い合わせに応える。
+    # そのポートはこの PC には無いため、最初の応答で打ち切ると、
+    # 別の PC の応答が先に届いたときに、この PC の OyasumiVR を見つけられない。
+    # 確かめられなかった候補は捨て、期限まで次の応答を待つ。
     def discover : Int32?
-      port = find_port
-      return nil unless port
-      # 名前で選んでいても、ほかのアプリが同じ名前を名乗っている可能性は残る。
-      # 読み取りを始める前に、サーバ自身の名乗りでも確かめる。
-      HostInfo.from_json(get(port, "/?HOST_INFO")).name.compare("OyasumiVR", case_insensitive: true) == 0 ? port : nil
+      socket = UDPSocket.new
+      begin
+        socket.bind("0.0.0.0", 0)
+        socket.send(Mdns.query, MDNS_GROUP)
+        deadline = Time.monotonic + DISCOVERY_TIMEOUT
+        buffer = Bytes.new(MAX_PACKET_SIZE)
+        tried = Set(Int32).new
+        loop do
+          remaining = deadline - Time.monotonic
+          return nil unless remaining.positive?
+          socket.read_timeout = remaining
+          size, _ = socket.receive(buffer)
+          port = Mdns.find_port(buffer[0, size])
+          next unless port && tried.add?(port)
+          return port if oyasumivr?(port)
+        end
+      rescue IO::TimeoutError
+        nil
+      ensure
+        socket.close
+      end
     end
 
     def sleep_mode(port : Int32) : Bool
@@ -49,26 +71,13 @@ module OyasumiVR
       value
     end
 
-    private def find_port : Int32?
-      socket = UDPSocket.new
-      begin
-        socket.bind("0.0.0.0", 0)
-        socket.send(Mdns.query, MDNS_GROUP)
-        deadline = Time.monotonic + DISCOVERY_TIMEOUT
-        buffer = Bytes.new(MAX_PACKET_SIZE)
-        loop do
-          remaining = deadline - Time.monotonic
-          return nil unless remaining.positive?
-          socket.read_timeout = remaining
-          size, _ = socket.receive(buffer)
-          port = Mdns.find_port(buffer[0, size])
-          return port if port
-        end
-      rescue IO::TimeoutError
-        nil
-      ensure
-        socket.close
-      end
+    # port のサーバが OyasumiVR を名乗るか。
+    # 名前で選んでいても、ほかのアプリが同じ名前を名乗っている可能性は残るため、サーバ自身の名乗りで確かめる。
+    private def oyasumivr?(port : Int32) : Bool
+      HostInfo.from_json(get(port, "/?HOST_INFO")).name.compare("OyasumiVR", case_insensitive: true) == 0
+    rescue exception
+      Log.debug { "ポート #{port} は OyasumiVR ではなかった: #{exception.message}" }
+      false
     end
 
     private def get(port : Int32, target : String) : String

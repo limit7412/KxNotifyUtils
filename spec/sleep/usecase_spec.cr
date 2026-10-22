@@ -232,3 +232,21 @@ describe "Sleep::Usecase の OyasumiVR 連携" do
     target.reason.should eq Sleep::Reason::OyasumiVR
   end
 end
+
+describe "Sleep::Usecase の OyasumiVR 連携の切り替え" do
+  # 無効の間に睡眠モードが切れて入り直しても、それを見る手段が無い。
+  it "連携を無効にすれば、睡眠モード中に終了した上書きを下ろす" do
+    signal = FakeSignal.new
+    signal.state = Sleep::SignalState::Asleep
+    target = oyasumivr_usecase(WITH_OYASUMIVR, Clock.new(Time.local(2026, 10, 22, 21, 0)), signal)
+    target.stop
+    target.awake_oyasumivr?.should be_true
+
+    target.config = Config::SleepSection.from_json(%({"oyasumivr": {"enabled": false}}))
+    target.sleeping?.should be_false
+    target.awake_oyasumivr?.should be_false
+
+    target.config = Config::SleepSection.from_json(WITH_OYASUMIVR)
+    target.reason.should eq Sleep::Reason::OyasumiVR
+  end
+end
