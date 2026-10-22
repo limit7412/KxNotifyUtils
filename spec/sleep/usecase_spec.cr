@@ -124,3 +124,111 @@ describe "Sleep::Usecase の手動のおやすみモード" do
     target.reason.should eq Sleep::Reason::Manual
   end
 end
+
+# 外から状態を書き換えられる Signal。
+private class FakeSignal < Sleep::Signal
+  property state : Sleep::SignalState = Sleep::SignalState::Unknown
+end
+
+private def oyasumivr_usecase(json : String, clock : Clock, signal : FakeSignal)
+  Sleep::Usecase.new(Config::SleepSection.from_json(json), -> { clock.now }, signal)
+end
+
+private WITH_OYASUMIVR = %({"oyasumivr": {"enabled": true}, "schedule": {"enabled": true, "start": "23:00", "end": "07:00"}})
+
+describe "Sleep::Usecase の OyasumiVR 連携" do
+  it "睡眠モードの間は OyasumiVR を理由に止める" do
+    signal = FakeSignal.new
+    target = oyasumivr_usecase(WITH_OYASUMIVR, Clock.new(Time.local(2026, 10, 22, 21, 0)), signal)
+    target.sleeping?.should be_false
+
+    signal.state = Sleep::SignalState::Asleep
+    target.reason.should eq Sleep::Reason::OyasumiVR
+
+    signal.state = Sleep::SignalState::Awake
+    target.sleeping?.should be_false
+  end
+
+  it "連携が無効なら睡眠モードを見ない" do
+    signal = FakeSignal.new
+    signal.state = Sleep::SignalState::Asleep
+    target = oyasumivr_usecase(%({"oyasumivr": {"enabled": false}}), Clock.new(Time.local(2026, 10, 22, 21, 0)), signal)
+
+    target.sleeping?.should be_false
+  end
+
+  it "見失っている間は睡眠中としない" do
+    signal = FakeSignal.new
+    signal.state = Sleep::SignalState::Unknown
+    target = oyasumivr_usecase(WITH_OYASUMIVR, Clock.new(Time.local(2026, 10, 22, 21, 0)), signal)
+
+    target.sleeping?.should be_false
+  end
+
+  it "スケジュールと重なれば、スケジュールを先に出す" do
+    signal = FakeSignal.new
+    signal.state = Sleep::SignalState::Asleep
+    target = oyasumivr_usecase(WITH_OYASUMIVR, Clock.new(Time.local(2026, 10, 23, 2, 0)), signal)
+
+    target.reason.should eq Sleep::Reason::Schedule
+  end
+
+  it "睡眠モード中に終了すると、睡眠モードが切れるまで中継し、次に入ればまた止める" do
+    signal = FakeSignal.new
+    signal.state = Sleep::SignalState::Asleep
+    target = oyasumivr_usecase(WITH_OYASUMIVR, Clock.new(Time.local(2026, 10, 22, 21, 0)), signal)
+
+    target.stop
+
+    target.awake_oyasumivr?.should be_true
+    target.sleeping?.should be_false
+
+    signal.state = Sleep::SignalState::Awake
+    target.sleeping?.should be_false
+    target.awake_oyasumivr?.should be_false
+
+    signal.state = Sleep::SignalState::Asleep
+    target.reason.should eq Sleep::Reason::OyasumiVR
+  end
+
+  # 一時的に読めなかっただけで、起きているのにまた止まるのを避ける。
+  it "見失っても起きている間の上書きは下ろさない" do
+    signal = FakeSignal.new
+    signal.state = Sleep::SignalState::Asleep
+    target = oyasumivr_usecase(WITH_OYASUMIVR, Clock.new(Time.local(2026, 10, 22, 21, 0)), signal)
+    target.stop
+
+    signal.state = Sleep::SignalState::Unknown
+    target.sleeping?.should be_false
+    signal.state = Sleep::SignalState::Asleep
+
+    target.sleeping?.should be_false
+  end
+
+  it "スケジュールの時間帯に睡眠モードで終了すると、両方の上書きを立てる" do
+    clock = Clock.new(Time.local(2026, 10, 23, 2, 0))
+    signal = FakeSignal.new
+    signal.state = Sleep::SignalState::Asleep
+    target = oyasumivr_usecase(WITH_OYASUMIVR, clock, signal)
+
+    target.stop
+
+    target.awake_until.should eq Time.local(2026, 10, 23, 7, 0)
+    target.awake_oyasumivr?.should be_true
+    target.sleeping?.should be_false
+  end
+
+  it "始め直せば、睡眠モードの上書きも消す" do
+    clock = Clock.new(Time.local(2026, 10, 22, 21, 0))
+    signal = FakeSignal.new
+    signal.state = Sleep::SignalState::Asleep
+    target = oyasumivr_usecase(WITH_OYASUMIVR, clock, signal)
+    target.stop
+
+    target.start_manual
+
+    target.awake_oyasumivr?.should be_false
+    clock.now = Time.local(2026, 10, 23, 8, 0)
+    target.reason.should eq Sleep::Reason::OyasumiVR
+  end
+end

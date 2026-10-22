@@ -78,6 +78,30 @@ Discord や Twitch など、既定で無効になっているサービスもこ�
 起動したときに既に障害が起きていても通知は出ないので、今の状態を見たいときは
 [VRCServiceStatusPanel](https://github.com/limit7412/VRCServiceStatusPanel) の配信ページを見る。
 
+## 7. OyasumiVR と連携する
+
+[OyasumiVR](https://github.com/Raphiiko/OyasumiVR) の睡眠モードに入っている間は、通知を中継しないようにできる。
+寝たかどうかの判定を OyasumiVR に任せたい場合に使う。
+設定ウィンドウの全般タブにある「睡眠時の停止」で「OyasumiVR の睡眠モード中は中継しない」にチェックを入れて保存する。
+
+OyasumiVR 1.11.0 以降が同じ PC で動いている必要がある。
+OyasumiVR 側の設定を変える必要はない。
+KxNotifyUtils は OyasumiVR が内蔵する OSCQuery サーバを mDNS で探し、そこから睡眠モードの状態を読む。
+OSCQuery サーバは OyasumiVR の既定で有効になっている。
+
+つながったかどうかは、同じグループの「OyasumiVR の状態」で確かめられる。
+「見つからない」のままなら、次の点を確かめる。
+
+- **OyasumiVR が動いているか**：KxNotifyUtils は 30 秒ごとに探し直すので、OyasumiVR を後から起動してもよい。
+- **ファイアウォールが mDNS を止めていないか**：探すときは UDP の 5353 番ポートを使う。セキュリティソフトがこれを止めていると見つからない。
+- **OyasumiVR の版**：OSCQuery サーバを持たない古い版では見つからない。
+
+見つけ方の記録はログに残る。見つけたときと見失ったときに、`info` で 1 行ずつ書く。
+
+OyasumiVR も XSOverlay へ通知を送る機能を持っている。
+睡眠モードの切り替えを知らせる通知は OyasumiVR 側から出るため、KxNotifyUtils で止めている間も出ることがある。
+要らなければ OyasumiVR 側の設定で切る。
+
 ## 二重に起動したとき
 
 KxNotifyUtils は 1 台につき 1 プロセスだけ動く。

@@ -265,9 +265,10 @@ module Runtime
     # 辞書側の書き忘れは、キー名がそのまま出ていないかを見る spec が拾う。
     private def self.sleep_key(reason : Sleep::Reason) : String?
       case reason
-      in .none?     then nil
-      in .manual?   then "tray.tip.sleep.manual"
-      in .schedule? then "tray.tip.sleep.schedule"
+      in .none?       then nil
+      in .manual?     then "tray.tip.sleep.manual"
+      in .schedule?   then "tray.tip.sleep.schedule"
+      in .oyasumi_vr? then "tray.tip.sleep.oyasumivr"
       end
     end
 

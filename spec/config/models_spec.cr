@@ -300,5 +300,14 @@ describe "Config::Root の sleep セクション" do
     root.sleep.schedule.start_time.should eq "01:00"
     root.sleep.schedule.end_time.should eq "08:00"
     root.sleep.manual_duration_h.should eq 8
+    root.sleep.oyasumivr.enabled.should be_false
+    root.sleep.oyasumivr.poll_interval_s.should eq 5
+  end
+
+  it "oyasumivr が無い sleep セクションも既定値で読む" do
+    root = Config::Root.from_json(%({"sleep": {"schedule": {"enabled": true}}}))
+
+    root.sleep.schedule.enabled.should be_true
+    root.sleep.oyasumivr.enabled.should be_false
   end
 end

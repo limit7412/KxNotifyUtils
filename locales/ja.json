@@ -187,5 +187,14 @@
   "tray.menu.stop_sleep": "おやすみモードを終了",
   "tray.tip.sleep.manual": "睡眠中のため中継を止めています（手動）",
   "settings.general.sleep_manual_duration": "おやすみモードの長さ (時間)",
-  "settings.general.sleep_manual_note": "トレイの「おやすみモードを開始」で中継を止める長さ。スケジュールが有効なら、この長さではなく次の終了時刻までになる。「おやすみモードを終了」はスケジュールの時間帯でも使え、その時間帯の終わりまで中継する。"
+  "settings.general.sleep_manual_note": "トレイの「おやすみモードを開始」で中継を止める長さ。スケジュールが有効なら、この長さではなく次の終了時刻までになる。「おやすみモードを終了」はスケジュールの時間帯でも使え、その時間帯の終わりまで中継する。",
+  "tray.tip.sleep.oyasumivr": "睡眠中のため中継を止めています（OyasumiVR）",
+  "settings.general.sleep_oyasumivr_enabled": "OyasumiVR の睡眠モード中は中継しない",
+  "settings.general.sleep_oyasumivr_interval": "睡眠モードの確認間隔 (秒)",
+  "settings.general.sleep_oyasumivr_status": "OyasumiVR の状態: {status}",
+  "settings.general.sleep_oyasumivr_note": "OyasumiVR 1.11.0 以降が同じ PC で動いている必要がある。OyasumiVR 側の設定は要らない。睡眠モード中に「おやすみモードを終了」を押すと、睡眠モードが切れるまで中継する。",
+  "status.oyasumivr.disabled": "連携していない",
+  "status.oyasumivr.not_found": "見つからない",
+  "status.oyasumivr.connected": "接続中",
+  "status.oyasumivr.asleep": "睡眠モード中"
 }

@@ -43,7 +43,12 @@ src/
     udp_repository.cr                UDP 送信（レガシー）
   sleep/                           睡眠時の停止
     models.cr                        止めている理由
+    repository.cr                    外部アプリから睡眠の状態を読む Signal の抽象
     usecase.cr                       入力を合わせて睡眠中かを決める SleepGate 実装
+  oyasumivr/                       OyasumiVR 連携
+    models.cr                        OSCQuery の HOST_INFO とノードに対応する型、連携の状態
+    mdns.cr                          mDNS の問い合わせの組み立てと応答の解析
+    repository.cr                    サーバの発見と睡眠モードの読み取りを行う Signal 実装
   steamvr/                         SteamVR 連携
     ffi.cr                           openvr_api の lib 宣言と FnTable
     repository.cr                    OpenVR 呼び出しと vrmanifest 書き出しの抽象

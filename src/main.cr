@@ -21,6 +21,8 @@ require "./service_status/repository"
 require "./service_status/usecase"
 require "./sleep/models"
 require "./sleep/usecase"
+require "./oyasumivr/models"
+require "./oyasumivr/repository"
 require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
@@ -137,7 +139,9 @@ module KxNotifyUtils
       # その旨を知らせ済みか。起動時に起きた場合はトレイがまだ無いので、後で知らせ直す。
       @update_broken_notified = false
       # 睡眠中は中継しない（issue #54）。
-      @sleep = Sleep::Usecase.new(@config.current.sleep)
+      # OyasumiVR は睡眠中かを読む先の 1 つであり、使うかどうかは apply で設定から決める。
+      @oyasumivr = OyasumiVR::Repository.new(OyasumiVR::NetworkClient.new)
+      @sleep = Sleep::Usecase.new(@config.current.sleep, oyasumivr: @oyasumivr)
       # 直前に見た止めている理由。切り替わりをログとトレイへ伝えるために持つ。
       @sleep_reason = Sleep::Reason::None
       @relay = Notify::RelayUsecase.new(
@@ -328,6 +332,7 @@ module KxNotifyUtils
       Runtime::Logging.setup(@log_backend, root.log_level)
       @relay.config = root
       @sleep.config = root.sleep
+      @oyasumivr.configure(root.sleep.oyasumivr.enabled, root.sleep.oyasumivr.poll_interval_s.seconds)
       @icons.clear
       build_sources(root)
       rebuild_sinks(root)
@@ -468,6 +473,7 @@ module KxNotifyUtils
         update_status: -> { update_status_label },
         update_url: -> { @update.available(@config.current.update.channel).try(&.url) },
         update_action: -> { update_action_label },
+        oyasumivr_status: -> { oyasumivr_status_label },
       )
       window.on_request_steamvr_register = -> { register_steamvr }
       window.on_request_steamvr_unregister = -> { unregister_steamvr }
@@ -1180,6 +1186,9 @@ module KxNotifyUtils
         else
           Log.info { "おやすみモードを終えた" }
         end
+        if @sleep.awake_oyasumivr?
+          Log.info { "OyasumiVR の睡眠モードが切れるまでは中継する" }
+        end
         sync_sleep_state
       in .quit?
         @stopping = true
@@ -1229,6 +1238,15 @@ module KxNotifyUtils
       end
     end
 
+    private def oyasumivr_status_label : String
+      case @oyasumivr.status
+      in .disabled?  then Runtime::I18n.t("status.oyasumivr.disabled")
+      in .not_found? then Runtime::I18n.t("status.oyasumivr.not_found")
+      in .connected? then Runtime::I18n.t("status.oyasumivr.connected")
+      in .asleep?    then Runtime::I18n.t("status.oyasumivr.asleep")
+      end
+    end
+
     private def steamvr_status_label : String
       return Runtime::I18n.t("status.steamvr.disconnected") unless @openvr.opened?
       Runtime::I18n.t(@steamvr.registered? ? "status.steamvr.registered" : "status.steamvr.unregistered")
@@ -1263,6 +1281,7 @@ module KxNotifyUtils
     # 主ループからも、トレイメニュー表示中のタイマーからも呼ぶ。
     private def background_step : Nil
       step_ui
+      @oyasumivr.tick
       sync_sleep_state
       retry_sources if @source_slots.any?(&.retry_needed?)
       retry_steamvr if steamvr_retry_needed?
