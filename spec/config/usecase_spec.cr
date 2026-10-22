@@ -335,6 +335,20 @@ describe Config::Usecase do
       target.validate(root).map(&.message).any?(&.includes?("sleep.schedule.start")).should be_true
     end
 
+    it "1 から 24 を外れた sleep.manual_duration_h を弾く" do
+      target, _ = usecase
+      root = Config::Root.default
+
+      [0, 25].each do |hours|
+        root.sleep.manual_duration_h = hours
+        target.validate(root).map(&.message).any?(&.includes?("sleep.manual_duration_h")).should be_true
+      end
+      [1, 24].each do |hours|
+        root.sleep.manual_duration_h = hours
+        target.validate(root).should be_empty
+      end
+    end
+
     it "開始と終了が同じ sleep.schedule を弾く" do
       target, _ = usecase
       root = Config::Root.default

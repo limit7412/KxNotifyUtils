@@ -326,12 +326,29 @@ module Config
         now >= start || now < finish
       end
     end
+
+    # time より後で最初に来る終了時刻。終了時刻を読めなければ nil を返す。
+    #
+    # 範囲に入っているときは、その範囲が終わる時刻になる。
+    # 手動のおやすみモードの期限と、起きた後に止めない期間の終わりに使う。
+    # 日付は暦で 1 日進める。夏時間の切り替えがある地域で、24 時間足すと時刻がずれるためである。
+    def next_end(time : Time) : Time?
+      finish = SleepSchedule.parse_minutes(@end_time)
+      return nil unless finish
+
+      candidate = Time.local(time.year, time.month, time.day, finish // 60, finish % 60, location: time.location)
+      candidate > time ? candidate : candidate.shift(days: 1)
+    end
   end
 
   # sleep セクション（issue #54）。
   # 睡眠中と判断する入力ごとに項目を持つ。
   class SleepSection
     include JSON::Serializable
+
+    # トレイから始めたおやすみモードを続ける時間。
+    # スケジュールが有効なら使わず、次の終了時刻までとする。
+    property manual_duration_h : Int32 = 8
 
     property schedule : SleepSchedule = SleepSchedule.new
 

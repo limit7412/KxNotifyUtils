@@ -182,5 +182,10 @@
   "settings.general.sleep_schedule_enabled": "決まった時間帯は中継しない",
   "settings.general.sleep_schedule_start": "開始時刻",
   "settings.general.sleep_schedule_end": "終了時刻",
-  "settings.general.sleep_schedule_note": "時刻は 24 時間表記の HH:MM で書く（例 23:30）。開始が終了より後なら日を跨ぐ。止めている間に届いた通知は破棄し、テスト通知は止めない。"
+  "settings.general.sleep_schedule_note": "時刻は 24 時間表記の HH:MM で書く（例 23:30）。開始が終了より後なら日を跨ぐ。止めている間に届いた通知は破棄し、テスト通知は止めない。",
+  "tray.menu.start_sleep": "おやすみモードを開始",
+  "tray.menu.stop_sleep": "おやすみモードを終了",
+  "tray.tip.sleep.manual": "睡眠中のため中継を止めています（手動）",
+  "settings.general.sleep_manual_duration": "おやすみモードの長さ (時間)",
+  "settings.general.sleep_manual_note": "トレイの「おやすみモードを開始」で中継を止める長さ。スケジュールが有効なら、この長さではなく次の終了時刻までになる。「おやすみモードを終了」はスケジュールの時間帯でも使え、その時間帯の終わりまで中継する。"
 }

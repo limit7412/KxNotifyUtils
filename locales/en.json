@@ -182,5 +182,10 @@
   "settings.general.sleep_schedule_enabled": "Do not relay during a set time range",
   "settings.general.sleep_schedule_start": "Start time",
   "settings.general.sleep_schedule_end": "End time",
-  "settings.general.sleep_schedule_note": "Use 24-hour HH:MM (e.g. 23:30). If the start is later than the end, the range crosses midnight. Notifications that arrive while paused are discarded. Test notifications are still sent."
+  "settings.general.sleep_schedule_note": "Use 24-hour HH:MM (e.g. 23:30). If the start is later than the end, the range crosses midnight. Notifications that arrive while paused are discarded. Test notifications are still sent.",
+  "tray.menu.start_sleep": "Start sleep mode",
+  "tray.menu.stop_sleep": "End sleep mode",
+  "tray.tip.sleep.manual": "Sleep pause (manual)",
+  "settings.general.sleep_manual_duration": "Sleep mode length (hours)",
+  "settings.general.sleep_manual_note": "How long \"Start sleep mode\" in the tray pauses relaying. If the schedule is enabled, it lasts until the next end time instead. \"End sleep mode\" also works during the scheduled range and resumes relaying until that range ends."
 }

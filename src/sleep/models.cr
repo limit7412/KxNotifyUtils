@@ -7,6 +7,8 @@ module Sleep
   enum Reason
     # 止めていない。
     None
+    # トレイからおやすみモードを始めている。
+    Manual
     # スケジュールの時間帯に入っている。
     Schedule
   end

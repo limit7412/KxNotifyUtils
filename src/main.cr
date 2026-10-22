@@ -1169,6 +1169,18 @@ module KxNotifyUtils
         download_update
       in .apply_update?
         apply_update_now
+      in .start_sleep?
+        ends = @sleep.start_manual
+        Log.info { "おやすみモードを始めた（#{ends.to_s("%Y-%m-%d %H:%M")} まで）" }
+        sync_sleep_state
+      in .stop_sleep?
+        @sleep.stop
+        if awake = @sleep.awake_until
+          Log.info { "おやすみモードを終えた（スケジュールの時間帯でも #{awake.to_s("%Y-%m-%d %H:%M")} までは中継する）" }
+        else
+          Log.info { "おやすみモードを終えた" }
+        end
+        sync_sleep_state
       in .quit?
         @stopping = true
       end
