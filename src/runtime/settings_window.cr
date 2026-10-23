@@ -211,6 +211,7 @@ module Runtime
       root = UIng::Box.new(:vertical, padded: true)
       tab = UIng::Tab.new
       tab.append(I18n.t("settings.tab.general"), build_general_tab)
+      tab.append(I18n.t("settings.tab.sleep"), build_sleep_tab)
       tab.append(I18n.t("settings.tab.sources"), build_sources_tab)
       tab.append(I18n.t("settings.tab.sinks"), build_sinks_tab)
       tab.append(I18n.t("settings.tab.defaults"), build_defaults_tab)
@@ -275,39 +276,62 @@ module Runtime
       inner.append(update_form, false)
       group.child = inner
       box.append(group, false)
-      box.append(build_sleep_group, false)
       box
     end
 
     # 睡眠時の停止（issue #54）。
+    # スケジュール、おやすみモード、OyasumiVR の 3 つが揃い、全般タブの 1 枠には収まらなくなったため、
+    # 独立したタブへ移し、止める仕組みごとに枠を分ける。
+    private def build_sleep_tab : UIng::Box
+      box = UIng::Box.new(:vertical, padded: true)
+      box.append(build_sleep_schedule_group, false)
+      box.append(build_sleep_manual_group, false)
+      box.append(build_sleep_oyasumivr_group, false)
+      box
+    end
+
     # 時刻はテキストで受け、形式は保存時の検証で確かめる。
     # libui-ng の時刻ピッカーは Windows で秒まで出し、分までしか使わない設定には合わない。
-    private def build_sleep_group : UIng::Group
-      group = UIng::Group.new(I18n.t("settings.general.sleep_group"), margined: true)
+    private def build_sleep_schedule_group : UIng::Group
+      group = UIng::Group.new(I18n.t("settings.sleep.schedule_group"), margined: true)
       inner = UIng::Box.new(:vertical, padded: true)
-      inner.append(check("sleep.schedule.enabled", I18n.t("settings.general.sleep_schedule_enabled")), false)
+      inner.append(check("sleep.schedule.enabled", I18n.t("settings.sleep.schedule_enabled")), false)
       form = UIng::Form.new(padded: true)
-      form.append(I18n.t("settings.general.sleep_schedule_start"), entry("sleep.schedule.start"), false)
-      form.append(I18n.t("settings.general.sleep_schedule_end"), entry("sleep.schedule.end"), false)
+      form.append(I18n.t("settings.sleep.schedule_start"), entry("sleep.schedule.start"), false)
+      form.append(I18n.t("settings.sleep.schedule_end"), entry("sleep.schedule.end"), false)
       inner.append(form, false)
-      inner.append(UIng::Label.new(I18n.t("settings.general.sleep_schedule_note")), false)
-      manual_form = UIng::Form.new(padded: true)
-      manual_form.append(I18n.t("settings.general.sleep_manual_duration"), spin("sleep.manual_duration_h", 1, 24), false)
-      inner.append(manual_form, false)
-      inner.append(UIng::Label.new(I18n.t("settings.general.sleep_manual_note")), false)
-      inner.append(check("sleep.oyasumivr.enabled", I18n.t("settings.general.sleep_oyasumivr_enabled")), false)
-      oyasumivr_form = UIng::Form.new(padded: true)
-      oyasumivr_form.append(
-        I18n.t("settings.general.sleep_oyasumivr_interval"),
+      inner.append(UIng::Label.new(I18n.t("settings.sleep.schedule_note")), false)
+      group.child = inner
+      group
+    end
+
+    private def build_sleep_manual_group : UIng::Group
+      group = UIng::Group.new(I18n.t("settings.sleep.manual_group"), margined: true)
+      inner = UIng::Box.new(:vertical, padded: true)
+      form = UIng::Form.new(padded: true)
+      form.append(I18n.t("settings.sleep.manual_duration"), spin("sleep.manual_duration_h", 1, 24), false)
+      inner.append(form, false)
+      inner.append(UIng::Label.new(I18n.t("settings.sleep.manual_note")), false)
+      group.child = inner
+      group
+    end
+
+    private def build_sleep_oyasumivr_group : UIng::Group
+      group = UIng::Group.new("OyasumiVR", margined: true)
+      inner = UIng::Box.new(:vertical, padded: true)
+      inner.append(check("sleep.oyasumivr.enabled", I18n.t("settings.sleep.oyasumivr_enabled")), false)
+      form = UIng::Form.new(padded: true)
+      form.append(
+        I18n.t("settings.sleep.oyasumivr_interval"),
         spin("sleep.oyasumivr.poll_interval_s", 1, 60),
         false,
       )
-      inner.append(oyasumivr_form, false)
+      inner.append(form, false)
       oyasumivr_label = UIng::Label.new(
-        I18n.t("settings.general.sleep_oyasumivr_status", {"status" => I18n.t("status.unknown")}))
+        I18n.t("settings.sleep.oyasumivr_status", {"status" => I18n.t("status.unknown")}))
       @oyasumivr_label = oyasumivr_label
       inner.append(oyasumivr_label, false)
-      inner.append(UIng::Label.new(I18n.t("settings.general.sleep_oyasumivr_note")), false)
+      inner.append(UIng::Label.new(I18n.t("settings.sleep.oyasumivr_note")), false)
       group.child = inner
       group
     end
@@ -1001,7 +1025,7 @@ module Runtime
       end
       @update_label.try { |label| label.text = @update_status.call }
       @oyasumivr_label.try do |label|
-        label.text = I18n.t("settings.general.sleep_oyasumivr_status", {"status" => @oyasumivr_status.call})
+        label.text = I18n.t("settings.sleep.oyasumivr_status", {"status" => @oyasumivr_status.call})
       end
       connected = @steamvr_connected.call
       {@steamvr_register_button, @steamvr_unregister_button}.each do |control|
