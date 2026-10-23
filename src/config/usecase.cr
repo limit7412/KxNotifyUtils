@@ -315,30 +315,30 @@ module Config
       end
     end
 
-    # 睡眠時の停止（issue #54）。設定画面では全般タブに置くため、同じ見出しで返す。
+    # 睡眠時の停止（issue #54）。設定画面では独立した「睡眠時の停止」タブに置くため、タブ名を見出しにして返す。
     #
     # 無効にしていても時刻は検証する。値はファイルに残り、有効にした時点でそのまま使われるためである。
     private def validate_sleep(root : Root, errors : Array(ValidationError)) : Nil
       unless (1..24).includes?(root.sleep.manual_duration_h)
-        errors << ValidationError.new("全般", "sleep.manual_duration_h は 1 から 24 の範囲で指定する")
+        errors << ValidationError.new("睡眠時の停止", "sleep.manual_duration_h は 1 から 24 の範囲で指定する")
       end
 
       schedule = root.sleep.schedule
       start = SleepSchedule.parse_minutes(schedule.start_time)
       finish = SleepSchedule.parse_minutes(schedule.end_time)
       unless start
-        errors << ValidationError.new("全般", "sleep.schedule.start は 00:00 から 23:59 の HH:MM で指定する")
+        errors << ValidationError.new("睡眠時の停止", "sleep.schedule.start は 00:00 から 23:59 の HH:MM で指定する")
       end
       unless finish
-        errors << ValidationError.new("全般", "sleep.schedule.end は 00:00 から 23:59 の HH:MM で指定する")
+        errors << ValidationError.new("睡眠時の停止", "sleep.schedule.end は 00:00 から 23:59 の HH:MM で指定する")
       end
       # 同じ時刻では範囲が空になる。終日止めたいなら一時停止を使えばよく、ここでは誤記として扱う。
       if start && finish && start == finish
-        errors << ValidationError.new("全般", "sleep.schedule.start と sleep.schedule.end は別の時刻で指定する")
+        errors << ValidationError.new("睡眠時の停止", "sleep.schedule.start と sleep.schedule.end は別の時刻で指定する")
       end
 
       unless (1..60).includes?(root.sleep.oyasumivr.poll_interval_s)
-        errors << ValidationError.new("全般", "sleep.oyasumivr.poll_interval_s は 1 から 60 の範囲で指定する")
+        errors << ValidationError.new("睡眠時の停止", "sleep.oyasumivr.poll_interval_s は 1 から 60 の範囲で指定する")
       end
     end
 

@@ -371,7 +371,8 @@ describe Config::Usecase do
 
       errors = target.validate(root)
       errors.size.should eq 1
-      errors.first.section.should eq "全般"
+      # 入力欄は「睡眠時の停止」タブにだけあるため、エラーの見出しもそのタブ名にする。
+      errors.first.section.should eq "睡眠時の停止"
     end
 
     it "未知の log_level を弾く" do
