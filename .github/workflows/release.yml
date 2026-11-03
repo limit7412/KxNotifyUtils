@@ -72,7 +72,7 @@ jobs:
         run: ./scripts/package.ps1 -Version "$env:INPUT_VERSION"
 
       - name: 成果物を保存する
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KxNotifyUtils-${{ steps.version.outputs.version || 'dev' }}
           path: |
