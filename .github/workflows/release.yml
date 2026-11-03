@@ -33,7 +33,7 @@ jobs:
       # リリースへの添付に必要
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: バージョンを決める
         id: version

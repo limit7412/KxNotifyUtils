@@ -153,7 +153,7 @@ jobs:
       group: prerelease
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # バージョンをタグの一覧から決めるため、履歴とタグをすべて取得する
           fetch-depth: 0
