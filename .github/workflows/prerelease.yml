@@ -203,7 +203,7 @@ jobs:
         run: ./scripts/package.ps1 -Version "$env:INPUT_VERSION"
 
       - name: プレリリースを作る
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.version }}
           # 起動時点のコミットへタグを打つ。省略するとタグ作成時のデフォルトブランチの
