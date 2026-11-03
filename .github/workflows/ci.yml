@@ -11,7 +11,7 @@ jobs:
     name: 型検査と単体テスト (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: crystal-lang/install-crystal@v1
         with:
@@ -46,7 +46,7 @@ jobs:
     name: ビルド (Windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ビルドの手順はリリースとプレリリースでも使うため複合アクションに置いてある。
       # CI とリリースで違う手順を踏むと、CI が通ったのにリリースで落ちる状態が起きる。
