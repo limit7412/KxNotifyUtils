@@ -23,11 +23,11 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: ilammy/msvc-dev-cmd@v1
+    - uses: ilammy/msvc-dev-cmd@v1.13.0
       with:
         arch: x64
 
-    - uses: crystal-lang/install-crystal@v1
+    - uses: crystal-lang/install-crystal@v1.9.5
       with:
         crystal: ${{ inputs.crystal }}
 

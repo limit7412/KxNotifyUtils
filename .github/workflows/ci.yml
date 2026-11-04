@@ -11,9 +11,9 @@ jobs:
     name: 型検査と単体テスト (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: crystal-lang/install-crystal@v1
+      - uses: crystal-lang/install-crystal@v1.9.5
         with:
           crystal: 1.14.0
 
@@ -46,12 +46,12 @@ jobs:
     name: ビルド (Windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       # ビルドの手順はリリースとプレリリースでも使うため複合アクションに置いてある。
       # CI とリリースで違う手順を踏むと、CI が通ったのにリリースで落ちる状態が起きる。
       # バージョンは渡さない。配布物ではないため、ソースの既定値のままでよい。
-      - uses: ./.github/actions/build-windows
+      - uses: $/.github/actions/build-windows
 
       - name: シムのテストハーネスを動かす
         # 通知アクセスが無い環境ではハーネスが自分で「確認を飛ばす」と判断して 0 を返す。
@@ -71,7 +71,7 @@ jobs:
         run: ./scripts/package.ps1
 
       - name: 成果物を保存する
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: KxNotifyUtils
           path: |
