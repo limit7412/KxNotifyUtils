@@ -9,7 +9,7 @@ authors:
 dependencies:
   uing:
     github: kojix2/uing
-    version: ~> 0.2.0
+    version: ~> 0.7.0
 
 targets:
   kx_notify_utils:
