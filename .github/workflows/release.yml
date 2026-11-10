@@ -81,7 +81,7 @@ jobs:
 
       - name: リリースへ添付する
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v3.0.3
+        uses: softprops/action-gh-release@v3.0.4
         with:
           # exe 単体の添付は外さない。更新の確認と自動更新が名前で探している。
           files: |
