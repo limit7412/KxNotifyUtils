@@ -40,7 +40,7 @@ end
 # 確認して、新しい版ならバルーンを出し、出せたときだけ覚える。
 # 覚えるのは usecase ではなく知らせた側の仕事である（issue #10）。
 private def check_and_notify(
-  usecase : Update::Usecase, current : String, channel : String, shown : Bool = true
+  usecase : Update::Usecase, current : String, channel : String, shown : Bool = true,
 ) : Update::CheckResult
   result = check_suppressed(usecase, current, channel)
   release = result.release
@@ -50,7 +50,7 @@ end
 
 # 自動の確認と同じ経路で抑止だけを見る。知らせたことにはしない。
 private def check_suppressed(
-  usecase : Update::Usecase, current : String, channel : String
+  usecase : Update::Usecase, current : String, channel : String,
 ) : Update::CheckResult
   usecase.suppress_notified(usecase.check(current, channel))
 end

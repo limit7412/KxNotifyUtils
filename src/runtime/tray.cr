@@ -48,7 +48,7 @@ module Runtime
     end
 
     # メニューが選ばれたときに呼ぶフック。
-    property on_command : Proc(Command, Nil) = ->(_command : Command) {}
+    property on_command : Proc(Command, Nil) = ->(_command : Command) { }
     # メニュー表示中に一定間隔で呼ぶフック。composition root が主ループ 1 拍分を登録する。
     property on_idle : Proc(Nil) = -> { }
     # 中継の一時停止の状態。メニューのチェック表示に使う。

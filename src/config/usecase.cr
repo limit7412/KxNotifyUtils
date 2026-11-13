@@ -30,7 +30,7 @@ module Config
 
     # 検証を通った設定を各 usecase へ流すためのフック。
     # composition root がスナップショットの差し替えを登録する。
-    property on_apply : Proc(Root, Nil) = ->(_root : Root) {}
+    property on_apply : Proc(Root, Nil) = ->(_root : Root) { }
 
     getter current : Root
     getter repository : Repository

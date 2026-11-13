@@ -13,7 +13,7 @@ inputs:
   crystal:
     description: 使う Crystal のバージョン。
     required: false
-    default: "1.14.0"
+    default: "1.21.0"
 
 # ビルドの手順そのものは scripts/build.ps1 が持つ（issue #20）。
 # ここが持つのは、MSVC と Crystal を用意すること、それを呼ぶこと、

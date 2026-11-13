@@ -111,7 +111,7 @@ module Runtime
     fun get_module_handle_w = GetModuleHandleW(module_name : UInt16*) : Handle
     fun create_mutex_w = CreateMutexW(attributes : Void*, initial_owner : Int32, name : UInt16*) : Handle
     fun create_event_w = CreateEventW(
-      attributes : Void*, manual_reset : Int32, initial_state : Int32, name : UInt16*
+      attributes : Void*, manual_reset : Int32, initial_state : Int32, name : UInt16*,
     ) : Handle
     fun set_event = SetEvent(handle : Handle) : Int32
     fun reset_event = ResetEvent(handle : Handle) : Int32
@@ -126,7 +126,7 @@ module Runtime
     fun create_window_ex_w = CreateWindowExW(
       ex_style : UInt32, class_name : UInt16*, window_name : UInt16*, style : UInt32,
       x : Int32, y : Int32, width : Int32, height : Int32,
-      parent : Handle, menu : Handle, instance : Handle, param : Void*
+      parent : Handle, menu : Handle, instance : Handle, param : Void*,
     ) : Handle
     fun destroy_window = DestroyWindow(hwnd : Handle) : Int32
     fun def_window_proc_w = DefWindowProcW(hwnd : Handle, message : UInt32, w_param : WParam, l_param : LParam) : LResult
@@ -143,7 +143,7 @@ module Runtime
     fun destroy_menu = DestroyMenu(menu : Handle) : Int32
     fun track_popup_menu = TrackPopupMenu(
       menu : Handle, flags : UInt32, x : Int32, y : Int32,
-      reserved : Int32, hwnd : Handle, rect : Void*
+      reserved : Int32, hwnd : Handle, rect : Void*,
     ) : Int32
     fun set_timer = SetTimer(hwnd : Handle, id : UInt64, interval_ms : UInt32, callback : Void*) : UInt64
     fun kill_timer = KillTimer(hwnd : Handle, id : UInt64) : Int32
@@ -160,7 +160,7 @@ module Runtime
     fun shell_notify_icon_w = Shell_NotifyIconW(message : UInt32, data : NotifyIconData*) : Int32
     fun shell_execute_w = ShellExecuteW(
       hwnd : Handle, operation : UInt16*, file : UInt16*,
-      parameters : UInt16*, directory : UInt16*, show : Int32
+      parameters : UInt16*, directory : UInt16*, show : Int32,
     ) : Handle
   end
 
