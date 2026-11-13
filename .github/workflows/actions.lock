@@ -7,17 +7,17 @@ workflows:
     '.github/workflows/ci.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
-        - 'crystal-lang/install-crystal@v1.9.5'
+        - 'crystal-lang/install-crystal@v1.10.0'
         - 'ilammy/msvc-dev-cmd@v1.13.0'
     '.github/workflows/prerelease.yml':
         - 'actions/checkout@v7.0.1'
-        - 'crystal-lang/install-crystal@v1.9.5'
+        - 'crystal-lang/install-crystal@v1.10.0'
         - 'ilammy/msvc-dev-cmd@v1.13.0'
         - 'softprops/action-gh-release@v3.0.4'
     '.github/workflows/release.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v7.0.2'
-        - 'crystal-lang/install-crystal@v1.9.5'
+        - 'crystal-lang/install-crystal@v1.10.0'
         - 'ilammy/msvc-dev-cmd@v1.13.0'
         - 'softprops/action-gh-release@v3.0.4'
     '.github/workflows/verify-lockfile.yml':
@@ -33,9 +33,9 @@ dependencies:
         commit: 'sha1-cf430e030ddbb5b0abf93d22962f4752f3646cd9'
         owner_id: 44036562
         repo_id: 192625955
-    'crystal-lang/install-crystal@v1.9.5':
-        ref: 'v1.9.5'
-        commit: 'sha1-36a22e9145188eec527c96e5a789ce4b832af587'
+    'crystal-lang/install-crystal@v1.10.0':
+        ref: 'v1.10.0'
+        commit: 'sha1-47f17b5ecff0cc09e96fa95f5220311329bf4bc8'
         owner_id: 6539796
         repo_id: 261006136
     'ilammy/msvc-dev-cmd@v1.13.0':
