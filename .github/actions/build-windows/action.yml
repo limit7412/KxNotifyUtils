@@ -27,7 +27,7 @@ runs:
       with:
         arch: x64
 
-    - uses: crystal-lang/install-crystal@v1.9.5
+    - uses: crystal-lang/install-crystal@v1.10.0
       with:
         crystal: ${{ inputs.crystal }}
 
