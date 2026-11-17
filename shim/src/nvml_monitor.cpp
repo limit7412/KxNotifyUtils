@@ -334,20 +334,27 @@ DWORD WINAPI worker_main(LPVOID) {
       failures = 0;
     } else if (++failures >= kReopenAfterFailures) {
       // 取れない状態が続いた。ドライバの更新などでハンドルが無効になった見込みがある。
+      // 開き直しに失敗しても終わらない。一度は取れていた GPU であり、失敗は一時的でありうる。
+      // count が 0 の間は取得が失敗し続けるため、同じ回数だけ待ってからここへ戻って試し直す。
       failures = 0;
-      api.shutdown();
-      count = open_devices(api, devices);
-      if (count == 0) {
-        publish(empty_sample(NVM_STATE_UNAVAILABLE));
-        return 0;
+      if (count > 0) {
+        api.shutdown();
       }
+      count = open_devices(api, devices);
+      if (count > 0) {
+        set_error("");
+      }
+      sample = empty_sample(NVM_STATE_SAMPLING);
     }
     // 取れなかった周期も書く。NVML がエラーを返したことと、戻らないことは区別する。
     // 書かなければ age_ms が伸び、エラーが返っているだけの状態を応答の停止と見誤る。
     publish(sample);
   } while (WaitForSingleObject(g_stop_event, static_cast<DWORD>(g_interval_ms)) == WAIT_TIMEOUT);
 
-  api.shutdown();
+  // 開き直しに失敗したままなら、open_devices が後始末を済ませている。
+  if (count > 0) {
+    api.shutdown();
+  }
   publish(empty_sample(NVM_STATE_STOPPED));
   return 0;
 }
