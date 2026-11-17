@@ -40,6 +40,7 @@ src/
     usecase.cr                       共通の整形を継承した MessageBuilder
   system_health/                   ソース実装：システムヘルス
     models.cr                        同梱する規則の定義、sources.system_health の設定
+    alert_form.cr                    設定ウィンドウの入力と、規則ごとの設定との変換
     evaluator.cr                     規則の評価（平常、継続の計測中、発報中の遷移）
     ffi.cr                           計測値の取得に使う Win32 API の lib 宣言
     nvml_ffi.cr                      シムにある NVML の取得スレッドの lib 宣言
@@ -198,6 +199,8 @@ GPU の計測値のように、GPU が応答を止めると取得も戻らなく
 
 規則を足すときは `SystemHealth::RULES` に定義を加え、`locales` に発報と解除の文言を足す。
 文言の鍵は `notify.system_health.<規則の id>.title` の形で、足し忘れは spec が検出する。
+設定ウィンドウは `RULES` から規則ごとのページを作るため、画面の側に足すコードは無い。
+ページの見出しと説明としきい値の名前を、`settings.health.rule.<規則の id>` などの鍵で `locales` に足す。
 
 ## シンクを足す
 

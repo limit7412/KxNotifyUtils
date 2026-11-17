@@ -95,6 +95,11 @@ module SystemHealth
     getter settings : Settings
     # 通知に載せる文言。言語が決まるのは起動の途中なので、後から差し替えられる。
     property texts : Texts
+    # 直近の周期に取れた計測値。設定画面が今の値を見せるために読む。
+    # ソースが止まっている間は空である。
+    getter last_samples : Hash(String, Float64) = {} of String => Float64
+    # ソースが開始しているか。取得元の開始と停止は、開始している間だけ行う。
+    getter? started : Bool = false
 
     def initialize(@providers : Array(MetricProvider), @settings : Settings, @texts : Texts)
       @evaluator = Evaluator.new
@@ -103,8 +108,6 @@ module SystemHealth
       @failing = Set(String).new
       # 読み飛ばしたことを知らせ済みの鍵。設定は反映のたびに渡されるため、同じ警告を繰り返さない。
       @reported_unknown = [] of String
-      # ソースが開始しているか。取得元の開始と停止は、開始している間だけ行う。
-      @started = false
       # 開始済みの取得元。
       @running = Set(String).new
     end
@@ -138,12 +141,14 @@ module SystemHealth
     def start : Nil
       @evaluator.reset
       @failing.clear
+      @last_samples = {} of String => Float64
       @started = true
       sync_providers
     end
 
     def stop : Nil
       @started = false
+      @last_samples = {} of String => Float64
       @providers.each { |provider| stop_provider(provider) }
     end
 
@@ -215,7 +220,7 @@ module SystemHealth
           end
         end
       end
-      samples
+      @last_samples = samples
     end
 
     private def to_incoming(transition : Evaluator::Transition) : Notify::Incoming
