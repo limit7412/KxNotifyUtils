@@ -26,6 +26,9 @@ require "./oyasumivr/repository"
 require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
+require "./system_health/models"
+require "./system_health/repository"
+require "./system_health/usecase"
 require "./update/installer"
 require "./update/models"
 require "./update/repository"
@@ -122,7 +125,12 @@ module KxNotifyUtils
       @status_source = ServiceStatus::Repository.new(
         @status_client, ServiceStatus::Settings.new, service_status_texts)
       @status_slot = SourceSlot.new(@status_source, "service_status")
-      @source_slots = [@win_slot, @status_slot]
+      # システムヘルス。計測値の取得元はここで並べ、使うかどうかは設定の providers で決まる。
+      @health_source = SystemHealth::Repository.new(
+        [SystemHealth::MemoryProvider.new.as(SystemHealth::MetricProvider)],
+        SystemHealth::Settings.new, system_health_texts)
+      @health_slot = SourceSlot.new(@health_source, "system_health")
+      @source_slots = [@win_slot, @status_slot, @health_slot]
       @sinks = [] of Notify::PostRepository
       # 通知先を組み直すかどうかの判断に使う、直前に適用したシンク設定。
       @sink_signature = ""
@@ -150,6 +158,7 @@ module KxNotifyUtils
         builders: [
           WinNotification::MessageBuilder.new(@icons).as(Notify::MessageBuilder),
           ServiceStatus::MessageBuilder.new(@icons).as(Notify::MessageBuilder),
+          SystemHealth::MessageBuilder.new(@icons).as(Notify::MessageBuilder),
         ],
         config: @config.current,
         sleep_gate: @sleep,
@@ -296,6 +305,9 @@ module KxNotifyUtils
       @config.register_validator("sources.#{ServiceStatus::SOURCE_ID}") do |section|
         ServiceStatus::Settings.validate(section)
       end
+      @config.register_validator("sources.#{SystemHealth::SOURCE_ID}") do |section|
+        SystemHealth::Settings.validate(section)
+      end
       @config.register_validator("sinks.#{XSOverlay::SINK_ID}") do |section|
         XSOverlay::Settings.validate(section)
       end
@@ -310,6 +322,7 @@ module KxNotifyUtils
       Runtime::I18n.locale = Runtime::I18n.resolve(@config.current.language)
       # 障害検知の通知の文言は辞書から引く。言語が決まってから差し替える。
       @status_source.texts = service_status_texts
+      @health_source.texts = system_health_texts
 
       # 知らせ済みの版を復元してから最初の確認を行う。
       # 先に確認すると、前回知らせた版をもう一度知らせてしまう。
@@ -355,6 +368,10 @@ module KxNotifyUtils
       status = ServiceStatus::Settings.from_section(root.source(ServiceStatus::SOURCE_ID))
       @status_source.settings = status
       sync_source(@status_slot, status.enabled) { }
+
+      health = SystemHealth::Settings.from_section(root.source(SystemHealth::SOURCE_ID))
+      @health_source.settings = health
+      sync_source(@health_slot, health.enabled) { }
     end
 
     # 障害検知の通知に載せる文言（issue #5）。
@@ -365,6 +382,20 @@ module KxNotifyUtils
         major_outage: Runtime::I18n.t("notify.service_status.major_outage"),
         recovered: Runtime::I18n.t("notify.service_status.recovered"),
       )
+    end
+
+    # システムヘルスの通知に載せる文言。規則ごとに辞書から引いて渡す。
+    private def system_health_texts : SystemHealth::Texts
+      rules = SystemHealth::RULES.to_h do |rule|
+        prefix = "notify.system_health.#{rule.id}"
+        {rule.id, SystemHealth::RuleTexts.new(
+          title: Runtime::I18n.t("#{prefix}.title"),
+          body: Runtime::I18n.t("#{prefix}.body"),
+          cleared_title: Runtime::I18n.t("#{prefix}.cleared_title"),
+          cleared_body: Runtime::I18n.t("#{prefix}.cleared_body"),
+        )}
+      end
+      SystemHealth::Texts.new(app_name: Runtime::I18n.t("notify.system_health.app_name"), rules: rules)
     end
 
     # 監視対象 1 つを設定の有効と無効に合わせる。

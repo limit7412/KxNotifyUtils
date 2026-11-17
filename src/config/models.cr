@@ -413,6 +413,19 @@ module Config
             "feed_url": "https://vrc-status.oxymoron.link/v1/status.json"
           }
           JSON
+        "system_health" => JSON.parse(<<-JSON),
+          {
+            "enabled": true,
+            "polling_interval_s": 1,
+            "providers": {"memory": true},
+            "alerts": {
+              "memory.physical_usage": {
+                "enabled": true, "threshold": 95, "for_s": 120,
+                "clear_threshold": 90, "cooldown_s": 600, "notify_clear": false
+              }
+            }
+          }
+          JSON
       }
       root.sinks = {
         "xsoverlay" => JSON.parse(
