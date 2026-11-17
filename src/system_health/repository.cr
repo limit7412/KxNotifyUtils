@@ -101,7 +101,12 @@ module SystemHealth
 
     def settings=(settings : Settings) : Nil
       @settings = settings
-      @rules = settings.rules
+      rules = settings.rules
+      # 設定は反映のたびに渡される。数値が変わった規則だけ、継続の計測を数え直す。
+      rules.each_with_index do |rule, index|
+        @evaluator.restart_pending(rule.id) unless rule == @rules[index]?
+      end
+      @rules = rules
       unknown = settings.unknown_alert_ids.map { |id| "alerts.#{id}" } +
                 settings.unknown_provider_ids.map { |id| "providers.#{id}" }
       return if unknown == @reported_unknown

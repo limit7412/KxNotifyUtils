@@ -113,6 +113,40 @@ describe SystemHealth::Repository do
     target.poll_new(1.seconds).size.should eq 1
   end
 
+  it "継続の計測中に数値を変えたら、変えた後の条件で数え直す" do
+    provider = Fakes::MetricProvider.new(values: {METRIC => 96.0})
+    target = repository(provider)
+    target.poll_new(0.seconds)
+    target.poll_new(119.seconds).should be_empty
+
+    target.settings = settings(%({"alerts": {"memory.physical_usage": {"threshold": 98}}}))
+    provider.values[METRIC] = 99.0
+
+    target.poll_new(120.seconds).should be_empty
+    target.poll_new(239.seconds).should be_empty
+    target.poll_new(240.seconds).size.should eq 1
+  end
+
+  it "同じ設定を渡し直しても、継続の計測を打ち切らない" do
+    provider = Fakes::MetricProvider.new(values: {METRIC => 96.0})
+    target = repository(provider)
+    target.poll_new(0.seconds)
+
+    target.settings = settings
+
+    target.poll_new(120.seconds).size.should eq 1
+  end
+
+  it "発報中に数値を変えても、同じ通知を出し直さない" do
+    provider = Fakes::MetricProvider.new(values: {METRIC => 99.0})
+    target = repository(provider, settings(%({"alerts": {"memory.physical_usage": {"for_s": 0}}})))
+    target.poll_new(0.seconds).size.should eq 1
+
+    target.settings = settings(%({"alerts": {"memory.physical_usage": {"for_s": 0, "threshold": 97}}}))
+
+    target.poll_new(1.seconds).should be_empty
+  end
+
   it "開始し直すと、発報中の状態を捨てる" do
     provider = Fakes::MetricProvider.new(values: {METRIC => 99.0})
     target = repository(provider, settings(%({"alerts": {"memory.physical_usage": {"for_s": 0}}})))

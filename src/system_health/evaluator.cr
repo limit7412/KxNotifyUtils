@@ -47,6 +47,16 @@ module SystemHealth
       @states.clear
     end
 
+    # 継続の計測を打ち切る。規則の数値が変わったときに呼ぶ。
+    #
+    # 数え始めたのは変わる前の条件であり、その時間を変わった後の条件へ引き継ぐと、
+    # 新しい条件が継続時間を満たしていないのに発報する。
+    # 発報中の状態と直近の発報時刻は保つ。保たないと、数値を変えるたびに同じ通知が出直す。
+    def restart_pending(rule_id : String) : Nil
+      state = @states[rule_id]?
+      state.phase = Phase::Normal if state && state.phase.pending?
+    end
+
     def phase(rule_id : String) : Phase
       @states[rule_id]?.try(&.phase) || Phase::Normal
     end
