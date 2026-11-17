@@ -102,6 +102,12 @@ module SystemHealth
     )
     end
 
+    # しきい値を変える意味があるか。
+    # 計測値が 0 か 1 の規則では意味が無く、設定画面にしきい値の欄を出さない。
+    def threshold_adjustable? : Bool
+      @threshold_range.end - @threshold_range.begin > 1.0
+    end
+
     # 解除のしきい値の既定値。発報のしきい値から、条件が成り立たない側へ離した値である。
     def default_clear_threshold(threshold : Float64) : Float64
       value = direction.at_or_above? ? threshold - @clear_margin : threshold + @clear_margin
@@ -183,6 +189,11 @@ module SystemHealth
     RULES.find { |rule| rule.id == id }
   end
 
+  # 数値を、設定に書かれた形に近いまま文字列にする。95.0 は 95 と出す。
+  def self.format_number(value : Float64) : String
+    value == value.round ? value.to_i64.to_s : value.to_s
+  end
+
   # sources.system_health.alerts の 1 件。
   #
   # どの項目も省略でき、省略した項目は規則の既定値になる。
@@ -215,6 +226,12 @@ module SystemHealth
       @cooldown_s : Int32? = nil,
       @notify_clear : Bool? = nil,
     )
+    end
+
+    # 何も上書きしていないか。
+    def empty? : Bool
+      @enabled.nil? && @threshold.nil? && @for_s.nil? && @clear_threshold.nil? &&
+        @secondary_threshold.nil? && @cooldown_s.nil? && @notify_clear.nil?
     end
   end
 

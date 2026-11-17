@@ -31,6 +31,22 @@ describe SystemHealth::Repository do
     target.poll_interval.should eq 5.seconds
   end
 
+  it "開始している間だけ、直近の計測値を見せる" do
+    target = repository(Fakes::MetricProvider.new(values: {METRIC => 42.0}))
+
+    target.started?.should be_false
+    target.last_samples.should be_empty
+
+    target.start
+    target.poll_new(0.seconds)
+    target.started?.should be_true
+    target.last_samples[METRIC].should eq 42.0
+
+    target.stop
+    target.started?.should be_false
+    target.last_samples.should be_empty
+  end
+
   it "条件が継続時間を満たしたら、規則の id を付けた Incoming を返す" do
     provider = Fakes::MetricProvider.new(values: {METRIC => 96.4})
     target = repository(provider)
@@ -198,6 +214,18 @@ describe "システムヘルスの辞書" do
         key = "notify.system_health.#{rule.id}.#{suffix}"
         missing << key unless Runtime::I18n::LOCALES["ja"].has_key?(key)
       end
+    end
+
+    missing.should be_empty
+  end
+
+  it "同梱の規則すべてに、設定ウィンドウの文言がある" do
+    missing = [] of String
+    SystemHealth::RULES.each do |rule|
+      keys = ["settings.health.rule.#{rule.id}", "settings.health.description.#{rule.id}"]
+      keys << "settings.health.threshold.#{rule.id}" if rule.threshold_adjustable?
+      keys << "settings.health.secondary.#{rule.id}" if rule.secondary
+      keys.each { |key| missing << key unless Runtime::I18n::LOCALES["ja"].has_key?(key) }
     end
 
     missing.should be_empty

@@ -510,6 +510,7 @@ module KxNotifyUtils
         update_url: -> { @update.available(@config.current.update.channel).try(&.url) },
         update_action: -> { update_action_label },
         oyasumivr_status: -> { oyasumivr_status_label },
+        system_health_status: -> { system_health_status_label },
       )
       window.on_request_steamvr_register = -> { register_steamvr }
       window.on_request_steamvr_unregister = -> { unregister_steamvr }
@@ -1281,6 +1282,31 @@ module KxNotifyUtils
       in .connected? then Runtime::I18n.t("status.oyasumivr.connected")
       in .asleep?    then Runtime::I18n.t("status.oyasumivr.asleep")
       end
+    end
+
+    # 設定画面に出す、システムヘルスの今の計測値。
+    #
+    # しきい値を決める手がかりにする。GPU の上限は機種で異なり、画面で見られないと
+    # 余裕のしきい値が何℃に当たるのかが分からない。
+    private def system_health_status_label : String
+      return Runtime::I18n.t("status.system_health.stopped") unless @health_source.started?
+
+      samples = @health_source.last_samples
+      value = ->(name : String) { samples[name]?.try(&.round.to_i.to_s) || "-" }
+      memory = Runtime::I18n.t("status.system_health.memory", {
+        "value" => value.call(SystemHealth::Metric::MEMORY_PHYSICAL_USAGE),
+      })
+      gpu = if samples.has_key?(SystemHealth::Metric::GPU_TEMPERATURE)
+              Runtime::I18n.t("status.system_health.gpu", {
+                "temperature" => value.call(SystemHealth::Metric::GPU_TEMPERATURE),
+                "limit"       => value.call(SystemHealth::Metric::GPU_TEMPERATURE_LIMIT),
+                "margin"      => value.call(SystemHealth::Metric::GPU_THERMAL_MARGIN),
+                "fan"         => value.call(SystemHealth::Metric::GPU_FAN),
+              })
+            else
+              Runtime::I18n.t("status.system_health.gpu_unavailable")
+            end
+      "#{memory} / #{gpu}"
     end
 
     private def steamvr_status_label : String

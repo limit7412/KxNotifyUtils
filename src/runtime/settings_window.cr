@@ -7,6 +7,8 @@ require "../notify/usecase"
 require "../steamvr/usecase"
 require "../win_notification/models"
 require "../service_status/models"
+require "../system_health/alert_form"
+require "../system_health/models"
 require "../xsoverlay/models"
 require "./paths"
 
@@ -98,6 +100,8 @@ module Runtime
       @update_status : Proc(String) = -> { I18n.t("settings.about.update_unchecked") },
       # OyasumiVR 連携の状態（issue #54）。
       @oyasumivr_status : Proc(String) = -> { I18n.t("status.unknown") },
+      # システムヘルスの今の計測値。文言の組み立ては composition root が持つ。
+      @system_health_status : Proc(String) = -> { I18n.t("status.unknown") },
       @update_url : Proc(String?) = -> { nil.as(String?) },
       # 取得と適用の操作の、見出しと押せるかどうか（issue #10 第 2 段階）。
       # 何を押せるかは composition root が決める。
@@ -126,6 +130,7 @@ module Runtime
       @steamvr_label = nil.as(UIng::Label?)
       @update_label = nil.as(UIng::Label?)
       @oyasumivr_label = nil.as(UIng::Label?)
+      @health_label = nil.as(UIng::Label?)
       @update_button = nil.as(UIng::Button?)
       @update_action_button = nil.as(UIng::Button?)
       @steamvr_register_button = nil.as(UIng::Button?)
@@ -213,6 +218,7 @@ module Runtime
       tab.append(I18n.t("settings.tab.general"), build_general_tab)
       tab.append(I18n.t("settings.tab.sleep"), build_sleep_tab)
       tab.append(I18n.t("settings.tab.sources"), build_sources_tab)
+      tab.append(I18n.t("settings.tab.health"), build_health_tab)
       tab.append(I18n.t("settings.tab.sinks"), build_sinks_tab)
       tab.append(I18n.t("settings.tab.defaults"), build_defaults_tab)
       tab.append(I18n.t("settings.tab.rules"), build_rules_tab)
@@ -401,6 +407,80 @@ module Runtime
 
       group.child = inner
       group
+    end
+
+    # システムヘルス。
+    #
+    # 監視対象タブには置かない。規則ごとに数値が 4 つあり、他のソースの枠と並べると収まらない。
+    # 取得元（providers）の有効と無効は画面に出さない。規則を無効にすれば同じ結果になり、
+    # 取得そのものを止めたい場面は設定ファイルで足りる。
+    private def build_health_tab : UIng::Box
+      box = UIng::Box.new(:vertical, padded: true)
+      box.append(UIng::Label.new(I18n.t("settings.health.trial_note")), false)
+      box.append(check("sources.system_health.enabled", I18n.t("settings.sources.enable")), false)
+
+      form = UIng::Form.new(padded: true)
+      range = SystemHealth::Settings::POLLING_INTERVAL_RANGE
+      form.append(
+        I18n.t("settings.health.interval"),
+        spin("sources.system_health.polling_interval_s", range.begin, range.end),
+        false,
+      )
+      box.append(form, false)
+
+      health_label = UIng::Label.new(
+        I18n.t("settings.health.status", {"status" => I18n.t("status.unknown")}))
+      @health_label = health_label
+      box.append(health_label, false)
+
+      # 規則ごとにページを分ける。規則は同梱のものに限られ、増減しない。
+      # 入力欄は幅を取るため、全規則を 1 枚に並べると窓に収まらない。
+      rules = UIng::Tab.new
+      SystemHealth::RULES.each do |definition|
+        rules.append(health_rule_label(definition.id), build_health_rule_page(definition))
+      end
+      rules.num_pages.times { |index| rules.set_margined(index, true) }
+      box.append(rules, false)
+
+      box.append(UIng::Label.new(I18n.t("settings.health.clear_note")), false)
+      box.append(UIng::Label.new(I18n.t("settings.health.gpu_note")), false)
+      box
+    end
+
+    # 規則 1 件のページ。その規則に意味のある項目だけを並べる。
+    private def build_health_rule_page(definition : SystemHealth::RuleDefinition) : UIng::Box
+      key = "health.#{definition.id}"
+      page = UIng::Box.new(:vertical, padded: true)
+      page.append(UIng::Label.new(I18n.t("settings.health.description.#{definition.id}")), false)
+      page.append(check("#{key}.enabled", I18n.t("settings.health.enabled")), false)
+
+      form = UIng::Form.new(padded: true)
+      # 計測値が 0 か 1 の規則には、しきい値の欄を置かない。
+      if definition.threshold_adjustable?
+        form.append(I18n.t("settings.health.threshold.#{definition.id}"), entry("#{key}.threshold"), false)
+      end
+      if definition.secondary
+        form.append(
+          I18n.t("settings.health.secondary.#{definition.id}"), entry("#{key}.secondary_threshold"), false)
+      end
+      if definition.threshold_adjustable?
+        form.append(I18n.t("settings.health.clear_threshold"), entry("#{key}.clear_threshold"), false)
+      end
+      for_range = SystemHealth::Settings::FOR_RANGE
+      form.append(I18n.t("settings.health.for_s"), spin("#{key}.for_s", for_range.begin, for_range.end), false)
+      cooldown_range = SystemHealth::Settings::COOLDOWN_RANGE
+      form.append(
+        I18n.t("settings.health.cooldown_s"),
+        spin("#{key}.cooldown_s", cooldown_range.begin, cooldown_range.end),
+        false,
+      )
+      page.append(form, false)
+      page.append(check("#{key}.notify_clear", I18n.t("settings.health.notify_clear")), false)
+      page
+    end
+
+    private def health_rule_label(id : String) : String
+      I18n.t("settings.health.rule.#{id}")
     end
 
     private def build_sinks_tab : UIng::Box
@@ -678,6 +758,21 @@ module Runtime
       set_spin("sources.service_status.polling_interval_s", status.polling_interval_s)
       ServiceStatus::KNOWN_SERVICES.each_key do |id|
         set_check("sources.service_status.services.#{id}", status.service_enabled?(id))
+      end
+
+      health = SystemHealth::Settings.from_section(@draft.source(SystemHealth::SOURCE_ID))
+      set_check("sources.system_health.enabled", health.enabled)
+      set_spin("sources.system_health.polling_interval_s", health.polling_interval_s)
+      SystemHealth::RULES.each do |definition|
+        key = "health.#{definition.id}"
+        form = SystemHealth::AlertForm.from(definition, health.alerts[definition.id]?)
+        set_check("#{key}.enabled", form.enabled?)
+        set_text("#{key}.threshold", form.threshold)
+        set_text("#{key}.clear_threshold", form.clear_threshold)
+        set_text("#{key}.secondary_threshold", form.secondary_threshold)
+        set_spin("#{key}.for_s", form.for_s)
+        set_spin("#{key}.cooldown_s", form.cooldown_s)
+        set_check("#{key}.notify_clear", form.notify_clear?)
       end
 
       xsoverlay = XSOverlay::Settings.from_section(@draft.sink(XSOverlay::SINK_ID))
@@ -1027,6 +1122,9 @@ module Runtime
       @oyasumivr_label.try do |label|
         label.text = I18n.t("settings.sleep.oyasumivr_status", {"status" => @oyasumivr_status.call})
       end
+      @health_label.try do |label|
+        label.text = I18n.t("settings.health.status", {"status" => @system_health_status.call})
+      end
       connected = @steamvr_connected.call
       {@steamvr_register_button, @steamvr_unregister_button}.each do |control|
         control.try { |target| connected ? target.enable : target.disable }
@@ -1079,6 +1177,8 @@ module Runtime
       end
       root.sources[ServiceStatus::SOURCE_ID] = JSON.parse(status.to_json)
 
+      collect_health(root, errors)
+
       root.sinks = root.sinks.dup
       root.sinks[XSOverlay::SINK_ID] = JSON.parse({
         "enabled"        => checked?("sinks.xsoverlay.enabled"),
@@ -1114,6 +1214,40 @@ module Runtime
 
       return {nil, errors} unless errors.empty?
       {root, errors}
+    end
+
+    # システムヘルスのセクションを、画面の入力から組み立てる。
+    #
+    # 画面に無い項目（取得元の有効と無効、知らない規則）は下書きのものを引き継ぐ。
+    #
+    # 入力が下書きと同じ内容なら、セクションには触らない。
+    # 設定ファイルの 95 は読み直すと 95.0 になり、項目の並びも変わる。
+    # 書き戻すと、何も編集していないのに未保存の変更があると見なされる。
+    private def collect_health(root : ::Config::Root, errors : Array(String)) : Nil
+      section = @draft.source(SystemHealth::SOURCE_ID)
+      before = SystemHealth::Settings.from_section(section).to_json
+      health = SystemHealth::Settings.from_section(section)
+      health.enabled = checked?("sources.system_health.enabled")
+      health.polling_interval_s = spin_value("sources.system_health.polling_interval_s")
+      SystemHealth::RULES.each do |definition|
+        key = "health.#{definition.id}"
+        form = SystemHealth::AlertForm.new(
+          enabled: checked?("#{key}.enabled"),
+          threshold: text("#{key}.threshold"),
+          clear_threshold: text("#{key}.clear_threshold"),
+          secondary_threshold: text("#{key}.secondary_threshold"),
+          for_s: spin_value("#{key}.for_s"),
+          cooldown_s: spin_value("#{key}.cooldown_s"),
+          notify_clear: checked?("#{key}.notify_clear"),
+        )
+        previous = health.alerts[definition.id]?
+        alert = form.to_settings(definition, previous, health_rule_label(definition.id), errors)
+        # 設定に無かった規則を既定値のまま書き足すことはしない。
+        health.alerts[definition.id] = alert unless previous.nil? && alert.empty?
+      end
+      return if health.to_json == before
+
+      root.sources[SystemHealth::SOURCE_ID] = JSON.parse(health.to_json)
     end
 
     private def save(window : UIng::Window) : Nil
