@@ -181,14 +181,17 @@ module SystemHealth
     FOR_RANGE                  = 0..3600
     COOLDOWN_RANGE             = 0..86400
 
-    property enabled : Bool = true
+    # 既定では無効にしてある。
+    # 同梱のしきい値は 1 台の PC の記録から決めた初期値であり、他の環境で通知が多すぎないかを
+    # 確かめられていない。更新しただけの利用者に、頼んでいない通知を出すわけにはいかない。
+    property enabled : Bool = false
     property polling_interval_s : Int32 = DEFAULT_POLLING_INTERVAL_S
     # 取得元ごとの有効と無効。書かれていない取得元は有効として扱う。
     property providers : Hash(String, Bool) = {} of String => Bool
     # 規則ごとの上書き。書かれていない規則は既定値で有効になる。
     #
     # 障害検知のサービスは「書かれていない id は無効」だが、ここは逆にしてある。
-    # 前兆の通知は、利用者が設定を書き足さなくても出なければ役に立たないためである。
+    # ソースを有効にするだけで、規則を 1 つずつ書き足さなくても同梱の規則がすべて動くようにする。
     property alerts : Hash(String, AlertSettings) = {} of String => AlertSettings
 
     def initialize

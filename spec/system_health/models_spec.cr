@@ -10,10 +10,10 @@ end
 
 describe SystemHealth::Settings do
   describe ".from_section" do
-    it "セクションが無ければ既定値で有効になる" do
+    it "セクションが無ければ無効である" do
       settings = SystemHealth::Settings.from_section(nil)
 
-      settings.enabled.should be_true
+      settings.enabled.should be_false
       settings.polling_interval_s.should eq 1
       settings.provider_enabled?("memory").should be_true
     end
@@ -80,6 +80,12 @@ describe SystemHealth::Settings do
 
       default.should_not be_nil
       SystemHealth::Settings.validate(default).should be_empty
+    end
+
+    it "初期設定では無効にしてある" do
+      written = SystemHealth::Settings.from_section(Config::Root.default.source("system_health"))
+
+      written.enabled.should be_false
     end
 
     it "初期設定に書き出す値は規則の既定値と一致する" do

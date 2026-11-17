@@ -415,7 +415,7 @@ module Config
           JSON
         "system_health" => JSON.parse(<<-JSON),
           {
-            "enabled": true,
+            "enabled": false,
             "polling_interval_s": 1,
             "providers": {"memory": true},
             "alerts": {
