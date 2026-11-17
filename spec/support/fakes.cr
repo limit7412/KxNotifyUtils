@@ -98,6 +98,29 @@ module Fakes
     end
   end
 
+  # 計測値を決め打ちで返す SystemHealth::MetricProvider 実装。
+  # values を書き換えると、次の取得からその値を返す。error を入れると取得で例外を出す。
+  class MetricProvider < SystemHealth::MetricProvider
+    property values : Hash(String, Float64)
+    property error : String? = nil
+    getter sample_count : Int32 = 0
+
+    def initialize(@id : String = "memory", @values : Hash(String, Float64) = {} of String => Float64)
+    end
+
+    def provider_id : String
+      @id
+    end
+
+    def sample(samples : Hash(String, Float64)) : Nil
+      @sample_count += 1
+      if message = @error
+        raise message
+      end
+      samples.merge!(@values)
+    end
+  end
+
   # 配信 JSON を持たない ServiceStatus::FeedClient 実装。
   # 応答を順に返す。尽きたら「変わっていない」を返す。
   class FeedClient < ServiceStatus::FeedClient

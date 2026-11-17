@@ -37,6 +37,12 @@ src/
     models.cr                        配信 JSON に対応する型、sources.service_status の設定
     repository.cr                    配信の取得と、前回のレベルとの比較を行う SourceRepository 実装
     usecase.cr                       共通の整形を継承した MessageBuilder
+  system_health/                   ソース実装：システムヘルス
+    models.cr                        同梱する規則の定義、sources.system_health の設定
+    evaluator.cr                     規則の評価（平常、継続の計測中、発報中の遷移）
+    ffi.cr                           計測値の取得に使う Win32 API の lib 宣言
+    repository.cr                    計測値の取得元の抽象と、状態が変わった規則を返す SourceRepository 実装
+    usecase.cr                       共通の整形を継承した MessageBuilder
   xsoverlay/                       シンク実装：XSOverlay
     models.cr                        通知オブジェクトとエンベロープ、sinks.xsoverlay の設定
     websocket_repository.cr          WebSocket 送信
@@ -165,6 +171,19 @@ WinRT の呼び出しだけは別である。
 6. 設定ファイルの `sources` に新しいキーが増える。既存のキーは変わらない。
 
 `notify` と既存のコンテキストには手を入れない。
+
+## システムヘルスに計測値と規則を足す
+
+システムヘルスは、計測値の取得と規則の評価を分けてある。
+`SystemHealth::Evaluator` が受け取るのは計測値の名前と値の対だけであり、値がどこから来たかを見ない。
+この分離により、継続時間や解除のしきい値や再発報の間隔は、Windows の外の単体テストで検証できる。
+
+計測値を足すときは `SystemHealth::MetricProvider` を継承し、`main.cr` で `Repository` へ渡す並びに加える。
+`sample` は主ループの中で呼ばれるため、待ちうる取得はここで行えない。
+GPU の計測値のように、GPU が応答を止めると取得も戻らなくなるものは、別のスレッドで取り、`sample` では最後に取れた値を書く。
+
+規則を足すときは `SystemHealth::RULES` に定義を加え、`locales` に発報と解除の文言を足す。
+文言の鍵は `notify.system_health.<規則の id>.title` の形で、足し忘れは spec が検出する。
 
 ## シンクを足す
 
