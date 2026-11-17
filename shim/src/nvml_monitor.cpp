@@ -63,6 +63,8 @@ constexpr unsigned int kMaxFans = 8;
 
 struct Device {
   NvmlDevice handle = nullptr;
+  // NVML が振った番号。開き直しても、同じ GPU を同じ番号で追うために持つ。
+  unsigned int index = 0;
   int32_t limit_gpu_max_c = NVM_UNKNOWN;
   int32_t limit_slowdown_c = NVM_UNKNOWN;
   int32_t limit_shutdown_c = NVM_UNKNOWN;
@@ -72,6 +74,9 @@ struct Device {
 // 温度が続けて取れなかったとき、NVML を初期化し直すまでの回数。
 // ドライバを更新すると、それまでのハンドルは使えなくなる。
 constexpr unsigned int kReopenAfterFailures = 10;
+// 一部の GPU だけが取れないときに、開き直しの間隔を延ばす上限。
+// 開き直しても戻らない GPU のために、初期化を短い間隔で繰り返さない。
+constexpr unsigned int kMaxPartialReopenAfter = kReopenAfterFailures * 32;
 
 // 止めるときに取得スレッドの終了を待つ上限。
 // NVML の中で止まっているスレッドを待ち続けると、本体の終了がそこで止まる。
@@ -207,6 +212,7 @@ unsigned int open_devices(const Api& api, Device* devices) {
   unsigned int found = 0;
   for (unsigned int index = 0; index < total && found < kMaxDevices; ++index) {
     Device device;
+    device.index = index;
     if (api.handle(index, &device.handle) != kNvmlSuccess || !device.handle) {
       continue;
     }
@@ -277,7 +283,9 @@ int32_t margin_of(const Device& device, int32_t temperature) {
 }
 
 // 全 GPU を 1 回ずつ読む。温度が 1 台も取れなければ false を返す。
-bool sample_devices(const Api& api, const Device* devices, unsigned int count, nvm_sample& out) {
+// 温度が取れた GPU は、got に NVML の番号で印を付ける。
+bool sample_devices(const Api& api, const Device* devices, unsigned int count, nvm_sample& out,
+                    bool* got) {
   out = empty_sample(NVM_STATE_SAMPLING);
   out.device_count = count;
 
@@ -297,6 +305,9 @@ bool sample_devices(const Api& api, const Device* devices, unsigned int count, n
     const int32_t temperature = read_temperature(api, device.handle);
     if (temperature == NVM_UNKNOWN) {
       continue;
+    }
+    if (device.index < kMaxDevices) {
+      got[device.index] = true;
     }
     const int32_t margin = margin_of(device, temperature);
     if (any && margin >= worst_margin) {
@@ -328,10 +339,45 @@ DWORD WINAPI worker_main(LPVOID) {
   }
 
   unsigned int failures = 0;
+  // 一度は温度が取れた GPU と、その GPU で取得が続けて失敗した回数。NVML の番号で引く。
+  bool seen[kMaxDevices] = {};
+  unsigned int lost[kMaxDevices] = {};
+  unsigned int partial_reopen_after = kReopenAfterFailures;
   do {
     nvm_sample sample;
-    if (sample_devices(api, devices, count, sample)) {
+    bool got[kMaxDevices] = {};
+    const bool any = sample_devices(api, devices, count, sample, got);
+    unsigned int longest_lost = 0;
+    for (unsigned int index = 0; index < kMaxDevices; ++index) {
+      if (got[index]) {
+        seen[index] = true;
+        lost[index] = 0;
+      } else if (seen[index]) {
+        ++lost[index];
+        longest_lost = lost[index] > longest_lost ? lost[index] : longest_lost;
+      }
+    }
+
+    if (any) {
       failures = 0;
+      if (longest_lost == 0) {
+        partial_reopen_after = kReopenAfterFailures;
+      } else if (longest_lost >= partial_reopen_after) {
+        // 取れていた GPU のうち一部だけが取れなくなった。その GPU のハンドルが無効になった
+        // 見込みがある。放置すると、残りの GPU の値だけで規則を評価し続ける。
+        // 開き直しても戻らなければ、次に試すまでの回数を倍に延ばす。
+        for (unsigned int index = 0; index < kMaxDevices; ++index) {
+          lost[index] = 0;
+        }
+        if (partial_reopen_after < kMaxPartialReopenAfter) {
+          partial_reopen_after *= 2;
+        }
+        api.shutdown();
+        count = open_devices(api, devices);
+        if (count > 0) {
+          set_error("");
+        }
+      }
     } else if (++failures >= kReopenAfterFailures) {
       // 取れない状態が続いた。ドライバの更新などでハンドルが無効になった見込みがある。
       // 開き直しに失敗しても終わらない。一度は取れていた GPU であり、失敗は一時的でありうる。
