@@ -6,12 +6,17 @@
 // 使い方:
 //   shim_harness              許可状態と通知一覧を 1 回だけ表示する
 //   shim_harness leak 10000   通知一覧の取得を繰り返し、解放漏れが無いことを確かめる
+//
+// どちらの場合も、最初に NVML の取得を 1 回試して結果を表示する。
 #include "notif_listener_shim.h"
+#include "nvml_monitor.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -81,9 +86,64 @@ int repeat(int iterations) {
   return 0;
 }
 
+const char* nvml_state_label(int32_t state) {
+  switch (state) {
+    case NVM_STATE_STOPPED: return "Stopped";
+    case NVM_STATE_STARTING: return "Starting";
+    case NVM_STATE_SAMPLING: return "Sampling";
+    case NVM_STATE_UNAVAILABLE: return "Unavailable";
+    default: return "Unknown";
+  }
+}
+
+// NVML の取得スレッドを立て、1 回取れるか、使えないと分かるまで待つ。
+//
+// NVIDIA の GPU が無い環境では Unavailable になる。これは環境の都合であって異常ではない。
+// 異常として扱うのは、開始できない場合と、どちらの状態にもならないまま期限が来た場合である。
+int check_nvml() {
+  if (const int32_t code = nvm_start(200); code != 0) {
+    std::printf("nvm_start failed (%d): %s\n", code, nvm_last_error());
+    return 1;
+  }
+
+  nvm_sample sample = {};
+  for (int attempt = 0; attempt < 100; ++attempt) {
+    nvm_read(&sample);
+    if (sample.state != NVM_STATE_STARTING) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  std::printf("nvml: %s (size %u)\n", nvml_state_label(sample.state), nvm_sample_size());
+  if (sample.state == NVM_STATE_SAMPLING) {
+    std::printf(
+        "nvml: devices=%u temperature=%d gpu_max=%d slowdown=%d shutdown=%d fan=%d "
+        "reasons=0x%llx (valid=%d) age=%u ms\n",
+        sample.device_count, sample.temperature_c, sample.limit_gpu_max_c,
+        sample.limit_slowdown_c, sample.limit_shutdown_c, sample.fan_percent,
+        static_cast<unsigned long long>(sample.clock_reasons), sample.clock_reasons_valid,
+        sample.age_ms);
+  } else if (sample.state == NVM_STATE_UNAVAILABLE) {
+    std::printf("nvml: %s\n", nvm_last_error());
+  }
+  nvm_stop();
+
+  if (sample.state == NVM_STATE_STARTING) {
+    std::printf("nvml did not leave the starting state\n");
+    return 1;
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+  // 通知アクセスが無い環境では下の確認を飛ばして終わるため、NVML は先に確かめる。
+  if (check_nvml() != 0) {
+    return 1;
+  }
+
   const int32_t code = nls_init();
   if (code != 0) {
     std::printf("nls_init failed (%d): %s\n", code, nls_last_error());

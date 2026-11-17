@@ -98,14 +98,58 @@ module Fakes
     end
   end
 
+  # NVML を持たない SystemHealth::NvmlReader 実装。sample を書き換えると、次の read からそれを返す。
+  class NvmlReader < SystemHealth::NvmlReader
+    property sample : SystemHealth::NvmlSample
+    property start_error : String? = nil
+    getter intervals : Array(Time::Span) = [] of Time::Span
+    getter stop_count : Int32 = 0
+
+    def initialize(@sample : SystemHealth::NvmlSample = SystemHealth::NvmlSample.new(SystemHealth::NvmlSample::State::Stopped))
+    end
+
+    def start(interval : Time::Span) : Nil
+      if message = @start_error
+        raise message
+      end
+      @intervals << interval
+    end
+
+    def stop : Nil
+      @stop_count += 1
+    end
+
+    def read : SystemHealth::NvmlSample
+      @sample
+    end
+
+    def last_error : String
+      "nvml.dll was not found"
+    end
+  end
+
   # 計測値を決め打ちで返す SystemHealth::MetricProvider 実装。
   # values を書き換えると、次の取得からその値を返す。error を入れると取得で例外を出す。
   class MetricProvider < SystemHealth::MetricProvider
     property values : Hash(String, Float64)
     property error : String? = nil
+    property start_error : String? = nil
     getter sample_count : Int32 = 0
+    getter intervals : Array(Time::Span) = [] of Time::Span
+    getter stop_count : Int32 = 0
 
     def initialize(@id : String = "memory", @values : Hash(String, Float64) = {} of String => Float64)
+    end
+
+    def start(interval : Time::Span) : Nil
+      if message = @start_error
+        raise message
+      end
+      @intervals << interval
+    end
+
+    def stop : Nil
+      @stop_count += 1
     end
 
     def provider_id : String

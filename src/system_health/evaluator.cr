@@ -27,8 +27,10 @@ module SystemHealth
       Cleared
     end
 
-    # 状態が変わった規則 1 件。値は変わった時点の計測値である。
-    record Transition, kind : Kind, rule : Rule, value : Float64
+    # 状態が変わった規則 1 件。
+    # value は変わった時点の主の計測値、samples はその時点の計測値すべてである。
+    # 通知の文面に、判定に使った値以外（余裕で判定した規則の温度など）も載せるために持つ。
+    record Transition, kind : Kind, rule : Rule, value : Float64, samples : Hash(String, Float64)
 
     private class State
       property phase : Phase = Phase::Normal
@@ -75,47 +77,45 @@ module SystemHealth
         end
 
         state = (@states[rule.id] ||= State.new)
-        value = samples[rule.definition.metric]?
-        if value.nil?
-          # 値が取れない間は、条件が続いているとも解除されたとも言えない。
-          # 継続の計測は打ち切り、発報中はそのまま保つ。
-          state.phase = Phase::Normal if state.phase.pending?
-          next
-        end
-
-        if transition = step(rule, state, value, now)
+        if transition = step(rule, state, samples, now)
           transitions << transition
         end
       end
       transitions
     end
 
-    private def step(rule : Rule, state : State, value : Float64, now : Time::Span) : Transition?
-      case state.phase
-      in .normal?
-        return nil unless rule.satisfied?(value)
+    private def step(rule : Rule, state : State, samples : Hash(String, Float64), now : Time::Span) : Transition?
+      value = samples[rule.definition.metric]?
+
+      if state.phase.firing?
+        # 値が取れない間は、解除されたとは言えない。発報中のまま保つ。
+        return nil unless value && rule.cleared?(samples)
+        state.phase = Phase::Normal
+        return Transition.new(Kind::Cleared, rule, value, samples)
+      end
+
+      satisfied = rule.satisfied?(samples)
+      if value.nil? || !satisfied
+        # 条件が外れたか、値が取れず条件が続いているとは言えない。継続の計測は打ち切る。
+        state.phase = Phase::Normal
+        return nil
+      end
+
+      if state.phase.normal?
         state.phase = Phase::Pending
         state.since = now
-        # 継続時間が 0 の規則は、条件が成り立った周期のうちに発報する。
-        fire_if_due(rule, state, value, now)
-      in .pending?
-        unless rule.satisfied?(value)
-          state.phase = Phase::Normal
-          return nil
-        end
-        fire_if_due(rule, state, value, now)
-      in .firing?
-        return nil unless rule.cleared?(value)
-        state.phase = Phase::Normal
-        Transition.new(Kind::Cleared, rule, value)
       end
+      # 継続時間が 0 の規則は、条件が成り立った周期のうちに発報する。
+      fire_if_due(rule, state, value, samples, now)
     end
 
     # 継続時間を満たし、かつ前回の発報から間隔が空いていれば発報する。
     #
     # 間隔が空くまでは継続の計測中にとどめる。
     # 条件が続いたまま間隔が明ければ、その時点で発報する。
-    private def fire_if_due(rule : Rule, state : State, value : Float64, now : Time::Span) : Transition?
+    private def fire_if_due(
+      rule : Rule, state : State, value : Float64, samples : Hash(String, Float64), now : Time::Span,
+    ) : Transition?
       return nil if now - state.since < rule.for_s.seconds
       if last = state.last_fired
         return nil if now - last < rule.cooldown_s.seconds
@@ -123,7 +123,7 @@ module SystemHealth
 
       state.phase = Phase::Firing
       state.last_fired = now
-      Transition.new(Kind::Fired, rule, value)
+      Transition.new(Kind::Fired, rule, value, samples)
     end
   end
 end
