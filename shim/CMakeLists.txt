@@ -19,7 +19,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # uing が配る ui.lib は debug 構成のものも MT_StaticRelease でビルドされているためである。
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
-add_library(NotifListenerShim STATIC src/notif_listener_shim.cpp)
+# nvml_monitor.cpp は WinRT に依らない。通知の取得とは別の機能だが、
+# 本体へリンクするネイティブのライブラリを 1 つに保つため、同じライブラリに入れている。
+add_library(NotifListenerShim STATIC src/notif_listener_shim.cpp src/nvml_monitor.cpp)
 target_include_directories(NotifListenerShim PUBLIC include)
 target_compile_options(NotifListenerShim PRIVATE /EHsc /W4 /utf-8)
 target_link_libraries(NotifListenerShim PUBLIC windowsapp runtimeobject ole32)

@@ -19,6 +19,16 @@ module SystemHealth
     # 主ループの中で呼ばれるため、待ちを伴う取得をここで行うわけにはいかない。
     # 待ちうる取得元は別のスレッドで取り、ここでは最後に取れた値を書く。
     abstract def sample(samples : Hash(String, Float64)) : Nil
+
+    # 取得の準備。別のスレッドで取る取得元は、ここでスレッドを立てる。
+    # interval は計測値を確認する間隔であり、取得元が自分で取る間隔の目安に使う。
+    # 既に開始している取得元に呼ばれた場合は、間隔だけを差し替える。
+    def start(interval : Time::Span) : Nil
+    end
+
+    # 取得の後始末。開始していない取得元に呼ばれても何もしない。
+    def stop : Nil
+    end
   end
 
   # 物理メモリの使用率を取る。
@@ -46,7 +56,8 @@ module SystemHealth
 
   # 規則 1 件の通知の文言。
   #
-  # 本文には {value}（計測値）、{threshold}（しきい値）、{for_s}（継続の秒数）を書ける。
+  # 本文には {value}（判定に使った計測値）、{threshold}（しきい値）、{for_s}（継続の秒数）を書ける。
+  # {gpu.temperature_c} のように計測値の名前を書くと、その時点の値に置き換わる。
   struct RuleTexts
     getter title : String
     getter body : String
@@ -76,7 +87,10 @@ module SystemHealth
   class Repository < Notify::SourceRepository
     Log = ::Log.for("system_health")
 
-    PLACEHOLDER = /\{(?:value|threshold|for_s)\}/
+    PLACEHOLDER = /\{([a-z0-9_.]+)\}/
+
+    # 値が取れなかった計測値を本文に出すときの表記。
+    UNKNOWN_VALUE = "-"
 
     getter settings : Settings
     # 通知に載せる文言。言語が決まるのは起動の途中なので、後から差し替えられる。
@@ -89,6 +103,10 @@ module SystemHealth
       @failing = Set(String).new
       # 読み飛ばしたことを知らせ済みの鍵。設定は反映のたびに渡されるため、同じ警告を繰り返さない。
       @reported_unknown = [] of String
+      # ソースが開始しているか。取得元の開始と停止は、開始している間だけ行う。
+      @started = false
+      # 開始済みの取得元。
+      @running = Set(String).new
     end
 
     def source_id : String
@@ -107,6 +125,7 @@ module SystemHealth
         @evaluator.restart_pending(rule.id) unless rule == @rules[index]?
       end
       @rules = rules
+      sync_providers if @started
       unknown = settings.unknown_alert_ids.map { |id| "alerts.#{id}" } +
                 settings.unknown_provider_ids.map { |id| "providers.#{id}" }
       return if unknown == @reported_unknown
@@ -119,6 +138,42 @@ module SystemHealth
     def start : Nil
       @evaluator.reset
       @failing.clear
+      @started = true
+      sync_providers
+    end
+
+    def stop : Nil
+      @started = false
+      @providers.each { |provider| stop_provider(provider) }
+    end
+
+    # 取得元を設定の有効と無効に合わせる。
+    #
+    # 開始に失敗した取得元は、次に設定が反映されるときに試し直す。
+    # 失敗しても他の取得元の値を使った評価は続ける。
+    private def sync_providers : Nil
+      interval = @settings.polling_interval_s.seconds
+      @providers.each do |provider|
+        id = provider.provider_id
+        unless @settings.provider_enabled?(id)
+          stop_provider(provider)
+          next
+        end
+
+        begin
+          provider.start(interval)
+          @running << id
+        rescue ex
+          Log.warn(exception: ex) { "取得元を開始できなかった: #{id}" }
+        end
+      end
+    end
+
+    private def stop_provider(provider : MetricProvider) : Nil
+      return unless @running.delete(provider.provider_id)
+      provider.stop
+    rescue ex
+      Log.warn(exception: ex) { "取得元を停止できなかった: #{provider.provider_id}" }
     end
 
     def poll_new : Array(Notify::Incoming)
@@ -185,11 +240,13 @@ module SystemHealth
     # 本文のプレースホルダを値で置き換える。
     private def expand(template : String, transition : Evaluator::Transition) : String
       rule = transition.rule
-      template.gsub(PLACEHOLDER) do |match|
-        case match
-        when "{value}"     then transition.value.round.to_i.to_s
-        when "{threshold}" then number(rule.threshold)
-        else                    rule.for_s.to_s
+      template.gsub(PLACEHOLDER) do |_, match|
+        case name = match[1]
+        when "value"     then transition.value.round.to_i.to_s
+        when "threshold" then number(rule.threshold)
+        when "for_s"     then rule.for_s.to_s
+        else
+          transition.samples[name]?.try(&.round.to_i.to_s) || UNKNOWN_VALUE
         end
       end
     end

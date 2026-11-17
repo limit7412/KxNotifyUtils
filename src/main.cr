@@ -27,6 +27,8 @@ require "./steamvr/openvr_repository"
 require "./steamvr/repository"
 require "./steamvr/usecase"
 require "./system_health/models"
+require "./system_health/nvml_provider"
+require "./system_health/nvml_reader"
 require "./system_health/repository"
 require "./system_health/usecase"
 require "./update/installer"
@@ -127,7 +129,10 @@ module KxNotifyUtils
       @status_slot = SourceSlot.new(@status_source, "service_status")
       # システムヘルス。計測値の取得元はここで並べ、使うかどうかは設定の providers で決まる。
       @health_source = SystemHealth::Repository.new(
-        [SystemHealth::MemoryProvider.new.as(SystemHealth::MetricProvider)],
+        [
+          SystemHealth::MemoryProvider.new.as(SystemHealth::MetricProvider),
+          SystemHealth::NvmlProvider.new(SystemHealth::ShimNvmlReader.new).as(SystemHealth::MetricProvider),
+        ],
         SystemHealth::Settings.new, system_health_texts)
       @health_slot = SourceSlot.new(@health_source, "system_health")
       @source_slots = [@win_slot, @status_slot, @health_slot]

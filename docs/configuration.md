@@ -27,11 +27,22 @@
     "system_health": {
       "enabled": false,
       "polling_interval_s": 1,
-      "providers": { "memory": true },
+      "providers": { "memory": true, "nvml": true },
       "alerts": {
         "memory.physical_usage": {
           "enabled": true, "threshold": 95, "for_s": 120,
           "clear_threshold": 90, "cooldown_s": 600, "notify_clear": false
+        },
+        "gpu.thermal_margin": {
+          "enabled": true, "threshold": 4, "for_s": 60,
+          "clear_threshold": 8, "cooldown_s": 600, "notify_clear": false
+        },
+        "gpu.cooling_saturated": {
+          "enabled": true, "threshold": 6, "secondary_threshold": 95, "for_s": 60,
+          "clear_threshold": 10, "cooldown_s": 600, "notify_clear": false
+        },
+        "gpu.thermal_throttle": {
+          "enabled": true, "for_s": 0, "cooldown_s": 600, "notify_clear": false
         }
       }
     }
@@ -174,6 +185,7 @@ VR 中に PC が不調になる前に、アプリを閉じる、負荷を下げ�
 - **threshold**：発報のしきい値。
 - **for_s**：条件が何秒続いたら発報するか。0 から 3600 の範囲で指定する。0 は即時である。
 - **clear_threshold**：解除のしきい値。省略すると、`threshold` から規則ごとの幅だけ離した値になる。
+- **secondary_threshold**：2 つ目の条件のしきい値。2 つの計測値を組み合わせる規則だけが使う。
 - **cooldown_s**：発報してから、同じ規則が次に発報できるまでの秒数。0 から 86400 の範囲で指定する。
 - **notify_clear**：解除を通知するかどうか。既定は false である。
 
@@ -182,10 +194,42 @@ VR 中に PC が不調になる前に、アプリを閉じる、負荷を下げ�
 | id | 取得元 | 条件 | 継続 | 解除 | 再発報の間隔 | アイコン |
 |---|---|---|---|---|---|---|
 | `memory.physical_usage` | `memory` | 物理メモリの使用率が 95% 以上 | 120 秒 | 90% 以下 | 600 秒 | warning |
+| `gpu.thermal_margin` | `nvml` | GPU の動作上限までの余裕が 4℃ 以下 | 60 秒 | 余裕が 8℃ 以上 | 600 秒 | warning |
+| `gpu.cooling_saturated` | `nvml` | 余裕が 6℃ 以下、かつファンが 95% 以上 | 60 秒 | 余裕が 10℃ 以上、またはファンが 85% 以下 | 600 秒 | warning |
+| `gpu.thermal_throttle` | `nvml` | GPU の温度制限が作動 | 即時 | 作動が止まる | 600 秒 | error |
 
 数値は 1 台の PC の調査記録から決めた初期値である。
 `memory.physical_usage` は、VR を長時間続けた PC で 32 GB の物理メモリが満杯になっていた記録に基づく。
 通知が多すぎる、または遅すぎる場合は `threshold` と `for_s` で調整する。
+
+### GPU の温度の規則
+
+GPU の 3 つの規則は試験的な実装である。
+VR 中に GPU が応答を止めて映像出力が失われる障害の調査に基づいており、止まる前に負荷を下げる機会を作ることを狙っている。
+調査した PC では、動作上限 88℃ に対して 84℃ 以上、ファン 100% の状態で停止が起きていた。
+ただし同じ温度は停止の無かった日にも 1 時間以上続いており、通知が出たからといって停止が近いとは限らない。
+
+計測値は NVIDIA のドライバが持つ NVML から取る。
+NVIDIA の GPU が無い PC では取得元 `nvml` が使えず、3 つの規則は発報しない。
+使えなかったことは情報ログに残るだけで、通知もエラーも出ない。
+
+温度は絶対値ではなく、ドライバが返す動作上限までの余裕で判定する。
+上限は機種ごとに違い、絶対値をしきい値にすると他の機種で合わなくなるためである。
+動作上限を返さない機種では、減速を始める温度までの余裕で代える。
+どちらも返らない機種では余裕を計算できず、`gpu.thermal_margin` と `gpu.cooling_saturated` は発報しない。
+取得を始めたときに、ドライバが返した温度と、余裕の計算に使っている上限がログに残る。
+
+- **gpu.thermal_margin**：`threshold` は上限までの余裕（℃）である。値が小さいほど悪いので、`clear_threshold` は `threshold` 以上で指定する。
+- **gpu.cooling_saturated**：ファンへの指示が全開に近いのに、温度に余裕が無い状態を知らせる。`threshold` は余裕（℃）、`secondary_threshold` はファンの値（%）である。ファンの値はドライバが出している指示値であり、実測の回転数ではない。指示どおりに回っていない故障は区別できない。
+- **gpu.thermal_throttle**：ドライバが温度を下げるために性能を落としたことを知らせる。計測値は作動中かどうかの 2 値なので、`threshold` と `clear_threshold` は変えない。
+
+GPU が複数ある PC では、余裕が最も小さい 1 台の値で判定する。
+温度制限は、どれか 1 台で作動していれば作動と見なす。
+
+GPU が応答を止めると、NVML からの取得も戻らなくなる。
+取得は主ループとは別のスレッドで行っているため、その間もトレイや通知の中継は止まらない。
+値が 5 秒（`polling_interval_s` の 3 倍のほうが長ければそちら）更新されなければ、古い値での判定をやめ、警告ログに残す。
+更新が止まったこと自体は、まだ通知にしていない。
 
 ### 発報と解除
 

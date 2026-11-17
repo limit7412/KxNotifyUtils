@@ -417,11 +417,22 @@ module Config
           {
             "enabled": false,
             "polling_interval_s": 1,
-            "providers": {"memory": true},
+            "providers": {"memory": true, "nvml": true},
             "alerts": {
               "memory.physical_usage": {
                 "enabled": true, "threshold": 95, "for_s": 120,
                 "clear_threshold": 90, "cooldown_s": 600, "notify_clear": false
+              },
+              "gpu.thermal_margin": {
+                "enabled": true, "threshold": 4, "for_s": 60,
+                "clear_threshold": 8, "cooldown_s": 600, "notify_clear": false
+              },
+              "gpu.cooling_saturated": {
+                "enabled": true, "threshold": 6, "secondary_threshold": 95, "for_s": 60,
+                "clear_threshold": 10, "cooldown_s": 600, "notify_clear": false
+              },
+              "gpu.thermal_throttle": {
+                "enabled": true, "for_s": 0, "cooldown_s": 600, "notify_clear": false
               }
             }
           }

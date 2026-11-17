@@ -89,10 +89,11 @@ describe SystemHealth::Settings do
     end
 
     it "初期設定に書き出す値は規則の既定値と一致する" do
-      written = rule(SystemHealth::Settings.from_section(Config::Root.default.source("system_health")))
-      builtin = rule(SystemHealth::Settings.new)
+      written = SystemHealth::Settings.from_section(Config::Root.default.source("system_health"))
 
-      written.should eq builtin
+      written.rules.should eq SystemHealth::Settings.new.rules
+      written.alerts.keys.sort!.should eq SystemHealth::RULES.map(&.id).sort!
+      written.providers.keys.sort!.should eq SystemHealth::KNOWN_PROVIDERS.sort
     end
 
     it "範囲外のポーリング間隔を弾く" do
@@ -135,12 +136,12 @@ describe SystemHealth::Settings do
     end
 
     it "知らない規則と取得元は誤りにせず、読み飛ばす対象として返す" do
-      json = section(%({"providers": {"nvml": true}, "alerts": {"gpu.thermal_margin": {"threshold": 4}}}))
+      json = section(%({"providers": {"wmi": true}, "alerts": {"gpu.vram_usage": {"threshold": 90}}}))
 
       SystemHealth::Settings.validate(json).should be_empty
       settings = SystemHealth::Settings.from_section(json)
-      settings.unknown_alert_ids.should eq ["gpu.thermal_margin"]
-      settings.unknown_provider_ids.should eq ["nvml"]
+      settings.unknown_alert_ids.should eq ["gpu.vram_usage"]
+      settings.unknown_provider_ids.should eq ["wmi"]
     end
   end
 
@@ -171,9 +172,88 @@ describe SystemHealth::RuleDefinition do
     margin = SystemHealth::Rule.new(definition)
 
     margin.clear_threshold.should eq 8.0
-    margin.satisfied?(4.0).should be_true
-    margin.satisfied?(4.1).should be_false
-    margin.cleared?(7.9).should be_false
-    margin.cleared?(8.0).should be_true
+    margin.satisfied?({"test.margin" => 4.0}).should be_true
+    margin.satisfied?({"test.margin" => 4.1}).should be_false
+    margin.cleared?({"test.margin" => 7.9}).should be_false
+    margin.cleared?({"test.margin" => 8.0}).should be_true
+  end
+
+  it "判定に要る計測値が欠けていれば、成り立つとも成り立たないとも答えない" do
+    memory = SystemHealth::Settings.new.rules.find!(&.id.==("memory.physical_usage"))
+
+    memory.satisfied?({} of String => Float64).should be_nil
+    memory.cleared?({} of String => Float64).should be_nil
+  end
+end
+
+describe "GPU の温度の規則" do
+  margin_metric = SystemHealth::Metric::GPU_THERMAL_MARGIN
+  fan_metric = SystemHealth::Metric::GPU_FAN
+
+  it "gpu.thermal_margin は余裕が 4℃ 以下で成り立ち、8℃ 以上で解除になる" do
+    target = SystemHealth::Settings.new.rules.find!(&.id.==("gpu.thermal_margin"))
+
+    target.for_s.should eq 60
+    target.cooldown_s.should eq 600
+    target.definition.severity.warning?.should be_true
+    target.satisfied?({margin_metric => 4.0}).should be_true
+    target.satisfied?({margin_metric => 5.0}).should be_false
+    target.cleared?({margin_metric => 7.0}).should be_false
+    target.cleared?({margin_metric => 8.0}).should be_true
+  end
+
+  it "gpu.cooling_saturated はファンと余裕の両方が条件を満たすときだけ成り立つ" do
+    target = SystemHealth::Settings.new.rules.find!(&.id.==("gpu.cooling_saturated"))
+
+    target.secondary_threshold.should eq 95.0
+    target.satisfied?({margin_metric => 6.0, fan_metric => 95.0}).should be_true
+    target.satisfied?({margin_metric => 6.0, fan_metric => 94.0}).should be_false
+    target.satisfied?({margin_metric => 7.0, fan_metric => 100.0}).should be_false
+  end
+
+  it "gpu.cooling_saturated はファンの値が欠けていれば判定しない" do
+    target = SystemHealth::Settings.new.rules.find!(&.id.==("gpu.cooling_saturated"))
+
+    target.satisfied?({margin_metric => 2.0}).should be_nil
+  end
+
+  it "gpu.cooling_saturated は余裕が戻るか、ファンが下がれば解除になる" do
+    target = SystemHealth::Settings.new.rules.find!(&.id.==("gpu.cooling_saturated"))
+
+    target.cleared?({margin_metric => 5.0, fan_metric => 100.0}).should be_false
+    target.cleared?({margin_metric => 9.0, fan_metric => 100.0}).should be_false
+    target.cleared?({margin_metric => 10.0, fan_metric => 100.0}).should be_true
+    target.cleared?({margin_metric => 5.0, fan_metric => 86.0}).should be_false
+    target.cleared?({margin_metric => 5.0, fan_metric => 85.0}).should be_true
+    target.cleared?({margin_metric => 5.0}).should be_false
+  end
+
+  it "gpu.cooling_saturated のファンのしきい値を設定で変えられる" do
+    settings = SystemHealth::Settings.from_section(JSON.parse(
+      %({"alerts": {"gpu.cooling_saturated": {"secondary_threshold": 80}}})))
+    target = settings.rules.find!(&.id.==("gpu.cooling_saturated"))
+
+    target.satisfied?({margin_metric => 6.0, fan_metric => 80.0}).should be_true
+  end
+
+  it "範囲外のファンのしきい値を弾く" do
+    errors = SystemHealth::Settings.validate(JSON.parse(
+      %({"alerts": {"gpu.cooling_saturated": {"secondary_threshold": 150}}})))
+
+    errors.size.should eq 1
+    errors.first.should contain "secondary_threshold"
+  end
+
+  it "gpu.thermal_throttle は作動した周期に error で成り立ち、止まれば解除になる" do
+    target = SystemHealth::Settings.new.rules.find!(&.id.==("gpu.thermal_throttle"))
+    metric = SystemHealth::Metric::GPU_THERMAL_THROTTLE
+
+    target.for_s.should eq 0
+    target.cooldown_s.should eq 600
+    target.definition.severity.error?.should be_true
+    target.satisfied?({metric => 1.0}).should be_true
+    target.satisfied?({metric => 0.0}).should be_false
+    target.cleared?({metric => 1.0}).should be_false
+    target.cleared?({metric => 0.0}).should be_true
   end
 end

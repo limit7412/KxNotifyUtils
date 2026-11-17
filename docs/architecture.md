@@ -8,6 +8,7 @@
 実装は言語の境界で 2 つに分かれる。
 
 **NotifListenerShim** は、WinRT の `UserNotificationListener` を呼んでフラットな C API として公開する C++/WinRT の静的ライブラリである。
+NVML の計測値を別スレッドで取る `nvml_monitor` も、同じライブラリに入っている。
 **本体** は Crystal で書かれ、トレイ常駐、ポーリング、整形、送信、SteamVR 連携を担う。
 
 この分割はプロセスやファイルの分割ではない。
@@ -41,6 +42,9 @@ src/
     models.cr                        同梱する規則の定義、sources.system_health の設定
     evaluator.cr                     規則の評価（平常、継続の計測中、発報中の遷移）
     ffi.cr                           計測値の取得に使う Win32 API の lib 宣言
+    nvml_ffi.cr                      シムにある NVML の取得スレッドの lib 宣言
+    nvml_reader.cr                   シムから NVML の計測値を読む NvmlReader 実装
+    nvml_provider.cr                 NVML の計測値を読む境界と、それを計測値の名前へ直す取得元
     repository.cr                    計測値の取得元の抽象と、状態が変わった規則を返す SourceRepository 実装
     usecase.cr                       共通の整形を継承した MessageBuilder
   xsoverlay/                       シンク実装：XSOverlay
@@ -152,6 +156,12 @@ WinRT の呼び出しだけは別である。
 そこでシムが内部にワーカースレッドを 1 本持ち、そこで MTA を初期化して WinRT の呼び出しを引き受ける。
 本体から見ると、シムの C API はどのスレッドから呼んでも直列に処理される普通の関数である。
 
+NVML の呼び出しも主スレッドでは行わない。
+NVIDIA の GPU が応答を止めると NVML の呼び出しは戻らなくなり、主ループから呼んでいると、GPU が止まった時点でトレイも中継も止まる。
+シムの `nvml_monitor` が取得用のスレッドを 1 本持ち、本体は最後に取れた値と、取れてからの経過時間を待たずに読む。
+終了時は取得スレッドの終わりを 1 秒だけ待つ。NVML の中で止まっているスレッドを待ち続けると、本体が終了できなくなるためである。
+`nvml.dll` はリンクせず、ドライバが入れたものを実行時にロードする。`openvr_api.dll` と同じ扱いであり、無い環境では取得元ごと使えないものとして常駐を続ける。
+
 ## 設定の反映
 
 設定は不変のスナップショット（`Config::Root`）として持ち、反映はスナップショットの差し替えで行う。
@@ -181,6 +191,10 @@ WinRT の呼び出しだけは別である。
 計測値を足すときは `SystemHealth::MetricProvider` を継承し、`main.cr` で `Repository` へ渡す並びに加える。
 `sample` は主ループの中で呼ばれるため、待ちうる取得はここで行えない。
 GPU の計測値のように、GPU が応答を止めると取得も戻らなくなるものは、別のスレッドで取り、`sample` では最後に取れた値を書く。
+スレッドを立てる取得元は `start` と `stop` を実装する。ソースの開始と停止、`providers` の切り替えに合わせて呼ばれる。
+
+規則の条件は 1 つの計測値としきい値で表す。
+2 つの計測値を組み合わせる規則には `SecondaryCondition` を重ねる。発報には両方の条件が要り、どちらかが解除の側へ離れれば解除になる。
 
 規則を足すときは `SystemHealth::RULES` に定義を加え、`locales` に発報と解除の文言を足す。
 文言の鍵は `notify.system_health.<規則の id>.title` の形で、足し忘れは spec が検出する。
