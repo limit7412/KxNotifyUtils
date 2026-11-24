@@ -9,6 +9,7 @@ require "../win_notification/models"
 require "../service_status/models"
 require "../system_health/alert_form"
 require "../system_health/models"
+require "../system_health/rule_status"
 require "../xsoverlay/models"
 require "./paths"
 
@@ -102,6 +103,8 @@ module Runtime
       @oyasumivr_status : Proc(String) = -> { I18n.t("status.unknown") },
       # システムヘルスの今の計測値。文言の組み立ては composition root が持つ。
       @system_health_status : Proc(String) = -> { I18n.t("status.unknown") },
+      # システムヘルスの規則ごとの状態。監視に使っている設定（保存済みのもの）での状態である。
+      @system_health_rules : Proc(Array(SystemHealth::RuleStatus)) = -> { [] of SystemHealth::RuleStatus },
       @update_url : Proc(String?) = -> { nil.as(String?) },
       # 取得と適用の操作の、見出しと押せるかどうか（issue #10 第 2 段階）。
       # 何を押せるかは composition root が決める。
@@ -131,6 +134,9 @@ module Runtime
       @update_label = nil.as(UIng::Label?)
       @oyasumivr_label = nil.as(UIng::Label?)
       @health_label = nil.as(UIng::Label?)
+      # 規則の id から、「現在の状態」のページにある状態と値のラベルを引く。
+      @health_state_labels = {} of String => UIng::Label
+      @health_value_labels = {} of String => UIng::Label
       @update_button = nil.as(UIng::Button?)
       @update_action_button = nil.as(UIng::Button?)
       @steamvr_register_button = nil.as(UIng::Button?)
@@ -436,6 +442,7 @@ module Runtime
       # 規則ごとにページを分ける。規則は同梱のものに限られ、増減しない。
       # 入力欄は幅を取るため、全規則を 1 枚に並べると窓に収まらない。
       rules = UIng::Tab.new
+      rules.append(I18n.t("settings.health.overview"), build_health_overview_page)
       SystemHealth::RULES.each do |definition|
         rules.append(health_rule_label(definition.id), build_health_rule_page(definition))
       end
@@ -445,6 +452,50 @@ module Runtime
       box.append(UIng::Label.new(I18n.t("settings.health.clear_note")), false)
       box.append(UIng::Label.new(I18n.t("settings.health.gpu_note")), false)
       box
+    end
+
+    # 全規則の今の状態と計測値を並べるページ。
+    #
+    # 規則ごとのページへ分けて置くと、どの規則が警告中かを知るのにページを順に開くことになる。
+    # 状態と値を 2 行に分けるのは、1 行に並べると窓の幅に収まらないためである。
+    private def build_health_overview_page : UIng::Box
+      page = UIng::Box.new(:vertical, padded: true)
+      page.append(UIng::Label.new(I18n.t("settings.health.overview_note")), false)
+
+      form = UIng::Form.new(padded: true)
+      SystemHealth::RULES.each do |definition|
+        cell = UIng::Box.new(:vertical, padded: false)
+        state = UIng::Label.new(I18n.t("settings.health.state.stopped"))
+        value = UIng::Label.new("")
+        @health_state_labels[definition.id] = state
+        @health_value_labels[definition.id] = value
+        cell.append(state, false)
+        cell.append(value, false)
+        form.append(health_rule_label(definition.id), cell, false)
+      end
+      page.append(form, false)
+      page
+    end
+
+    # 規則の状態を、一覧の 1 行目に出す文言にする。
+    private def health_state_text(status : SystemHealth::RuleStatus) : String
+      I18n.t("settings.health.state.#{status.state.to_s.downcase}", status.placeholders)
+    end
+
+    # 規則の計測値としきい値を、一覧の 2 行目に出す文言にする。
+    #
+    # 計測値が 0 か 1 の規則は、数値の代わりに「作動中」のような語を出す。
+    private def health_value_text(status : SystemHealth::RuleStatus) : String
+      values = status.placeholders
+      unless status.rule.definition.threshold_adjustable?
+        flag = status.flag?
+        values["value"] = if flag.nil?
+                            SystemHealth::RuleStatus::UNKNOWN_VALUE
+                          else
+                            I18n.t("settings.health.flag.#{flag ? "on" : "off"}")
+                          end
+      end
+      I18n.t("settings.health.current.#{status.rule.id}", values)
     end
 
     # 規則 1 件のページ。その規則に意味のある項目だけを並べる。
@@ -1124,6 +1175,10 @@ module Runtime
       end
       @health_label.try do |label|
         label.text = I18n.t("settings.health.status", {"status" => @system_health_status.call})
+      end
+      @system_health_rules.call.each do |status|
+        @health_state_labels[status.rule.id]?.try { |label| label.text = health_state_text(status) }
+        @health_value_labels[status.rule.id]?.try { |label| label.text = health_value_text(status) }
       end
       connected = @steamvr_connected.call
       {@steamvr_register_button, @steamvr_unregister_button}.each do |control|
