@@ -511,6 +511,7 @@ module KxNotifyUtils
         update_action: -> { update_action_label },
         oyasumivr_status: -> { oyasumivr_status_label },
         system_health_status: -> { system_health_status_label },
+        system_health_rules: -> { @health_source.rule_statuses },
       )
       window.on_request_steamvr_register = -> { register_steamvr }
       window.on_request_steamvr_unregister = -> { unregister_steamvr }

@@ -4,6 +4,7 @@ require "../notify/repository"
 require "./evaluator"
 require "./ffi"
 require "./models"
+require "./rule_status"
 
 module SystemHealth
   # 計測値の取得元の境界。
@@ -221,6 +222,41 @@ module SystemHealth
         end
       end
       @last_samples = samples
+    end
+
+    # 規則ごとの今の状態。設定画面が一覧に出すために読む。
+    #
+    # 計測値は直近の周期に取れたものを使い、ここでは取り直さない。
+    # 画面の更新のたびに取り直すと、評価に使った値と画面に出る値が食い違う。
+    def rule_statuses(now : Time::Span = Time.monotonic) : Array(RuleStatus)
+      @rules.map do |rule|
+        value = @last_samples[rule.definition.metric]?
+        secondary_value = rule.definition.secondary.try { |secondary| @last_samples[secondary.metric]? }
+        state, remaining = rule_state(rule, now)
+        RuleStatus.new(rule, state, value, secondary_value, remaining)
+      end
+    end
+
+    private def rule_state(rule : Rule, now : Time::Span) : {RuleStatus::State, Int32?}
+      return {RuleStatus::State::Stopped, nil} unless @started
+      return {RuleStatus::State::Disabled, nil} unless rule.enabled?
+
+      snapshot = @evaluator.snapshot(rule.id)
+      case snapshot.phase
+      in .firing?
+        {RuleStatus::State::Firing, nil}
+      in .normal?
+        # 評価は、計測値が欠けている規則を平常として扱う。画面では平常と区別して見せる。
+        available = !rule.satisfied?(@last_samples).nil?
+        {available ? RuleStatus::State::Normal : RuleStatus::State::Unavailable, nil}
+      in .pending?
+        for_left = snapshot.since + rule.for_s.seconds - now
+        cooldown_left = snapshot.last_fired.try { |last| last + rule.cooldown_s.seconds - now } || Time::Span.zero
+        # 継続時間より後に明ける間隔だけが、通知を遅らせている。
+        suppressed = cooldown_left > Time::Span.zero && cooldown_left > for_left
+        left = {for_left, cooldown_left, Time::Span.zero}.max
+        {suppressed ? RuleStatus::State::Suppressed : RuleStatus::State::Pending, left.total_seconds.ceil.to_i}
+      end
     end
 
     private def to_incoming(transition : Evaluator::Transition) : Notify::Incoming
