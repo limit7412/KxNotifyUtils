@@ -1,0 +1,122 @@
+name: changed paths
+description: 変更が対象のパスに触れているかを判定する
+
+# `on` の `paths` フィルタを使わずにこれを置くのは、検査を
+# required status check に指定できるようにするためである。
+# `paths` で起動しなかったワークフローはチェックランを作らないので、
+# required に指定するとチェックが未作成のまま待ち状態になり PR をマージできない。
+# 一方、`if` で飛ばしたジョブは skipped のチェックランを残し、これは required を満たす。
+#
+# 対象パスの一覧は呼ぶ側のワークフローだけに置く。`on` 側にも書くと二重管理になり、
+# 片方だけ更新したときに「変更したのに検査が走らない」事故につながる。
+
+inputs:
+  patterns:
+    description: |
+      対象のパス。1 行に 1 つ書く。シェルの case と同じ書き方で、
+      `backend/*` のように後ろを `*` で受ける
+    required: true
+  token:
+    description: 変更ファイルの一覧を読むためのトークン
+    required: true
+  label:
+    description: スキップしたときの通知に出す検査の名前
+    required: true
+
+outputs:
+  relevant:
+    description: 対象に触れていれば true
+    value: ${{ steps.check.outputs.relevant }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PATTERNS: ${{ inputs.patterns }}
+        LABEL: ${{ inputs.label }}
+        REPO: ${{ github.repository }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BEFORE: ${{ github.event.before }}
+        AFTER: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+
+        # 1 ファイルにつき 1 行を出す。件数を数えるためで、行数がそのまま
+        # ファイル数になる。リネームで対象外へ移した変更（backend/a.cr → docs/a.cr
+        # など）は新パスだけでは検出できないため、previous_filename も同じ行へ並べる。
+        RENAME_AWARE='[.filename, (.previous_filename // "")] | @tsv'
+
+        case "$EVENT_NAME" in
+          pull_request)
+            ENDPOINT="repos/$REPO/pulls/$PR_NUMBER/files"
+            JQ=".[] | $RENAME_AWARE"
+            # このエンドポイントが返すのは最大 3000 件
+            FILE_LIMIT=3000
+            ;;
+          push)
+            # ブランチ作成時や force push 後は `before` が到達不能なコミットを
+            # 指し比較できない
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              echo "relevant=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            ENDPOINT="repos/$REPO/compare/$BEFORE...$AFTER"
+            # `?` を付けず、想定外のレスポンスでは jq を失敗させる。
+            # 黙って空の一覧として扱うと、判定できない変更をスキップしてしまう。
+            JQ=".files[] | $RENAME_AWARE"
+            # compare の `files` が返すのは最大 300 件
+            FILE_LIMIT=300
+            ;;
+          *)
+            # workflow_dispatch など、比較対象を定められないイベントでは常に実行する
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+            ;;
+        esac
+
+        # 差分が分からないまま省略すると壊れた変更を通してしまうため、
+        # 取得に失敗した場合は実行する側へ倒す。
+        if ! CHANGED=$(gh api --paginate "$ENDPOINT" --jq "$JQ"); then
+          echo "::warning::変更ファイルの一覧を取得できなかったため${LABEL}を実行します"
+          echo "relevant=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        RELEVANT=false
+        COUNT=0
+        while IFS=$'\t' read -r NEW_PATH OLD_PATH; do
+          [ -n "$NEW_PATH" ] || continue
+          COUNT=$((COUNT + 1))
+          for FILE in "$NEW_PATH" "$OLD_PATH"; do
+            [ -n "$FILE" ] || continue
+            while IFS= read -r PATTERN; do
+              [ -n "$PATTERN" ] || continue
+              # $PATTERN を括らないのは、case のラベルとして展開させるためである。
+              # 括るとただの文字列比較になり、`backend/*` が一致しなくなる。
+              case "$FILE" in
+                $PATTERN)
+                  echo "対象の変更: $FILE"
+                  RELEVANT=true
+                  ;;
+              esac
+            done <<< "$PATTERNS"
+          done
+        done <<< "$CHANGED"
+
+        # `--paginate` はページを辿るだけで、エンドポイントごとの返却件数の上限は
+        # 外さない。上限に達した一覧には、返ってこなかった変更が残っている
+        # 可能性がある。完全だと確認できない一覧を根拠にスキップするわけには
+        # いかないので、実行側へ倒す。
+        if [ "$RELEVANT" = "false" ] && [ "$COUNT" -ge "$FILE_LIMIT" ]; then
+          echo "::warning::変更ファイルが上限の${FILE_LIMIT}件に達し一覧が不完全な可能性があるため${LABEL}を実行します"
+          RELEVANT=true
+        fi
+
+        if [ "$RELEVANT" = "false" ]; then
+          echo "::notice::対象のファイルに変更がないため${LABEL}をスキップします"
+        fi
+        echo "relevant=$RELEVANT" >> "$GITHUB_OUTPUT"

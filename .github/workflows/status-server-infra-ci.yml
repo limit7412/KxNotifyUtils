@@ -1,0 +1,85 @@
+name: status-server infra ci
+
+# デプロイ定義（status-server/infra/）の型検査を実行する。
+#
+# status-server/infra/ に触れていない変更では型検査をスキップする。
+# 判定は `on` の `paths` フィルタではなく `changes` ジョブと `if` で行う
+# （理由は .github/actions/changed-paths/action.yml に記述）。
+#
+# pulumi preview はここでは走らせない。AWS と Cloudflare の資格情報が要り、
+# 差分を見るだけでも実在のアカウントへ触れることになる。型検査までを CI に置き、
+# preview は手元かデプロイのワークフローで行う。
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  # 手で起動できるようにしておく。
+  #
+  # required status check に指定した検査は、チェックランが作られないと
+  # 待ち状態のままになり PR をマージできない。pull_request のイベントから
+  # ワークフローの実行が作られない事象を実際に踏んだ（2026-08-26）。
+  # そのとき push と workflow_dispatch は動いていたので、これがあれば
+  # 対象のブランチを指して手で起動し、必要なチェックランを出せる。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # 変更ファイルの一覧を Pull Requests API から取得するために必要
+  pull-requests: read
+
+jobs:
+  # 変更が対象に触れているかを判定する。判定の中身と、`on` の `paths` を
+  # 使わない理由は .github/actions/changed-paths/action.yml に書いてある。
+  changes:
+    name: Check changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.check.outputs.relevant }}
+    steps:
+      # 共有アクションはリポジトリの中にあるので、先に取ってこないと使えない
+      - uses: actions/checkout@v7.0.1
+
+      - id: check
+        uses: ./.github/actions/changed-paths
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          label: infra の型検査
+          patterns: |
+            status-server/infra/*
+            .github/workflows/status-server-infra-ci.yml
+            .github/actions/changed-paths/*
+
+  check:
+    name: typecheck
+    needs: changes
+    # 判定そのものが失敗したときは検査を走らせる。
+    # needs が失敗するとこのジョブは skipped になり、required status check では
+    # 成功と同じ扱いになる。飛ばす条件を「対象に触れていない」に限らないと、
+    # 判定が壊れているあいだ、壊れた変更が緑のまま通ってしまう。
+    # !cancelled() を置くのは、これが無いと needs の失敗でジョブごと
+    # 飛ばされ、if を読んでもらえないためである。
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.relevant == 'true') }}
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: status-server/infra
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: setup node
+        uses: actions/setup-node@v7.1.0
+        with:
+          # Pulumi の nodejs ランタイムが対応する LTS に合わせる。
+          node-version: 26
+          cache: npm
+          cache-dependency-path: status-server/infra/package-lock.json
+
+      # ci にするのは package-lock.json のとおりに入れるため。
+      # install だと lock を書き換えてしまい、検証した組み合わせと変わる。
+      - name: install
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck

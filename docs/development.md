@@ -182,6 +182,13 @@ uing の postinstall が libui-ng の静的ライブラリを GitHub から取�
 高さの係数は `Notify::TemplateMessageBuilder` の `HEIGHT_PER_CHAR` などにある。
 実表示を見て調整する前提の仮の値である。
 
+## 集約サーバー
+
+`status-server/` は本体と別の検査とデプロイを持つ。
+リポジトリ直下の `crystal spec` と書式の検査は対象にしないので、触ったときは `status-server/README.md` の「手元で検査する」を回す。
+CI では `status-server-backend-ci.yml` と `status-server-infra-ci.yml` が、`status-server/` に触れた変更に対してだけ動く。
+`master` へ入ると `dev` へ出る。流れは `status-server/docs/release.md` にある。
+
 ## アイコンを作り直す
 
 トレイと実行ファイルのアイコンは生成物をリポジトリに含めている。

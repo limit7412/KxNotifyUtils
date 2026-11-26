@@ -1,0 +1,98 @@
+name: status-server deploy dev
+
+# master へ入った変更を dev へ出す（仕様書 9.2）。
+#
+# 集約サーバーと配信経路に触れた変更だけを出す。
+# 本体（src/ や shim/）だけを直した取り込みで pulumi up を流す理由が無い。
+# 判定は `on` の `paths` ではなく changes ジョブで行い、判定できなかったときは
+# 出す側へ倒す（理由は .github/actions/changed-paths/action.yml）。
+#
+# 検査の成功をデプロイの前提にしていない。status-server-backend-ci と status-server-infra-ci は同じ push で
+# 並んで走るだけで、master のブランチ保護が required status check で pull request を
+# 縛っていなければ、未検証の内容が dev に出る（status-server/docs/release.md）。
+#
+# 本体のプレリリース（prerelease.yml）とは別のワークフローで、互いを待たない。
+# 対象のパスも重ならないので、片方が落ちてももう片方は進む。
+#
+# 出すのは status-server-deploy.yml で、ここからは master の ref で workflow_dispatch として起こし、
+# 終わるまで待つ（.github/scripts/dispatch-deploy.sh）。
+# workflow_call で呼ばないのは、呼ばれたワークフローが呼んだ側のコミットの定義で動くためである。
+# 先の push の実行が後から走ると、後の push が変えた status-server-deploy.yml の手順を使わずに出す。
+# master の ref で起こせば、定義も内容もその時点の master の先端になる。
+# status-server-deploy.yml のジョブは environment dev を参照し、dev の規則は master だけを許す。
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  # 変更が対象に触れているかを判定する。判定の中身と、`on` の `paths` を
+  # 使わない理由は .github/actions/changed-paths/action.yml に書いてある。
+  changes:
+    name: Check changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.check.outputs.relevant }}
+    steps:
+      # 共有アクションはリポジトリの中にあるので、先に取ってこないと使えない
+      - uses: actions/checkout@v7.0.1
+
+      - id: check
+        uses: ./.github/actions/changed-paths
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          label: dev へのデプロイ
+          # status-server-deploy.yml は起こす先なので、手順が変わったときも出す。
+          # 配信バケットへ上げるページ（仕様書 6.1）は status-server/backend/web にあり、
+          # status-server/backend/* がそれも覆う。
+          # この一覧は status-server-deploy.yml の「出す直前の再検査」が見るパスと揃える
+          patterns: |
+            status-server/backend/*
+            status-server/infra/*
+            .github/workflows/status-server-deploy.yml
+            .github/workflows/status-server-deploy-dev.yml
+            .github/actions/changed-paths/*
+
+  deploy:
+    name: deploy
+    needs: changes
+    # 判定そのものが失敗したときは出す。
+    # 飛ばす条件を「対象に触れていない」に限らないと、判定が壊れているあいだ
+    # master の変更が dev に出ないままになる。
+    # !cancelled() を置くのは、これが無いと needs の失敗でジョブごと
+    # 飛ばされ、if を読んでもらえないためである。
+    # force push のときも出す。changes の比較は push の前後の三点比較で、force push では
+    # 巻き戻した分（前の先端にあって新しい先端に無い変更）が差分に出ない
+    if: ${{ !cancelled() && (github.event.forced || needs.changes.result != 'success' || needs.changes.outputs.relevant == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      # status-server-deploy.yml を起こし、実行の一覧を読む
+      actions: write
+      # 起こした実行の状態を gh で読む。gh はジョブの経過を checks から読むことがあり、一つでも明示すると他は none に
+      # なるので、これも書く
+      checks: read
+      # スクリプトを取る
+      contents: read
+    # ここには concurrency を付けない。同じスタックへの実行は status-server-deploy.yml の群
+    # （deploy-dev）で直列になる。待機できる実行は一件で、取り込みが続くと中間の実行は
+    # 取り消されるが、どの実行も走った時点の master の先端を出すので、最後の一つが
+    # 通れば最新の内容が出ている。取り消された実行を待っていたジョブは、それと分かって
+    # 成功で終える（CANCELLED_OK）。
+    steps:
+      # スクリプトは push されたコミットではなく master の先端から取る。
+      # 起こす側のスクリプトと起こされる status-server-deploy.yml の契約（入力、実行の名前）を、
+      # 実行の順序が入れ替わっても揃えるためである
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: master
+
+      - name: dispatch status-server-deploy.yml for dev and wait
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          CANCELLED_OK: "true"
+        run: .github/scripts/dispatch-deploy.sh dev "dev-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"

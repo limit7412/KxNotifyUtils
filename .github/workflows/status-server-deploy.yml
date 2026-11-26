@@ -1,0 +1,309 @@
+name: status-server deploy
+
+# 集約サーバーと配信経路を一つのスタックへ出す（仕様書 5.1、6、9.2）。
+#
+# 起動は二つあり、どちらも workflow_dispatch である。
+#   手で流す            出す先を入力で選ぶ。prod へ出すときと、前のコミットへ
+#                       切り戻すときはこれを使う。ref は master にする。
+#                       environment の規則が master だけを許すので、他の ref からは
+#                       起動できない。切り戻すときは ref の入力に戻したいコミットを入れる。
+#                       その内容を checkout し、master に含まれるコミットであることを
+#                       確かめてから出す
+#   status-server-deploy-dev.yml
+#                       master への push で、ここを master の ref で起こして dev へ出す
+# prod へ出す契機は手で流すことだけである。本体のリリース（release.yml）は exe を配るもので、
+# 集約サーバーの版とは連動させていない（status-server/docs/release.md）。
+# 起こすのは .github/scripts/dispatch-deploy.sh で、終わるまで待つ。
+# 手順を一つに置くための分割で、契機ごとの判定（対象パスに触れたか）は起こす側にある。
+#
+# workflow_call で呼ばないのは、呼ばれたワークフローが呼んだ側のコミットの定義で動くためである。
+# 実行の順序が入れ替わったとき、古い定義で新しい内容を出すことがある。
+# master の ref で起こせば、定義も内容もその時点の master の先端になり、
+# 出るのも master の内容に限られる。
+# 起こす側は期待するコミットを expected_sha で渡せ、こちらは checkout したものと比べる。
+#
+# 資格情報はどちらも OIDC で受け取る（#22、#23）。
+# AWS は configure-aws-credentials、Pulumi Cloud は pulumi/auth-actions である。
+# Secrets に置いてあるのは三つだけで、長い寿命の鍵は無い。
+#
+# ジョブは出す先と同じ名前の environment（dev、prod）を参照する。
+# environment を参照するジョブの OIDC トークンは sub が
+# repo:<owner>/<repo>:environment:<名前> になり、ブランチもタグも含まない。
+# AWS の信頼ポリシーと Pulumi Cloud の認可ポリシーはこの sub だけを通す
+# （status-server/docs/aws-oidc.md、status-server/infra/README.md）。
+# その environment をどの ref から名乗れるかは、リポジトリの environment の
+# deployment branches and tags の規則が決める（status-server/docs/release.md）。
+# ref で絞る形にしないのは、タグの ref を通すと write 権限を持つ者が任意のブランチに
+# タグを打ってここを手で流すだけでロールを引けるためである。
+#
+# status-server/infra/deploy.sh は呼ばない。あちらは中で status-server/backend/build.sh と npm ci を回すが、
+# ここではその二つを資格情報より前に済ませたい（status-server/infra/README.md の
+# 「ワークフローでの受け取り」）。順序を変えられないので、同じ段をここに並べる。
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: 出す先のスタック名。commit してある Pulumi.<スタック名>.yaml のもの
+        required: true
+        default: dev
+        type: string
+      ref:
+        description: 出す内容の ref（切り戻し先のタグなど）。master に含まれるものに限る。空なら起動した ref
+        required: false
+        default: ""
+        type: string
+      expected_sha:
+        description: 出すコミット。checkout したものと違えば止まる。空なら見ない
+        required: false
+        default: ""
+        type: string
+      dispatch_id:
+        description: 起こした側が実行を見つけるための識別子。実行の名前に付く。空でよい
+        required: false
+        default: ""
+        type: string
+
+# 実行の名前に出す先と識別子を出す。起こした側は自分が起こした実行を、
+# 一覧からこの識別子で探す（同じコミットの手動の実行と取り違えないため）
+run-name: deploy ${{ inputs.stack }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
+
+# id-token: write はジョブ単位で、要る deploy ジョブにだけ書く（下の prepare の注記）
+permissions:
+  contents: read
+
+# スタック名を修飾する組織。pulumi/auth-actions へ渡すものと同じ値にする。
+#
+# 素の "dev" は、そのランナーの既定の組織のスタックとして解決される。
+# 手元では pulumi org set-default で揃っていても、CI の既定は別の組織になりうる。
+# 実際、OIDC で交換したトークンでは stack ls が "limit7412/dev" と修飾して出し、
+# 素の "dev" は no stack named 'dev' found で止まった（#41）。
+env:
+  ORG: limit7412
+
+# 同じスタックへ二つ流さない。
+# Pulumi 側にも排他はあるが、待たせるより手前で弾いたほうが分かりやすい。
+# 走っているものは止めない。途中で切ると state と実物がずれる。
+#
+# 手で流したものも、status-server-deploy-dev.yml が起こしたものも、同じスタックなら
+# この群で直列になる。待機できる実行は一件で、取り消された実行は起こした側が
+# それと分かる（.github/scripts/dispatch-deploy.sh）。
+concurrency:
+  group: deploy-${{ inputs.stack }}
+  cancel-in-progress: false
+
+jobs:
+  # 出す内容を確かめ、ビルドと依存の取得を済ませる。
+  #
+  # このジョブには id-token を与えない。
+  # id-token: write はジョブ全体に効き、ジョブの中で動くどのプロセスも
+  # ACTIONS_ID_TOKEN_REQUEST_TOKEN で OIDC トークンを発行できる。
+  # build.sh が起こす docker や、npm ci が動かす依存パッケージの install スクリプトを
+  # 同じジョブに置くと、認証のステップより前であっても AWS と Pulumi Cloud に入れる
+  # トークンを取れ、「依存の取得は資格情報を出す前に」が成り立たない。
+  # ここで作った成果物（bootstrap.zip と infra の node_modules）だけを次のジョブへ渡す。
+  prepare:
+    name: build
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      artifact: ${{ steps.artifact.outputs.name }}
+    steps:
+      # ref が空なら起動した ref（master）の先端を取る。
+      # 切り戻しの判定に master の履歴が要るので、全部取る
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      # deploy ジョブが同じコミットを取るために渡す
+      - name: record the commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # 出す内容が、出してよいものかを見る。
+      #   ref を指定したとき      master に含まれるコミットに限る。切り戻し先は一度 master に
+      #                          入って dev で試したものだけで、master に無い内容は出せない
+      #   expected_sha があるとき checkout したものがそれと同じであること。起こす側が
+      #                          出したいコミットを渡してくる。起こしてから master が進んでいると
+      #                          それと違う内容が出るので止める
+      - name: check the commit is allowed
+        if: inputs.ref != '' || inputs.expected_sha != ''
+        env:
+          REF: ${{ inputs.ref }}
+          EXPECTED: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          ACTUAL=$(git rev-parse HEAD)
+          if [ -n "$REF" ]; then
+            # 保存先を明示する。ref にタグやコミットを渡したときは origin/master が無い
+            git fetch --no-tags origin +master:refs/remotes/origin/master
+            if ! git merge-base --is-ancestor "$ACTUAL" origin/master; then
+              echo "::error::$REF のコミット $ACTUAL は master に含まれていない。master に入ったものしか出せない"
+              exit 1
+            fi
+            echo "$REF のコミット $ACTUAL は master に含まれている"
+          fi
+          if [ -n "$EXPECTED" ] && [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::checkout したコミット $ACTUAL が期待した $EXPECTED ではない。起こしてから master が進んだ"
+            exit 1
+          fi
+
+      # bootstrap.zip は .gitignore の対象で、checkout には入っていない。
+      # src/compute.ts が FileArchive として即座に開くため、無いと
+      # pulumi up は AWS へ触る前にファイル未検出で止まる。
+      #
+      # build.sh は linux/arm64 のイメージを走らせる。x86_64 のランナーでは
+      # binfmt の登録が要る。
+      - name: enable arm64 emulation
+        uses: docker/setup-qemu-action@v4.4.0
+        with:
+          platforms: arm64
+
+      - name: build bootstrap.zip
+        run: status-server/backend/build.sh
+
+      # 依存の取得は資格情報の無いこのジョブで済ませる。
+      # 手元の deploy.sh が Cloudflare のトークンを npm ci の前で外しているのと同じ理由である。
+      - name: install infra dependencies
+        run: npm ci
+        working-directory: status-server/infra
+
+      # 成果物を一つのディレクトリに集めて渡す。node_modules はファイルが多いので固める
+      - name: collect build outputs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/deploy-inputs"
+          cp status-server/backend/bootstrap.zip "$RUNNER_TEMP/deploy-inputs/bootstrap.zip"
+          tar -C status-server/infra -czf "$RUNNER_TEMP/deploy-inputs/infra-node_modules.tgz" node_modules
+
+      # artifact の名前はこのジョブが決めて出力で渡す。
+      # 「Re-run failed jobs」で deploy ジョブだけを再実行すると run_attempt が進むが、
+      # 成功したこのジョブは再実行されず、artifact は前の名前のまま残る。
+      # deploy ジョブが自分の run_attempt で名前を組むと、そこで見つからずに止まる
+      - name: name the artifact
+        id: artifact
+        run: echo "name=deploy-inputs-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      - name: upload build outputs
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ runner.temp }}/deploy-inputs
+          # environment prod に required reviewers を置くと、承認までこのジョブの後で待つ。
+          # そのあいだ deploy ジョブは始まっておらず、artifact が先に消えると、承認の後で
+          # 受け取れずに落ちる。起こした側は承認待ちで手を離しているので、正式版の実行は
+          # 緑のまま prod が出ない。environment の承認待ちの上限（三十日）まで残す。
+          # リポジトリの上限を超える指定は upload-artifact が上限へ丸める
+          retention-days: 30
+          if-no-files-found: error
+
+  deploy:
+    name: pulumi up
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      # OIDC のトークンを発行させる。既定では付かない。このジョブだけに与える
+      id-token: write
+      contents: read
+    # 存在しない environment を参照すると、保護規則の無い environment が作られる。
+    # 規則は admin が手で置く（status-server/docs/release.md）。置くまでは、その名前を名乗れる ref が絞られていない
+    environment: ${{ inputs.stack }}
+    steps:
+      # prepare が確かめたのと同じコミットを取る。ビルドはしない。
+      # 下の再検査で master の履歴が要るので、全部取る
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+
+      # 出す直前に、このコミットが今も出してよいものかをもう一度見る。
+      # prepare の検査は artifact を作る前のもので、「Re-run failed jobs」でこのジョブだけを
+      # 再実行すると prepare は走らず、そのときの検査結果のまま古いコミットが渡ってくる。
+      # そのあいだに新しい master が出ていれば、ここで古い内容を出すと切り戻しになる。
+      #   ref を指定したとき（切り戻し）   master に含まれるコミットであること
+      #   それ以外                          master の先端であること。進んでいれば、その内容を
+      #                                     出す実行に任せて止める
+      - name: check the commit is still allowed
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          ACTUAL=$(git rev-parse HEAD)
+          # 保存先を明示する。コミットを checkout したランナーには origin/master が無い
+          git fetch --no-tags origin +master:refs/remotes/origin/master
+          MASTER=$(git rev-parse origin/master)
+          if [ -n "$REF" ]; then
+            if ! git merge-base --is-ancestor "$ACTUAL" origin/master; then
+              echo "::error::$REF のコミット $ACTUAL は master に含まれていない"
+              exit 1
+            fi
+            echo "$REF のコミット $ACTUAL は master に含まれている"
+          elif [ "$ACTUAL" != "$MASTER" ]; then
+            # 先端まで進んだ差分に、出す内容へ影響するものがあれば止め、その内容を出す実行に任せる。
+            # 文書だけの取り込みなら出す内容は同じなので、このまま出す。
+            # そうしないと、対象外の取り込みが続いただけで、直前の対象の取り込みが出ないままになる。
+            # 影響するパスは status-server-deploy-dev.yml の changes の一覧と揃える。
+            # --no-renames を付け、リネームを削除と追加の対で出す。
+            # 付けないとリネームは移動先の一つにまとめられ、status-server/infra/ の下から外へ動かした
+            # ファイルは、移動元の status-server/infra/ 側が差分に出ず、影響が無いと見なされる
+            RELEVANT=false
+            while IFS= read -r FILE; do
+              [ -n "$FILE" ] || continue
+              case "$FILE" in
+                status-server/backend/*|status-server/infra/*|.github/workflows/status-server-deploy.yml) RELEVANT=true ;;
+              esac
+            done < <(git diff --name-only --no-renames "$ACTUAL" "$MASTER")
+            if [ "$RELEVANT" = true ]; then
+              echo "::error::コミット $ACTUAL の後に master が $MASTER まで進み、出す内容に影響する変更がある。その内容を出す実行に任せる"
+              exit 1
+            fi
+            echo "::notice::master は $MASTER まで進んでいるが、差分は出す内容に影響しない。$ACTUAL を出す"
+          fi
+
+      # 名前は prepare が出力したものを使う（上の注記）
+      - name: download build outputs
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: ${{ needs.prepare.outputs.artifact }}
+          path: ${{ runner.temp }}/deploy-inputs
+
+      - name: restore build outputs
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/deploy-inputs/bootstrap.zip" status-server/backend/bootstrap.zip
+          tar -C status-server/infra -xzf "$RUNNER_TEMP/deploy-inputs/infra-node_modules.tgz"
+
+      # Pulumi CLI はランナーに入っていない。
+      # このアクションは command を渡さなければ CLI を入れるだけで終わる。
+      - name: install pulumi cli
+        uses: pulumi/actions@v7.2.0
+
+      - name: assume aws deploy role
+        uses: aws-actions/configure-aws-credentials@v6.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-1
+
+      # Pulumi Cloud へは OIDC で入る。PULUMI_ACCESS_TOKEN を Secrets へ置かない。
+      # 無料の Individual で使えるのは personal トークンだけである。
+      # organization は個人アカウントでも必須で、値は自分のユーザー名になる。
+      # 上の ORG と同じ値である。fork するなら三つとも自分のものに書き換える。
+      - name: authenticate to pulumi cloud
+        uses: pulumi/auth-actions@v2.1.2
+        with:
+          organization: limit7412
+          requested-token-type: urn:pulumi:token-type:access_token:personal
+          scope: user:limit7412
+
+
+      - name: pulumi up
+        run: pulumi up --yes --stack "$ORG/$STACK"
+        working-directory: status-server/infra
+        env:
+          STACK: ${{ inputs.stack }}
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+          # Cloudflare は OIDC に対応していないので、ここだけ Secrets から渡す
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

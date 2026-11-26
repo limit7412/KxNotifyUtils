@@ -1,0 +1,19 @@
+{
+  "name": "vrc-service-status-panel-infra",
+  "version": "0.0.1",
+  "private": true,
+  "description": "集約サーバーと配信経路の定義",
+  "scripts": {
+    "build": "../backend/build.sh",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.10",
+    "typescript": "6.0.3"
+  },
+  "dependencies": {
+    "@pulumi/aws": "7.55.0",
+    "@pulumi/cloudflare": "6.24.0",
+    "@pulumi/pulumi": "3.278.0"
+  }
+}

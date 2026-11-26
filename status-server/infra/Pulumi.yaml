@@ -1,0 +1,69 @@
+name: vrc-service-status-panel
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+description: 集約サーバー（Lambda）と配信経路（R2）の定義
+
+# 状態の置き場所。ここで固定するのは、バックエンドがスタックより先に
+# 決まるためである。Pulumi.<スタック名>.yaml の設定は、バックエンドが
+# 決まってからでないと読めないので、置き場所を書く先にはならない。
+#
+# Pulumi Cloud に置く（#23）。手元は pulumi login、CI は OIDC で入る。
+# 長い寿命の鍵を Secrets へ置かずに済み、置き場所を手で作る一歩も要らない。
+#
+# pulumi login の先より、ここが優先される。別の場所へログインしていても、
+# このプロジェクトを流すかぎり Pulumi Cloud へ向かう。
+# ただし環境変数 PULUMI_BACKEND_URL はこれを上書きする（README を参照）。
+#
+# 消すと、手元のログイン先しだいで別のバックエンドへ出てしまう。
+# fork した人が file バックエンドのまま流すのも防げる。
+#
+# state の中の secret は PULUMI_CONFIG_PASSPHRASE で暗号化したままにする。
+# Pulumi Cloud の鍵管理には切り替えない。預ける先にあるのは暗号文だけになる。
+backend:
+  url: https://api.pulumi.com
+
+# 値はスタックごとの Pulumi.<スタック名>.yaml に入れる。
+# 雛形は Pulumi.example.yaml にある。
+config:
+  cloudflareAccountId:
+    type: string
+    description: Cloudflare のアカウント ID。R2 のエンドポイントにも使う
+  deliveryZoneId:
+    type: string
+    description: 配信ドメインが属するゾーンの ID。Cache Rules を入れる先
+  deliveryHost:
+    type: string
+    description: 配信ホスト名。Cache Rules の条件に使う（仕様書 6）
+  publicBucket:
+    type: string
+    default: ""
+    description: 配信バケット名。空なら <頭>-<スタック名>-public
+  stateBucket:
+    type: string
+    default: ""
+    description: 内部バケット名。空なら <頭>-<スタック名>-state
+  bucketLocation:
+    type: string
+    description: バケットの置き場所のヒント。日本向けなので既定は apac
+    default: apac
+  youtubeProbeVideoId:
+    type: string
+    description: 合成監視に使う固定動画（仕様書 3.3）
+  boothProbeItemId:
+    type: string
+    description: 合成監視に使う作者自身の公開商品（仕様書 3.3）
+  alertWebhookUrl:
+    type: string
+    secret: true
+    description: 失敗時のアラート送信先（仕様書 11.2）
+  # ここから下は任意。既定値を置いてあるのは、宣言した設定に既定が無いと
+  # 未設定のときに pulumi が止まるためである。空文字を未設定として扱う。
+  workloadBoundaryName:
+    type: string
+    default: ""
+    description: |
+      実行時ロールに付ける権限境界の名前。CLI で作ってある（docs/aws-oidc.md）。
+      ARN ではなく名前を持つのは、ARN にアカウント ID が入るためである（#26）。
+      手元からしかデプロイしないなら空でよい

@@ -17,3 +17,14 @@ res/*.res
 
 # scripts/package.ps1 が作る配布用の zip
 /KxNotifyUtils-*.zip
+
+# 集約サーバー（status-server/）のビルド成果物と依存。
+# bootstrap.zip は status-server/backend/build.sh が作り、Pulumi がそのまま Lambda へ渡す。
+# スタックごとの値（Pulumi.<スタック名>.yaml）は commit する。
+# secret 指定の値は暗号文で入るので平文では残らない（status-server/infra/README.md）
+/status-server/backend/bootstrap
+/status-server/backend/bootstrap.zip
+/status-server/backend/bin/
+/status-server/backend/lib/
+/status-server/infra/bin/
+node_modules/
