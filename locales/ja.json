@@ -224,7 +224,6 @@
   "settings.sources.system_health_stopped": "監視していない",
   "settings.sources.system_health_monitoring": "監視中（警告中 {firing} 件、条件が成立 {pending} 件）",
   "settings.sources.system_health_open": "システムヘルスの設定を開く",
-  "settings.health.enable_note": "有効と無効は「監視対象」タブで切り替える。",
   "settings.health.interval": "確認する間隔 (秒)",
   "settings.health.status": "現在の値: {status}",
   "settings.health.overview": "現在の状態",
