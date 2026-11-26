@@ -1,24 +1,22 @@
 name: status-server deploy
 
-# 集約サーバーと配信経路を一つのスタックへ出す（仕様書 5.1、6、9.2）。
+# 集約サーバーと配信経路を一つのスタックへ出す（仕様書 5.1、6）。
 #
-# 起動は三つあるが、どれも workflow_dispatch である。
-#   手で流す            出す先を入力で選ぶ。集約サーバーだけを出したいときと、
-#                       前のタグへ切り戻すときはこれを使う。ref は master にする。
-#                       environment の規則が master だけを許すので、他の ref からは
-#                       起動できない。切り戻すときは ref の入力に戻したいタグを入れる。
-#                       その内容を checkout し、master に含まれるコミットであることを
-#                       確かめてから出す
-#   status-server-deploy-dev.yml
-#                       master への push で、ここを master の ref で起こして dev へ出す
-#   release.yml         正式版の公開で、ここを master の ref で起こして prod へ出す
+# 起動は二つあり、どちらも workflow_dispatch である。
+#   status-server-deploy-prod.yml
+#                       master への push で、ここを master の ref で起こして prod へ出す
+#   手で流す            出す先を入力で選ぶ。既定は dev。
+#                       dev へは、どのブランチからでも出せる。Actions の画面で
+#                       「Use workflow from」に出したいブランチを選ぶと、そのブランチの内容が出る。
+#                       マージの前に dev で確かめるための経路である。
+#                       prod へは master からしか出せない。environment の規則が master だけを
+#                       許し、ここでも master に含まれるコミットであることを確かめる。
+#                       切り戻すときは ref の入力に戻したいコミットを入れる
 # 起こすのは .github/scripts/dispatch-deploy.sh で、終わるまで待つ。
 # 手順を一つに置くための分割で、契機ごとの判定（対象パスに触れたか）は起こす側にある。
 #
-# workflow_call で呼ばないのは二つの理由による。
-# release イベントの実行はタグの ref を持ち、environment prod の規則（master だけ）に当たる。
-# 呼ばれたワークフローは呼んだ側のコミットの定義で動くので、実行の順序が入れ替わったとき、
-# 古い定義で新しい内容を出すことがある。
+# workflow_call で呼ばないのは、呼ばれたワークフローが呼んだ側のコミットの定義で動くためである。
+# 実行の順序が入れ替わったとき、古い定義で新しい内容を出すことがある。
 # master の ref で起こせば、定義も内容もその時点の master の先端になり、
 # 出るのも master の内容に限られる。
 # 起こす側は期待するコミットを expected_sha で渡せ、こちらは checkout したものと比べる。
@@ -34,6 +32,7 @@ name: status-server deploy
 # （status-server/docs/aws-oidc.md、status-server/infra/README.md）。
 # その environment をどの ref から名乗れるかは、リポジトリの environment の
 # deployment branches and tags の規則が決める（status-server/docs/release.md）。
+# prod は master だけを許し、dev はどのブランチも許す。
 # ref で絞る形にしないのは、タグの ref を通すと write 権限を持つ者が任意のブランチに
 # タグを打ってここを手で流すだけでロールを引けるためである。
 #
@@ -50,7 +49,7 @@ on:
         default: dev
         type: string
       ref:
-        description: 出す内容の ref（切り戻し先のタグなど）。master に含まれるものに限る。空なら起動した ref
+        description: 出す内容の ref（切り戻し先のコミットなど）。空なら起動した ref。prod では master に含まれるものに限る
         required: false
         default: ""
         type: string
@@ -86,7 +85,7 @@ env:
 # Pulumi 側にも排他はあるが、待たせるより手前で弾いたほうが分かりやすい。
 # 走っているものは止めない。途中で切ると state と実物がずれる。
 #
-# 手で流したものも、status-server-deploy-dev.yml や release.yml が起こしたものも、同じスタックなら
+# 手で流したものも、status-server-deploy-prod.yml が起こしたものも、同じスタックなら
 # この群で直列になる。待機できる実行は一件で、取り消された実行は起こした側が
 # それと分かる（.github/scripts/dispatch-deploy.sh）。
 concurrency:
@@ -124,27 +123,29 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # 出す内容が、出してよいものかを見る。
-      #   ref を指定したとき      master に含まれるコミットに限る。切り戻し先は一度 master に
-      #                          入って dev で試したものだけで、master に無い内容は出せない
-      #   expected_sha があるとき checkout したものがそれと同じであること。release.yml が
-      #                          タグのコミットを渡してくる。タグと違う内容が prod へ出ないよう、
-      #                          食い違えば止める
+      #   prod へ出すとき         master に含まれるコミットに限る。ref を指定しても、しなくても見る。
+      #                          environment の規則が master だけを許していれば、ref を指定しない
+      #                          実行はここを必ず通る。規則を置き忘れていたときに、ブランチの
+      #                          内容が prod へ出るのをここで止める
+      #   prod 以外へ出すとき     見ない。マージの前のブランチを dev で確かめるための経路である
+      #   expected_sha があるとき checkout したものがそれと同じであること。起こす側が
+      #                          出したいコミットを渡してくる。食い違えば止める
       - name: check the commit is allowed
-        if: inputs.ref != '' || inputs.expected_sha != ''
         env:
+          STACK: ${{ inputs.stack }}
           REF: ${{ inputs.ref }}
           EXPECTED: ${{ inputs.expected_sha }}
         run: |
           set -euo pipefail
           ACTUAL=$(git rev-parse HEAD)
-          if [ -n "$REF" ]; then
+          if [ "$STACK" = prod ]; then
             # 保存先を明示する。ref にタグやコミットを渡したときは origin/master が無い
             git fetch --no-tags origin +master:refs/remotes/origin/master
             if ! git merge-base --is-ancestor "$ACTUAL" origin/master; then
-              echo "::error::$REF のコミット $ACTUAL は master に含まれていない。master に入ったものしか出せない"
+              echo "::error::コミット $ACTUAL は master に含まれていない。prod へは master に入ったものしか出せない"
               exit 1
             fi
-            echo "$REF のコミット $ACTUAL は master に含まれている"
+            echo "コミット $ACTUAL は master に含まれている"
           fi
           if [ -n "$EXPECTED" ] && [ "$ACTUAL" != "$EXPECTED" ]; then
             echo "::error::checkout したコミット $ACTUAL が期待した $EXPECTED ではない。起こしてから master が進んだ"
@@ -227,7 +228,9 @@ jobs:
       #   ref を指定したとき（切り戻し）   master に含まれるコミットであること
       #   それ以外                          master の先端であること。進んでいれば、その内容を
       #                                     出す実行に任せて止める
+      # prod へ出すときだけ見る。dev へはブランチの内容を出すので、master と比べるものが無い
       - name: check the commit is still allowed
+        if: inputs.stack == 'prod'
         env:
           REF: ${{ inputs.ref }}
         run: |
@@ -246,7 +249,7 @@ jobs:
             # 先端まで進んだ差分に、出す内容へ影響するものがあれば止め、その内容を出す実行に任せる。
             # 文書だけの取り込みなら出す内容は同じなので、このまま出す。
             # そうしないと、対象外の取り込みが続いただけで、直前の対象の取り込みが出ないままになる。
-            # 影響するパスは status-server-deploy-dev.yml の changes の一覧と揃える。
+            # 影響するパスは status-server-deploy-prod.yml の changes の一覧と揃える。
             # --no-renames を付け、リネームを削除と追加の対で出す。
             # 付けないとリネームは移動先の一つにまとめられ、status-server/infra/ の下から外へ動かした
             # ファイルは、移動元の status-server/infra/ 側が差分に出ず、影響が無いと見なされる

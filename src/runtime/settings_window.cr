@@ -10,6 +10,7 @@ require "../service_status/models"
 require "../system_health/alert_form"
 require "../system_health/models"
 require "../system_health/rule_status"
+require "../update/models"
 require "../xsoverlay/models"
 require "./paths"
 
@@ -329,6 +330,20 @@ module Runtime
       group
     end
 
+    # 取得先の切り替えを画面に出すか。
+    #
+    # プレリリースと手元のビルドでは出す。集約サーバーの変更を dev の配信で確かめるために使う。
+    # 安定版では出さない。ただし取得先が既に prod でなければ出す。プレリリースで dev へ向けたまま
+    # 安定版へ更新すると、画面から prod へ戻す手段が無くなるためである。
+    # 判定はウィンドウを組み立てるときの一度だけで、開いているあいだに出し入れはしない。
+    private def show_feed_environment? : Bool
+      stable = Update::Version.parse?(@version).try(&.stable?) || false
+      return true unless stable
+
+      status = ServiceStatus::Settings.from_section(@draft.source(ServiceStatus::SOURCE_ID))
+      status.feed_environment != "prod"
+    end
+
     private def build_sleep_manual_group : UIng::Group
       group = UIng::Group.new(I18n.t("settings.sleep.manual_group"), margined: true)
       inner = UIng::Box.new(:vertical, padded: true)
@@ -433,8 +448,8 @@ module Runtime
     end
 
     # 外部サービスの障害検知（issue #5）。
-    # 取得先の feed_url は画面に出さない。動作を確かめるために設定ファイルで向け直す項目であり、
-    # 普段の利用で触る項目ではないためである。
+    # 取得先は、普段の利用では画面に出さない。動作を確かめるために向け直す項目であり、
+    # 普段の利用で触る項目ではないためである。出す条件は show_feed_environment? にある。
     private def build_service_status_group : UIng::Group
       group = UIng::Group.new(I18n.t("settings.sources.service_status_group"), margined: true)
       inner = UIng::Box.new(:vertical, padded: true)
@@ -449,6 +464,16 @@ module Runtime
         spin("sources.service_status.polling_interval_s", range.begin, range.end),
         false,
       )
+      if show_feed_environment?
+        form.append(
+          I18n.t("settings.sources.service_status_feed"),
+          radio(
+            "sources.service_status.feed_environment",
+            choices("service_status_feed", ServiceStatus::Settings::FEED_ENVIRONMENTS),
+          ),
+          false,
+        )
+      end
       inner.append(form, false)
 
       inner.append(UIng::Label.new(I18n.t("settings.sources.service_status_services")), false)
@@ -865,6 +890,11 @@ module Runtime
       status = ServiceStatus::Settings.from_section(@draft.source(ServiceStatus::SOURCE_ID))
       set_check("sources.service_status.enabled", status.enabled)
       set_spin("sources.service_status.polling_interval_s", status.polling_interval_s)
+      set_choice(
+        "sources.service_status.feed_environment",
+        ServiceStatus::Settings::FEED_ENVIRONMENTS,
+        status.feed_environment,
+      )
       ServiceStatus::KNOWN_SERVICES.each_key do |id|
         set_check("sources.service_status.services.#{id}", status.service_enabled?(id))
       end
@@ -1282,9 +1312,14 @@ module Runtime
         "enabled"             => checked?("sources.windows.enabled"),
         "polling_interval_ms" => spin_value("sources.windows.polling_interval_ms"),
       }.to_json)
-      # 画面に無い feed_url は下書きのものを引き継ぐ。
+      # feed_url は下書きのものを引き継ぎ、取得先の切り替えが画面に出ているときだけ選択で置き換える。
       # 画面に出ていない項目を既定値で上書きすると、設定ファイルで向け直した取得先が保存で戻る。
       status = ServiceStatus::Settings.from_section(@draft.source(ServiceStatus::SOURCE_ID))
+      if @radios.has_key?("sources.service_status.feed_environment")
+        status.select_feed_environment(
+          selected_value("sources.service_status.feed_environment", ServiceStatus::Settings::FEED_ENVIRONMENTS)
+        )
+      end
       status.enabled = checked?("sources.service_status.enabled")
       status.polling_interval_s = spin_value("sources.service_status.polling_interval_s")
       # 画面に並べていない id は捨てる。配信に無いサービスの有効を残しても意味が無い。

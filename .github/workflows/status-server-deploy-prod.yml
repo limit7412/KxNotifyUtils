@@ -1,6 +1,6 @@
-name: status-server deploy dev
+name: status-server deploy prod
 
-# master へ入った変更を dev へ出す（仕様書 9.2）。
+# master へ入った変更を prod へ出す。
 #
 # 集約サーバーと配信経路に触れた変更だけを出す。
 # 本体（src/ や shim/）だけを直した取り込みで pulumi up を流す理由が無い。
@@ -9,7 +9,8 @@ name: status-server deploy dev
 #
 # 検査の成功をデプロイの前提にしていない。status-server-backend-ci と status-server-infra-ci は同じ push で
 # 並んで走るだけで、master のブランチ保護が required status check で pull request を
-# 縛っていなければ、未検証の内容が dev に出る（status-server/docs/release.md）。
+# 縛っていなければ、未検証の内容が prod に出る（status-server/docs/release.md）。
+# dev を経ることもここでは確かめない。dev へは、マージの前にブランチを指定して手で出す。
 #
 # 本体のプレリリース（prerelease.yml）とは別のワークフローで、互いを待たない。
 # 対象のパスも重ならないので、片方が落ちてももう片方は進む。
@@ -19,7 +20,7 @@ name: status-server deploy dev
 # workflow_call で呼ばないのは、呼ばれたワークフローが呼んだ側のコミットの定義で動くためである。
 # 先の push の実行が後から走ると、後の push が変えた status-server-deploy.yml の手順を使わずに出す。
 # master の ref で起こせば、定義も内容もその時点の master の先端になる。
-# status-server-deploy.yml のジョブは environment dev を参照し、dev の規則は master だけを許す。
+# status-server-deploy.yml のジョブは environment prod を参照し、prod の規則は master だけを許す。
 
 on:
   push:
@@ -44,7 +45,7 @@ jobs:
         uses: ./.github/actions/changed-paths
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          label: dev へのデプロイ
+          label: prod へのデプロイ
           # status-server-deploy.yml は起こす先なので、手順が変わったときも出す。
           # 配信バケットへ上げるページ（仕様書 6.1）は status-server/backend/web にあり、
           # status-server/backend/* がそれも覆う。
@@ -53,7 +54,7 @@ jobs:
             status-server/backend/*
             status-server/infra/*
             .github/workflows/status-server-deploy.yml
-            .github/workflows/status-server-deploy-dev.yml
+            .github/workflows/status-server-deploy-prod.yml
             .github/actions/changed-paths/*
 
   deploy:
@@ -61,7 +62,7 @@ jobs:
     needs: changes
     # 判定そのものが失敗したときは出す。
     # 飛ばす条件を「対象に触れていない」に限らないと、判定が壊れているあいだ
-    # master の変更が dev に出ないままになる。
+    # master の変更が prod に出ないままになる。
     # !cancelled() を置くのは、これが無いと needs の失敗でジョブごと
     # 飛ばされ、if を読んでもらえないためである。
     # force push のときも出す。changes の比較は push の前後の三点比較で、force push では
@@ -77,7 +78,7 @@ jobs:
       # スクリプトを取る
       contents: read
     # ここには concurrency を付けない。同じスタックへの実行は status-server-deploy.yml の群
-    # （deploy-dev）で直列になる。待機できる実行は一件で、取り込みが続くと中間の実行は
+    # （deploy-prod）で直列になる。待機できる実行は一件で、取り込みが続くと中間の実行は
     # 取り消されるが、どの実行も走った時点の master の先端を出すので、最後の一つが
     # 通れば最新の内容が出ている。取り消された実行を待っていたジョブは、それと分かって
     # 成功で終える（CANCELLED_OK）。
@@ -90,9 +91,9 @@ jobs:
         with:
           ref: master
 
-      - name: dispatch status-server-deploy.yml for dev and wait
+      - name: dispatch status-server-deploy.yml for prod and wait
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           CANCELLED_OK: "true"
-        run: .github/scripts/dispatch-deploy.sh dev "dev-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        run: .github/scripts/dispatch-deploy.sh prod "push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"

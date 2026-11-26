@@ -21,12 +21,16 @@ Pulumi のスタックは Pulumi Cloud にあり、リポジトリには結び�
 切り替えが済むまで、このリポジトリの `status-server-deploy.yml` は `assume aws deploy role` の段で `Not authorized to perform sts:AssumeRoleWithWebIdentity` になって止まる。
 AWS へ入る前に止まるので、実物には何も起きない。
 
-`master` へのマージで `status-server-deploy-dev.yml` が動くのは、`status-server/` に触れた取り込みだけである。
-移設の pull request そのものがこれに当たるので、手順 1 から 4 を済ませる前にマージすると、その取り込みの `dev` デプロイは一度失敗する。
-失敗した実行は、手順 4 までを済ませた後で再実行すれば通る。
+`master` へのマージで `status-server-deploy-prod.yml` が動くのは、`status-server/` に触れた取り込みだけである。
+移設の pull request そのものがこれに当たるので、マージすると `prod` へのデプロイが起きる。
+
+マージの前に `dev` で確かめることは、この最初の一度だけはできない。
+`workflow_dispatch` で流せるのは、既定のブランチにファイルがあるワークフローに限られ、移設の pull request をマージするまで `status-server-deploy.yml` は `master` に無いためである。
+そこで、信頼設定を `dev` の分と `prod` の分の二段に分けて足す。
+`dev` の分だけを足してマージすれば、マージで起きる `prod` へのデプロイは上の段で止まり、そのあいだに `dev` で確かめられる。
 
 元のリポジトリのワークフローは、切り替えの後もアーカイブするまで動く。
-二つのリポジトリが同じスタックへ出す期間を短くするため、手順 5 で `dev` が通ったら、続けて手順 6 と 7 を行う。
+二つのリポジトリが同じスタックへ出す期間を短くするため、手順 6 で `prod` が通ったら、続けて手順 7 を行う。
 
 ## 手順
 
@@ -41,20 +45,19 @@ gh api /repos/limit7412/KxNotifyUtils --jq '"\(.owner.id) \(.id)"'
 所有者の ID は元のリポジトリと同じ `19320218` である。
 以下では、リポジトリの ID を `<リポジトリID>` と書く。
 
-### 2. AWS の信頼ポリシーへ、このリポジトリの四つを足す
+### 2. AWS の信頼ポリシーへ、このリポジトリの dev の二つを足す
 
-元のリポジトリの四つを残したまま、このリポジトリの四つを足す。
+元のリポジトリの四つを残したまま、このリポジトリの `dev` の二つを足す。
 先に元の四つを消すと、元のリポジトリからも出せなくなり、切り替えに失敗したときに戻る先が無い。
+`prod` の二つは手順 6 で足す。
 
 ```
 repo:limit7412/KxNotifyUtils:environment:dev
 repo:limit7412@19320218/KxNotifyUtils@<リポジトリID>:environment:dev
-repo:limit7412/KxNotifyUtils:environment:prod
-repo:limit7412@19320218/KxNotifyUtils@<リポジトリID>:environment:prod
 ```
 
 `update-assume-role-policy` は信頼ポリシーを丸ごと置き換える。
-足す前に `aws iam get-role` で現物を読み、`docs/aws-oidc.md` の JSON と食い違っていないことを見てから、八つ並べた JSON を流す。
+足す前に `aws iam get-role` で現物を読み、`docs/aws-oidc.md` の JSON と食い違っていないことを見てから、六つ並べた JSON を流す。
 
 ```
 aws iam get-role --role-name qazx7412-vrc-service-status-panel-github-deploy \
@@ -68,20 +71,28 @@ aws iam update-assume-role-policy \
 デプロイロールの権限と、実行時ロールの権限境界は変えない。
 どちらも作るものの名前の頭で絞ってあり、リポジトリの名前を含まない。
 
-### 3. Pulumi Cloud の認可ポリシーへ、同じ四つを足す
+### 3. Pulumi Cloud の認可ポリシーへ、同じ二つを足す
 
-Pulumi Cloud の Settings → Access Management → OIDC Issuers → `github-actions` のポリシーに、手順 2 と同じ四つの Subject を Allow で足す。
+Pulumi Cloud の Settings → Access Management → OIDC Issuers → `github-actions` のポリシーに、手順 2 と同じ二つの Subject を Allow で足す。
 Subject の他の欄は、いまある四つと同じにする（`infra/README.md` の「手で行う作業」）。
 
 AWS だけを足して Pulumi Cloud を足し忘れると、`assume aws deploy role` は通り、次の `authenticate to pulumi cloud` が `401: Unauthorized` で止まる。
 
 ### 4. このリポジトリに environment と Secrets を置く
 
-Settings の Environments で `dev` と `prod` を作り、どちらも Deployment branches and tags を「Selected branches and tags」にして、ブランチ `master` だけを許す。
+Settings の Environments で `dev` と `prod` を作り、Deployment branches and tags を次のとおりにする。
+
+| environment | 許す ref |
+| --- | --- |
+| `dev` | 絞らない（No restriction） |
+| `prod` | 「Selected branches and tags」で、ブランチ `master` だけ |
+
+元のリポジトリでは `dev` も `master` だけに絞っていた。
+このリポジトリでは、マージの前のブランチを `dev` で確かめるので絞らない（`docs/release.md`）。
 `prod` に required reviewers を掛けていたなら、同じように掛ける。
 
-environment を作る前にワークフローが動くと、保護規則の無い `dev` が自動で作られる。
-その場合は作られた `dev` に同じ規則を足す。
+environment を作る前にワークフローが動くと、保護規則の無い environment が自動で作られる。
+`prod` がそうして作られていたら、上の規則を足す。
 
 Secrets は三つである。値は元のリポジトリと同じものを入れる。
 Secrets の値は GitHub から読み出せないので、ロールの ARN 以外は、控えてある値を入れ直すことになる。
@@ -92,23 +103,31 @@ Secrets の値は GitHub から読み出せないので、ロールの ARN 以�
 | `PULUMI_CONFIG_PASSPHRASE` | スタックの設定の暗号文を開けるパスフレーズ。元と違う値を入れると `pulumi up` が復号で止まる |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare プロバイダのトークン。控えが無ければ作り直す（`infra/README.md` の「Cloudflare の API トークン」） |
 
-### 5. dev へ出して確かめる
+### 5. マージして dev へ出す
 
+移設の pull request を `master` へマージする。
+マージで `status-server-deploy-prod.yml` が動くが、`prod` の信頼設定をまだ足していないので、`assume aws deploy role` の段で止まる。
+これは意図した失敗で、実物には何も起きない。
+
+続けて `dev` へ出す。
 Actions の status-server deploy を `workflow_dispatch` で開き、ref に `master` を選び、stack を `dev` のまま流す。
-移設の pull request をマージしたときの `dev` デプロイが失敗で残っていれば、それを再実行してもよい。
 
 コードは元のリポジトリの先端と同じなので、`pulumi up` の差分は出ないか、Lambda の zip の入れ替えだけになる。
-バケットや関数の置き換え（replace）が差分に出たら、名前か設定が食い違っている。そのときは流さずに止めて原因を見る。
+バケットや関数の置き換え（replace）が差分に出たら、名前か設定が食い違っている。そのときは原因を見るまで手順 6 へ進まない。
 
 通ったら、`dev` の配信 JSON の `generated_unix` が進み続けていることを確かめる。
 
-### 6. prod へ出す
+### 6. prod の信頼設定を足して prod へ出す
 
-同じワークフローを、stack に `prod` を入れて流す。
-`prod` も差分が出ないことを見る。
+手順 2 と 3 と同じやり方で、AWS の信頼ポリシーと Pulumi Cloud の認可ポリシーへ、このリポジトリの `prod` の二つを足す。
 
-ここで手で確かめておくのは、次に本体の正式版を公開したとき、`release.yml` が同じ経路で `prod` へ出すためである。
-確かめずに正式版を公開すると、信頼設定の不備がリリースの失敗として出る。
+```
+repo:limit7412/KxNotifyUtils:environment:prod
+repo:limit7412@19320218/KxNotifyUtils@<リポジトリID>:environment:prod
+```
+
+足したら、手順 5 で失敗した status-server deploy の実行（名前は `deploy prod [push-…]`）を再実行する。
+`prod` も差分が出ないか、Lambda の zip の入れ替えだけであることを、実行のログで見る。
 
 ### 7. 元のリポジトリを止める
 

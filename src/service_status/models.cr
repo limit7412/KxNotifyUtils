@@ -101,8 +101,14 @@ module ServiceStatus
   class Settings
     include JSON::Serializable
 
-    # 配信 JSON の置き場所。
+    # 配信 JSON の置き場所。prod の配信である。
     DEFAULT_FEED_URL = "https://vrc-status.oxymoron.link/v1/status.json"
+    # dev の配信。集約サーバーの変更を prod へ出す前に、ここで確かめる。
+    DEV_FEED_URL = "https://vrc-status-dev.oxymoron.link/v1/status.json"
+
+    # 設定ウィンドウで選べる取得先。
+    # custom は、設定ファイルへ手で書いた、どちらでもない URL を指す。
+    FEED_ENVIRONMENTS = %w[prod dev custom]
 
     # 配信は 1 分ごとに更新される。それより短くしても変化に早く気付けない。
     DEFAULT_POLLING_INTERVAL_S = 60
@@ -113,8 +119,9 @@ module ServiceStatus
     # サービスごとの有効と無効。書かれていない id は無効として扱う。
     # 配信側にサービスが増えても、黙って通知が増えないためである。
     property services : Hash(String, Bool) = Settings.default_services
-    # 設定ファイルにだけ持ち、画面には出さない。
     # dev 環境や手元のサーバへ向けて動作を確かめるための項目である。
+    # 設定ウィンドウには、prod と dev の切り替えとしてだけ出す。出すのはプレリリースの
+    # ビルドと、取得先が既に prod でないときに限る（Runtime::SettingsWindow）。
     property feed_url : String = DEFAULT_FEED_URL
 
     def initialize
@@ -131,6 +138,26 @@ module ServiceStatus
 
     def service_enabled?(id : String) : Bool
       @services[id]? || false
+    end
+
+    # いまの取得先が、設定ウィンドウの選択肢のどれに当たるか。
+    def feed_environment : String
+      case @feed_url
+      when DEFAULT_FEED_URL then "prod"
+      when DEV_FEED_URL     then "dev"
+      else                       "custom"
+      end
+    end
+
+    # 設定ウィンドウで選んだ取得先を feed_url へ直す。
+    #
+    # custom を選んだときは URL を変えない。custom は「設定ファイルに書いた URL のまま」を
+    # 意味し、画面から URL を入力する項目は無いためである。
+    def select_feed_environment(environment : String) : Nil
+      case environment
+      when "prod" then @feed_url = DEFAULT_FEED_URL
+      when "dev"  then @feed_url = DEV_FEED_URL
+      end
     end
 
     # 設定 GUI と起動時の検証で使う。エラーメッセージの配列を返し、空なら妥当とみなす。

@@ -23,7 +23,7 @@ workflows:
     '.github/workflows/status-server-backend-ci.yml':
         - 'actions/checkout@v7.0.1'
         - 'crystal-lang/install-crystal@v1.10.0'
-    '.github/workflows/status-server-deploy-dev.yml':
+    '.github/workflows/status-server-deploy-prod.yml':
         - 'actions/checkout@v7.0.1'
     '.github/workflows/status-server-deploy.yml':
         - 'actions/checkout@v7.0.1'

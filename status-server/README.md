@@ -54,7 +54,7 @@ Lambda へ載せる zip は `status-server/backend/build.sh` が作る。docker 
 | --- | --- |
 | `backend-ci.yml` | `status-server-backend-ci.yml` |
 | `infra-ci.yml` | `status-server-infra-ci.yml` |
-| `deploy-dev.yml` | `status-server-deploy-dev.yml` |
+| `deploy-dev.yml` | `status-server-deploy-prod.yml`（出す先も `dev` から `prod` に変えた） |
 | `deploy.yml` | `status-server-deploy.yml` |
 
 `docs/aws-oidc.md` と `infra/README.md` の信頼設定の節は、元のリポジトリの名前（`limit7412/VRCServiceStatusPanel`）で書いてある。

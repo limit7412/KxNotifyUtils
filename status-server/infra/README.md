@@ -678,28 +678,27 @@ yt-dlp の Layer を Pulumi が持っていたころのもので（仕様書 7�
 実体は `.github/workflows/status-server-deploy.yml` にある。
 上の並びをそのまま書いたものである。
 
-起動は三つある（`docs/release.md`）。
+起動は二つある（`docs/release.md`）。
 
 | 起動 | 出す先 |
 | --- | --- |
-| 手で流す（`workflow_dispatch`、ref は `master`） | 入力で選ぶ。既定は `dev`。切り戻しは `ref` の入力に前のタグを入れる |
-| `status-server-deploy-dev.yml`（`master` への push） | `dev` |
-| `release.yml`（正式版の公開） | `prod` |
+| `status-server-deploy-prod.yml`（`master` への push） | `prod` |
+| 手で流す（`workflow_dispatch`） | 入力で選ぶ。既定は `dev`。`dev` へはどのブランチからでも出せる。`prod` へは `master` からだけで、切り戻しは `ref` の入力に前のコミットを入れる |
 
-`status-server-deploy-dev.yml` も `release.yml` も、`master` の ref で `workflow_dispatch` として起こし、終わるまで待つ（`.github/scripts/dispatch-deploy.sh`）。
+`status-server-deploy-prod.yml` は、`master` の ref で `workflow_dispatch` として起こし、終わるまで待つ（`.github/scripts/dispatch-deploy.sh`）。
 起こした実行が environment の承認待ちで止まったら、また承認待ちの実行の後ろで群の空きを待つ形になったら、待たずに終える。
 起こした側のジョブが取り消されたとき、また状態を読めないなど結果を見届けられずに落ちるときは、起こした実行も取り消す。
 状態の読み取りは三度まで試すので、API の一時的な不調では取り消さない。
 ジョブは六時間で打ち切られ、承認がそれより遅れると起こした側だけが失敗して食い違うためで、承認後の結果は `status-server-deploy.yml` の実行で見る。
 `workflow_call` で呼ばないのは、呼ばれたワークフローが呼んだ側のコミットの定義で動くためで、`master` の ref で起こせば定義も内容もその時点の先端になる（`docs/release.md`）。
-手順を一つに置くための分割で、契機ごとの判定（対象パスに触れたか、正式版か）は起こす側にある。
+手順を一つに置くための分割で、契機ごとの判定（対象パスに触れたか）は起こす側にある。
 起こす側は期待するコミットを `expected_sha` で渡せ、こちらは checkout したものと比べる。
 
 ジョブは出す先と同じ名前の environment を参照する。
-手で流すときもその environment の規則が掛かり、`dev` も `prod` も `master` からしか流せない（`docs/release.md`）。
+手で流すときもその environment の規則が掛かり、`prod` は `master` からしか流せない。`dev` はどのブランチからでも流せる（`docs/release.md`）。
 
 `concurrency` の群は `deploy-<スタック名>` である。
-手で流したものも、`status-server-deploy-dev.yml` や `release.yml` が起こしたものも、同じスタックなら直列になる。
+手で流したものも、`status-server-deploy-prod.yml` が起こしたものも、同じスタックなら直列になる。
 起こした側には同じ名前の群を付けない。
 付けると、起こした側の実行が群を占めたまま、起こされた実行が同じ群の空きを待つ形になる。
 
