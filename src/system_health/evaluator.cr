@@ -63,6 +63,16 @@ module SystemHealth
       @states[rule_id]?.try(&.phase) || Phase::Normal
     end
 
+    # 規則の今の状態。since は条件が成り立ち始めた時刻で、継続の計測中にだけ意味を持つ。
+    # 設定画面が、通知が出るまでの残り時間を見せるために読む。
+    record Snapshot, phase : Phase, since : Time::Span, last_fired : Time::Span?
+
+    def snapshot(rule_id : String) : Snapshot
+      state = @states[rule_id]?
+      return Snapshot.new(Phase::Normal, Time::Span.zero, nil) if state.nil?
+      Snapshot.new(state.phase, state.since, state.last_fired)
+    end
+
     # 計測値を規則に当て、状態が変わった規則を返す。
     #
     # 時刻は単調時計で受け取る。壁時計では、時刻の修正で継続時間と再発報の間隔が狂う。

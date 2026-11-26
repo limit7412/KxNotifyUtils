@@ -9,6 +9,7 @@ require "../win_notification/models"
 require "../service_status/models"
 require "../system_health/alert_form"
 require "../system_health/models"
+require "../system_health/rule_status"
 require "../xsoverlay/models"
 require "./paths"
 
@@ -79,6 +80,10 @@ module Runtime
     # 通知アクセスの確かめ直しがソース側で 5 秒ごとなので、それより短くしても表示は変わらない。
     STATUS_REFRESH_INTERVAL = 2.seconds
 
+    # システムヘルスの有効と無効のチェックを引く鍵。同じ項目を 2 つのタブに置くため 2 つある。
+    HEALTH_ENABLED_KEY        = "sources.system_health.enabled"
+    HEALTH_ENABLED_MIRROR_KEY = "sources.system_health.enabled.mirror"
+
     property on_request_steamvr_register : Proc(Nil) = -> { }
     property on_request_steamvr_unregister : Proc(Nil) = -> { }
     property on_open_notification_settings : Proc(Nil) = -> { }
@@ -102,6 +107,8 @@ module Runtime
       @oyasumivr_status : Proc(String) = -> { I18n.t("status.unknown") },
       # システムヘルスの今の計測値。文言の組み立ては composition root が持つ。
       @system_health_status : Proc(String) = -> { I18n.t("status.unknown") },
+      # システムヘルスの規則ごとの状態。監視に使っている設定（保存済みのもの）での状態である。
+      @system_health_rules : Proc(Array(SystemHealth::RuleStatus)) = -> { [] of SystemHealth::RuleStatus },
       @update_url : Proc(String?) = -> { nil.as(String?) },
       # 取得と適用の操作の、見出しと押せるかどうか（issue #10 第 2 段階）。
       # 何を押せるかは composition root が決める。
@@ -131,6 +138,15 @@ module Runtime
       @update_label = nil.as(UIng::Label?)
       @oyasumivr_label = nil.as(UIng::Label?)
       @health_label = nil.as(UIng::Label?)
+      # 監視対象タブに出す、システムヘルスの状態の要約。
+      @health_summary_label = nil.as(UIng::Label?)
+      # 最上位のタブと、その中でのシステムヘルスのページの位置。
+      # 監視対象タブのボタンから切り替えるために持つ。
+      @main_tab = nil.as(UIng::Tab?)
+      @health_tab_index = 0
+      # 規則の id から、「現在の状態」のページにある状態と値のラベルを引く。
+      @health_state_labels = {} of String => UIng::Label
+      @health_value_labels = {} of String => UIng::Label
       @update_button = nil.as(UIng::Button?)
       @update_action_button = nil.as(UIng::Button?)
       @steamvr_register_button = nil.as(UIng::Button?)
@@ -218,6 +234,7 @@ module Runtime
       tab.append(I18n.t("settings.tab.general"), build_general_tab)
       tab.append(I18n.t("settings.tab.sleep"), build_sleep_tab)
       tab.append(I18n.t("settings.tab.sources"), build_sources_tab)
+      @health_tab_index = tab.num_pages
       tab.append(I18n.t("settings.tab.health"), build_health_tab)
       tab.append(I18n.t("settings.tab.sinks"), build_sinks_tab)
       tab.append(I18n.t("settings.tab.defaults"), build_defaults_tab)
@@ -225,6 +242,7 @@ module Runtime
       tab.append("SteamVR", build_steamvr_tab)
       tab.append(I18n.t("settings.tab.about"), build_about_tab)
       tab.num_pages.times { |index| tab.set_margined(index, true) }
+      @main_tab = tab
       root.append(tab, true)
 
       external_change_label = UIng::Label.new("")
@@ -365,7 +383,53 @@ module Runtime
       group.child = inner
       box.append(group, false)
       box.append(build_service_status_group, false)
+      box.append(build_system_health_group, false)
       box
+    end
+
+    # システムヘルス。
+    #
+    # ここに置くのは有効と無効、状態の要約、システムヘルスタブを開くボタンだけである。
+    # 規則ごとの数値まで並べると、他のソースの枠と合わせて窓の高さに収まらない。
+    # 有効と無効は、他のソースと同じ場所で切り替えられるようにここにも置く。
+    # システムヘルスタブにも同じチェックがあり、片方を変えるともう片方も変わる。
+    private def build_system_health_group : UIng::Group
+      group = UIng::Group.new(I18n.t("settings.sources.system_health_group"), margined: true)
+      inner = UIng::Box.new(:vertical, padded: true)
+      inner.append(health_enabled_check(HEALTH_ENABLED_KEY, HEALTH_ENABLED_MIRROR_KEY), false)
+
+      row = UIng::Box.new(:horizontal, padded: true)
+      summary = UIng::Label.new(I18n.t("settings.sources.system_health_stopped"))
+      @health_summary_label = summary
+      row.append(summary, true)
+      row.append(
+        button(I18n.t("settings.sources.system_health_open")) do
+          @main_tab.try { |tab| tab.selected = @health_tab_index }
+        end,
+        false,
+      )
+      inner.append(row, false)
+
+      group.child = inner
+      group
+    end
+
+    # システムヘルスの有効と無効のチェック。監視対象タブとシステムヘルスタブに 1 つずつ置く。
+    #
+    # 設定の項目は 1 つなので、片方を切り替えたらもう片方へ同じ値を写す。
+    # 保存のときに読むのは監視対象タブの側だけである。
+    private def health_enabled_check(key : String, other : String) : UIng::Checkbox
+      check(key, I18n.t("settings.sources.enable"), -> { set_check(other, checked?(key)) })
+    end
+
+    # 監視対象タブに出す、システムヘルスの状態の要約。
+    private def health_summary_text(statuses : Array(SystemHealth::RuleStatus)) : String
+      summary = SystemHealth::RuleStatus.summary(statuses)
+      return I18n.t("settings.sources.system_health_stopped") unless summary.monitoring
+      I18n.t("settings.sources.system_health_monitoring", {
+        "firing"  => summary.firing.to_s,
+        "pending" => summary.pending.to_s,
+      })
     end
 
     # 外部サービスの障害検知（issue #5）。
@@ -409,15 +473,15 @@ module Runtime
       group
     end
 
-    # システムヘルス。
+    # システムヘルスの規則と状態。
     #
-    # 監視対象タブには置かない。規則ごとに数値が 4 つあり、他のソースの枠と並べると収まらない。
+    # 有効と無効は監視対象タブの枠にある。
     # 取得元（providers）の有効と無効は画面に出さない。規則を無効にすれば同じ結果になり、
     # 取得そのものを止めたい場面は設定ファイルで足りる。
     private def build_health_tab : UIng::Box
       box = UIng::Box.new(:vertical, padded: true)
       box.append(UIng::Label.new(I18n.t("settings.health.trial_note")), false)
-      box.append(check("sources.system_health.enabled", I18n.t("settings.sources.enable")), false)
+      box.append(health_enabled_check(HEALTH_ENABLED_MIRROR_KEY, HEALTH_ENABLED_KEY), false)
 
       form = UIng::Form.new(padded: true)
       range = SystemHealth::Settings::POLLING_INTERVAL_RANGE
@@ -436,6 +500,7 @@ module Runtime
       # 規則ごとにページを分ける。規則は同梱のものに限られ、増減しない。
       # 入力欄は幅を取るため、全規則を 1 枚に並べると窓に収まらない。
       rules = UIng::Tab.new
+      rules.append(I18n.t("settings.health.overview"), build_health_overview_page)
       SystemHealth::RULES.each do |definition|
         rules.append(health_rule_label(definition.id), build_health_rule_page(definition))
       end
@@ -445,6 +510,50 @@ module Runtime
       box.append(UIng::Label.new(I18n.t("settings.health.clear_note")), false)
       box.append(UIng::Label.new(I18n.t("settings.health.gpu_note")), false)
       box
+    end
+
+    # 全規則の今の状態と計測値を並べるページ。
+    #
+    # 規則ごとのページへ分けて置くと、どの規則が警告中かを知るのにページを順に開くことになる。
+    # 状態と値を 2 行に分けるのは、1 行に並べると窓の幅に収まらないためである。
+    private def build_health_overview_page : UIng::Box
+      page = UIng::Box.new(:vertical, padded: true)
+      page.append(UIng::Label.new(I18n.t("settings.health.overview_note")), false)
+
+      form = UIng::Form.new(padded: true)
+      SystemHealth::RULES.each do |definition|
+        cell = UIng::Box.new(:vertical, padded: false)
+        state = UIng::Label.new(I18n.t("settings.health.state.stopped"))
+        value = UIng::Label.new("")
+        @health_state_labels[definition.id] = state
+        @health_value_labels[definition.id] = value
+        cell.append(state, false)
+        cell.append(value, false)
+        form.append(health_rule_label(definition.id), cell, false)
+      end
+      page.append(form, false)
+      page
+    end
+
+    # 規則の状態を、一覧の 1 行目に出す文言にする。
+    private def health_state_text(status : SystemHealth::RuleStatus) : String
+      I18n.t("settings.health.state.#{status.state.to_s.downcase}", status.placeholders)
+    end
+
+    # 規則の計測値としきい値を、一覧の 2 行目に出す文言にする。
+    #
+    # 計測値が 0 か 1 の規則は、数値の代わりに「作動中」のような語を出す。
+    private def health_value_text(status : SystemHealth::RuleStatus) : String
+      values = status.placeholders
+      unless status.rule.definition.threshold_adjustable?
+        flag = status.flag?
+        values["value"] = if flag.nil?
+                            SystemHealth::RuleStatus::UNKNOWN_VALUE
+                          else
+                            I18n.t("settings.health.flag.#{flag ? "on" : "off"}")
+                          end
+      end
+      I18n.t("settings.health.current.#{status.rule.id}", values)
     end
 
     # 規則 1 件のページ。その規則に意味のある項目だけを並べる。
@@ -761,7 +870,8 @@ module Runtime
       end
 
       health = SystemHealth::Settings.from_section(@draft.source(SystemHealth::SOURCE_ID))
-      set_check("sources.system_health.enabled", health.enabled)
+      set_check(HEALTH_ENABLED_KEY, health.enabled)
+      set_check(HEALTH_ENABLED_MIRROR_KEY, health.enabled)
       set_spin("sources.system_health.polling_interval_s", health.polling_interval_s)
       SystemHealth::RULES.each do |definition|
         key = "health.#{definition.id}"
@@ -1125,6 +1235,12 @@ module Runtime
       @health_label.try do |label|
         label.text = I18n.t("settings.health.status", {"status" => @system_health_status.call})
       end
+      statuses = @system_health_rules.call
+      @health_summary_label.try { |label| label.text = health_summary_text(statuses) }
+      statuses.each do |status|
+        @health_state_labels[status.rule.id]?.try { |label| label.text = health_state_text(status) }
+        @health_value_labels[status.rule.id]?.try { |label| label.text = health_value_text(status) }
+      end
       connected = @steamvr_connected.call
       {@steamvr_register_button, @steamvr_unregister_button}.each do |control|
         control.try { |target| connected ? target.enable : target.disable }
@@ -1227,7 +1343,7 @@ module Runtime
       section = @draft.source(SystemHealth::SOURCE_ID)
       before = SystemHealth::Settings.from_section(section).to_json
       health = SystemHealth::Settings.from_section(section)
-      health.enabled = checked?("sources.system_health.enabled")
+      health.enabled = checked?(HEALTH_ENABLED_KEY)
       health.polling_interval_s = spin_value("sources.system_health.polling_interval_s")
       SystemHealth::RULES.each do |definition|
         key = "health.#{definition.id}"
