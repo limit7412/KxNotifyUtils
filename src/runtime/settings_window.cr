@@ -80,6 +80,10 @@ module Runtime
     # 通知アクセスの確かめ直しがソース側で 5 秒ごとなので、それより短くしても表示は変わらない。
     STATUS_REFRESH_INTERVAL = 2.seconds
 
+    # システムヘルスの有効と無効のチェックを引く鍵。同じ項目を 2 つのタブに置くため 2 つある。
+    HEALTH_ENABLED_KEY        = "sources.system_health.enabled"
+    HEALTH_ENABLED_MIRROR_KEY = "sources.system_health.enabled.mirror"
+
     property on_request_steamvr_register : Proc(Nil) = -> { }
     property on_request_steamvr_unregister : Proc(Nil) = -> { }
     property on_open_notification_settings : Proc(Nil) = -> { }
@@ -387,11 +391,12 @@ module Runtime
     #
     # ここに置くのは有効と無効、状態の要約、システムヘルスタブを開くボタンだけである。
     # 規則ごとの数値まで並べると、他のソースの枠と合わせて窓の高さに収まらない。
-    # 有効と無効をこちらに置くのは、他のソースと同じ場所で切り替えられるようにするためである。
+    # 有効と無効は、他のソースと同じ場所で切り替えられるようにここにも置く。
+    # システムヘルスタブにも同じチェックがあり、片方を変えるともう片方も変わる。
     private def build_system_health_group : UIng::Group
       group = UIng::Group.new(I18n.t("settings.sources.system_health_group"), margined: true)
       inner = UIng::Box.new(:vertical, padded: true)
-      inner.append(check("sources.system_health.enabled", I18n.t("settings.sources.enable")), false)
+      inner.append(health_enabled_check(HEALTH_ENABLED_KEY, HEALTH_ENABLED_MIRROR_KEY), false)
 
       row = UIng::Box.new(:horizontal, padded: true)
       summary = UIng::Label.new(I18n.t("settings.sources.system_health_stopped"))
@@ -407,6 +412,14 @@ module Runtime
 
       group.child = inner
       group
+    end
+
+    # システムヘルスの有効と無効のチェック。監視対象タブとシステムヘルスタブに 1 つずつ置く。
+    #
+    # 設定の項目は 1 つなので、片方を切り替えたらもう片方へ同じ値を写す。
+    # 保存のときに読むのは監視対象タブの側だけである。
+    private def health_enabled_check(key : String, other : String) : UIng::Checkbox
+      check(key, I18n.t("settings.sources.enable"), -> { set_check(other, checked?(key)) })
     end
 
     # 監視対象タブに出す、システムヘルスの状態の要約。
@@ -468,7 +481,7 @@ module Runtime
     private def build_health_tab : UIng::Box
       box = UIng::Box.new(:vertical, padded: true)
       box.append(UIng::Label.new(I18n.t("settings.health.trial_note")), false)
-      box.append(UIng::Label.new(I18n.t("settings.health.enable_note")), false)
+      box.append(health_enabled_check(HEALTH_ENABLED_MIRROR_KEY, HEALTH_ENABLED_KEY), false)
 
       form = UIng::Form.new(padded: true)
       range = SystemHealth::Settings::POLLING_INTERVAL_RANGE
@@ -857,7 +870,8 @@ module Runtime
       end
 
       health = SystemHealth::Settings.from_section(@draft.source(SystemHealth::SOURCE_ID))
-      set_check("sources.system_health.enabled", health.enabled)
+      set_check(HEALTH_ENABLED_KEY, health.enabled)
+      set_check(HEALTH_ENABLED_MIRROR_KEY, health.enabled)
       set_spin("sources.system_health.polling_interval_s", health.polling_interval_s)
       SystemHealth::RULES.each do |definition|
         key = "health.#{definition.id}"
@@ -1329,7 +1343,7 @@ module Runtime
       section = @draft.source(SystemHealth::SOURCE_ID)
       before = SystemHealth::Settings.from_section(section).to_json
       health = SystemHealth::Settings.from_section(section)
-      health.enabled = checked?("sources.system_health.enabled")
+      health.enabled = checked?(HEALTH_ENABLED_KEY)
       health.polling_interval_s = spin_value("sources.system_health.polling_interval_s")
       SystemHealth::RULES.each do |definition|
         key = "health.#{definition.id}"

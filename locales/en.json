@@ -224,7 +224,6 @@
   "settings.sources.system_health_stopped": "Not monitoring",
   "settings.sources.system_health_monitoring": "Monitoring ({firing} alerting, {pending} with condition met)",
   "settings.sources.system_health_open": "Open system health settings",
-  "settings.health.enable_note": "Enable or disable it on the Sources tab.",
   "settings.health.interval": "Check interval (s)",
   "settings.health.status": "Current values: {status}",
   "settings.health.overview": "Current state",
