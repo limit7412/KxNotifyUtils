@@ -2,22 +2,23 @@ name: status-server deploy
 
 # 集約サーバーと配信経路を一つのスタックへ出す（仕様書 5.1、6、9.2）。
 #
-# 起動は二つあり、どちらも workflow_dispatch である。
-#   手で流す            出す先を入力で選ぶ。prod へ出すときと、前のコミットへ
-#                       切り戻すときはこれを使う。ref は master にする。
+# 起動は三つあるが、どれも workflow_dispatch である。
+#   手で流す            出す先を入力で選ぶ。集約サーバーだけを出したいときと、
+#                       前のタグへ切り戻すときはこれを使う。ref は master にする。
 #                       environment の規則が master だけを許すので、他の ref からは
-#                       起動できない。切り戻すときは ref の入力に戻したいコミットを入れる。
+#                       起動できない。切り戻すときは ref の入力に戻したいタグを入れる。
 #                       その内容を checkout し、master に含まれるコミットであることを
 #                       確かめてから出す
 #   status-server-deploy-dev.yml
 #                       master への push で、ここを master の ref で起こして dev へ出す
-# prod へ出す契機は手で流すことだけである。本体のリリース（release.yml）は exe を配るもので、
-# 集約サーバーの版とは連動させていない（status-server/docs/release.md）。
+#   release.yml         正式版の公開で、ここを master の ref で起こして prod へ出す
 # 起こすのは .github/scripts/dispatch-deploy.sh で、終わるまで待つ。
 # 手順を一つに置くための分割で、契機ごとの判定（対象パスに触れたか）は起こす側にある。
 #
-# workflow_call で呼ばないのは、呼ばれたワークフローが呼んだ側のコミットの定義で動くためである。
-# 実行の順序が入れ替わったとき、古い定義で新しい内容を出すことがある。
+# workflow_call で呼ばないのは二つの理由による。
+# release イベントの実行はタグの ref を持ち、environment prod の規則（master だけ）に当たる。
+# 呼ばれたワークフローは呼んだ側のコミットの定義で動くので、実行の順序が入れ替わったとき、
+# 古い定義で新しい内容を出すことがある。
 # master の ref で起こせば、定義も内容もその時点の master の先端になり、
 # 出るのも master の内容に限られる。
 # 起こす側は期待するコミットを expected_sha で渡せ、こちらは checkout したものと比べる。
@@ -85,7 +86,7 @@ env:
 # Pulumi 側にも排他はあるが、待たせるより手前で弾いたほうが分かりやすい。
 # 走っているものは止めない。途中で切ると state と実物がずれる。
 #
-# 手で流したものも、status-server-deploy-dev.yml が起こしたものも、同じスタックなら
+# 手で流したものも、status-server-deploy-dev.yml や release.yml が起こしたものも、同じスタックなら
 # この群で直列になる。待機できる実行は一件で、取り消された実行は起こした側が
 # それと分かる（.github/scripts/dispatch-deploy.sh）。
 concurrency:
@@ -125,9 +126,9 @@ jobs:
       # 出す内容が、出してよいものかを見る。
       #   ref を指定したとき      master に含まれるコミットに限る。切り戻し先は一度 master に
       #                          入って dev で試したものだけで、master に無い内容は出せない
-      #   expected_sha があるとき checkout したものがそれと同じであること。起こす側が
-      #                          出したいコミットを渡してくる。起こしてから master が進んでいると
-      #                          それと違う内容が出るので止める
+      #   expected_sha があるとき checkout したものがそれと同じであること。release.yml が
+      #                          タグのコミットを渡してくる。タグと違う内容が prod へ出ないよう、
+      #                          食い違えば止める
       - name: check the commit is allowed
         if: inputs.ref != '' || inputs.expected_sha != ''
         env:

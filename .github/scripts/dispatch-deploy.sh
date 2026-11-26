@@ -6,10 +6,12 @@
 #
 # 出す内容の ref を渡すと、status-server-deploy.yml はそれを checkout して、master に含まれることを
 # 確かめてから出す。渡さないと master の先端を出す。
-# 期待するコミットを渡すなら、出す内容の ref も渡す。渡さないと、起こすまでのあいだに master が
-# 進んだとき、起こされた側は新しい先端を checkout して、期待するコミットと食い違い、必ず止まる。
+# release.yml は正式版のタグを渡す。渡さないと、起こされた側は master の先端を checkout して、
+# 期待するコミット（タグのコミット）と食い違い、タグが先端でないかぎり必ず止まる。
+# exe の添付は済んでいるので、再実行しても同じところで止まり、
+# 正式版だけが出て prod が動かないままになる。
 #
-# 呼ぶのは status-server-deploy-dev.yml である。
+# status-server-deploy-dev.yml と release.yml から呼ぶ。
 # 環境変数 GH_TOKEN（actions: write と checks: read を持つ GITHUB_TOKEN）と GH_REPO が要る。
 # actions: write は起こすのと、五時間たったときや親が取り消されたときに取り消すのに使う。
 # CANCELLED_OK=true を渡すと、起こした実行が concurrency の群で後続に置き換えられて

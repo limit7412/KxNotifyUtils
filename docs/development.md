@@ -82,6 +82,8 @@ exe の中身が変わらない変更（spec、ドキュメント、ワークフ
 ### 安定版リリース（手動）
 
 GitHub でタグ `X.Y.Z` のリリースを作って公開すると、`.github/workflows/release.yml` が exe をビルドして添付する。
+添付が通ると、続けて集約サーバー（`status-server/`）をそのタグの内容で `prod` へ出す。
+タグは `master` に含まれるコミットへ打つ。`master` に無いコミットでは exe は添付されるが、`prod` へのデプロイが止まってワークフローが失敗になる。
 
 プレリリースを正式リリースへ昇格した場合は、昇格前の公開時点で exe が添付済みのため何も動かない。
 
@@ -187,7 +189,7 @@ uing の postinstall が libui-ng の静的ライブラリを GitHub から取�
 `status-server/` は本体と別の検査とデプロイを持つ。
 リポジトリ直下の `crystal spec` と書式の検査は対象にしないので、触ったときは `status-server/README.md` の「手元で検査する」を回す。
 CI では `status-server-backend-ci.yml` と `status-server-infra-ci.yml` が、`status-server/` に触れた変更に対してだけ動く。
-`master` へ入ると `dev` へ出る。流れは `status-server/docs/release.md` にある。
+`master` へ入ると `dev` へ出て、本体の正式版を公開すると `prod` へ出る。流れは `status-server/docs/release.md` にある。
 
 ## アイコンを作り直す
 

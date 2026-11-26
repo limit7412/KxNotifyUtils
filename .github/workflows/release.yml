@@ -12,6 +12,11 @@ name: Release Build
 # 同名ファイルのアップロードが競合する。
 # プレリリースを正式リリースへ昇格した場合（`released` のみが発火するケース）は、
 # 昇格前の `published` で exe と zip が添付済みである。
+#
+# 正式版の公開では、exe と zip を添付した後で集約サーバー（status-server/）を prod へ出す。
+# プレリリースでは出さない。集約サーバーは master への取り込みのたびに dev へ出ており
+# （status-server-deploy-dev.yml）、prod へ出すのは正式版として公開した内容だけにする。
+# 手順は status-server/docs/release.md にある。
 
 on:
   release:
@@ -89,3 +94,52 @@ jobs:
             ${{ steps.package.outputs.path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 正式版なら集約サーバーを prod へ出す。exe と zip の添付が通ってからで、プレリリースでは動かない。
+  # 添付できなかったリリースで prod だけが進むことを避ける。
+  #
+  # status-server-deploy.yml を master の ref で workflow_dispatch として起こし、その実行が
+  # 終わるまで待つ（.github/scripts/dispatch-deploy.sh）。
+  # workflow_call で呼ばないのは、この実行がタグの ref を持ち、status-server-deploy.yml のジョブが
+  # 参照する environment prod の規則（master だけ）に当たるためである。
+  # GITHUB_TOKEN で起こした workflow_dispatch は実行を作る（GITHUB_TOKEN が起こすイベントのうち
+  # workflow_dispatch と repository_dispatch だけが例外である）。
+  #
+  # 出す内容は正式版のタグで、master の先端ではない。タグのコミットを ref と expected_sha で渡す。
+  # status-server-deploy.yml はそれを checkout し、master に含まれるコミットであることを確かめてから出す。
+  # master に無いコミットへ打ったタグでは、exe は添付されるが prod へは出ず、ここが失敗になる。
+  #
+  # 集約サーバーに変更の無いリリースでも出す。差分の有無を見て飛ばす形にすると、
+  # 「前に prod へ出したのはどのコミットか」をここで持つことになる。出しても pulumi up の差分は
+  # Lambda の zip の入れ替えに留まる。
+  #
+  # 同じスタックへの実行は status-server-deploy.yml の concurrency（deploy-prod）で直列になる。
+  # ここには concurrency を付けない。同じ名前を付けると、このジョブが群を占めたまま、
+  # 起こした実行が同じ群の空きを待つ形になる。
+  # 取り消されたら失敗にする。このリリースが出たことを保証したいので、dev とは違う。
+  deploy-status-server:
+    name: 集約サーバーを prod へ出す
+    needs: build
+    if: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    permissions:
+      # status-server-deploy.yml を起こし、実行の一覧を読む
+      actions: write
+      # 起こした実行の状態を gh で読む。gh はジョブの経過を checks から読むことがあり、
+      # 一つでも明示すると他は none になるので、これも書く。
+      # 無いと watch が 403 で止まり、デプロイが通ってもここが失敗する
+      checks: read
+      # スクリプトを取る
+      contents: read
+    steps:
+      # スクリプトは master の先端から取り、起こされる status-server-deploy.yml と契約を揃える
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: master
+
+      - name: status-server-deploy.yml を prod へ向けて起こし、終わるまで待つ
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: .github/scripts/dispatch-deploy.sh prod "release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$GITHUB_SHA" "$TAG"
