@@ -166,6 +166,29 @@ describe SystemHealth::RuleStatus do
     values["remaining_s"].should eq "-"
   end
 
+  it "全規則の状態を、監視しているかと件数に要約する" do
+    target, provider = repository({METRIC => 96.0, SystemHealth::Metric::GPU_THERMAL_THROTTLE => 1.0})
+
+    summary = SystemHealth::RuleStatus.summary(target.rule_statuses(0.seconds))
+    summary.monitoring.should be_false
+
+    target.start
+    target.poll_new(0.seconds)
+    summary = SystemHealth::RuleStatus.summary(target.rule_statuses(1.seconds))
+    summary.monitoring.should be_true
+    summary.firing.should eq 1
+    summary.pending.should eq 1
+
+    # 再通知までの間隔が明けていない規則も、条件が成立している側に数える。
+    provider.values = {SystemHealth::Metric::GPU_THERMAL_THROTTLE => 0.0}
+    target.poll_new(2.seconds)
+    provider.values = {SystemHealth::Metric::GPU_THERMAL_THROTTLE => 1.0}
+    target.poll_new(3.seconds)
+    summary = SystemHealth::RuleStatus.summary(target.rule_statuses(4.seconds))
+    summary.firing.should eq 0
+    summary.pending.should eq 1
+  end
+
   it "計測値が 0 か 1 の規則は、値が立っているかを返す" do
     target, provider = repository({SystemHealth::Metric::GPU_THERMAL_THROTTLE => 0.0, METRIC => 50.0})
     target.start

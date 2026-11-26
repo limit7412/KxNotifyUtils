@@ -134,6 +134,12 @@ module Runtime
       @update_label = nil.as(UIng::Label?)
       @oyasumivr_label = nil.as(UIng::Label?)
       @health_label = nil.as(UIng::Label?)
+      # 監視対象タブに出す、システムヘルスの状態の要約。
+      @health_summary_label = nil.as(UIng::Label?)
+      # 最上位のタブと、その中でのシステムヘルスのページの位置。
+      # 監視対象タブのボタンから切り替えるために持つ。
+      @main_tab = nil.as(UIng::Tab?)
+      @health_tab_index = 0
       # 規則の id から、「現在の状態」のページにある状態と値のラベルを引く。
       @health_state_labels = {} of String => UIng::Label
       @health_value_labels = {} of String => UIng::Label
@@ -224,6 +230,7 @@ module Runtime
       tab.append(I18n.t("settings.tab.general"), build_general_tab)
       tab.append(I18n.t("settings.tab.sleep"), build_sleep_tab)
       tab.append(I18n.t("settings.tab.sources"), build_sources_tab)
+      @health_tab_index = tab.num_pages
       tab.append(I18n.t("settings.tab.health"), build_health_tab)
       tab.append(I18n.t("settings.tab.sinks"), build_sinks_tab)
       tab.append(I18n.t("settings.tab.defaults"), build_defaults_tab)
@@ -231,6 +238,7 @@ module Runtime
       tab.append("SteamVR", build_steamvr_tab)
       tab.append(I18n.t("settings.tab.about"), build_about_tab)
       tab.num_pages.times { |index| tab.set_margined(index, true) }
+      @main_tab = tab
       root.append(tab, true)
 
       external_change_label = UIng::Label.new("")
@@ -371,7 +379,44 @@ module Runtime
       group.child = inner
       box.append(group, false)
       box.append(build_service_status_group, false)
+      box.append(build_system_health_group, false)
       box
+    end
+
+    # システムヘルス。
+    #
+    # ここに置くのは有効と無効、状態の要約、システムヘルスタブを開くボタンだけである。
+    # 規則ごとの数値まで並べると、他のソースの枠と合わせて窓の高さに収まらない。
+    # 有効と無効をこちらに置くのは、他のソースと同じ場所で切り替えられるようにするためである。
+    private def build_system_health_group : UIng::Group
+      group = UIng::Group.new(I18n.t("settings.sources.system_health_group"), margined: true)
+      inner = UIng::Box.new(:vertical, padded: true)
+      inner.append(check("sources.system_health.enabled", I18n.t("settings.sources.enable")), false)
+
+      row = UIng::Box.new(:horizontal, padded: true)
+      summary = UIng::Label.new(I18n.t("settings.sources.system_health_stopped"))
+      @health_summary_label = summary
+      row.append(summary, true)
+      row.append(
+        button(I18n.t("settings.sources.system_health_open")) do
+          @main_tab.try { |tab| tab.selected = @health_tab_index }
+        end,
+        false,
+      )
+      inner.append(row, false)
+
+      group.child = inner
+      group
+    end
+
+    # 監視対象タブに出す、システムヘルスの状態の要約。
+    private def health_summary_text(statuses : Array(SystemHealth::RuleStatus)) : String
+      summary = SystemHealth::RuleStatus.summary(statuses)
+      return I18n.t("settings.sources.system_health_stopped") unless summary.monitoring
+      I18n.t("settings.sources.system_health_monitoring", {
+        "firing"  => summary.firing.to_s,
+        "pending" => summary.pending.to_s,
+      })
     end
 
     # 外部サービスの障害検知（issue #5）。
@@ -415,15 +460,15 @@ module Runtime
       group
     end
 
-    # システムヘルス。
+    # システムヘルスの規則と状態。
     #
-    # 監視対象タブには置かない。規則ごとに数値が 4 つあり、他のソースの枠と並べると収まらない。
+    # 有効と無効は監視対象タブの枠にある。
     # 取得元（providers）の有効と無効は画面に出さない。規則を無効にすれば同じ結果になり、
     # 取得そのものを止めたい場面は設定ファイルで足りる。
     private def build_health_tab : UIng::Box
       box = UIng::Box.new(:vertical, padded: true)
       box.append(UIng::Label.new(I18n.t("settings.health.trial_note")), false)
-      box.append(check("sources.system_health.enabled", I18n.t("settings.sources.enable")), false)
+      box.append(UIng::Label.new(I18n.t("settings.health.enable_note")), false)
 
       form = UIng::Form.new(padded: true)
       range = SystemHealth::Settings::POLLING_INTERVAL_RANGE
@@ -1176,7 +1221,9 @@ module Runtime
       @health_label.try do |label|
         label.text = I18n.t("settings.health.status", {"status" => @system_health_status.call})
       end
-      @system_health_rules.call.each do |status|
+      statuses = @system_health_rules.call
+      @health_summary_label.try { |label| label.text = health_summary_text(statuses) }
+      statuses.each do |status|
         @health_state_labels[status.rule.id]?.try { |label| label.text = health_state_text(status) }
         @health_value_labels[status.rule.id]?.try { |label| label.text = health_value_text(status) }
       end
