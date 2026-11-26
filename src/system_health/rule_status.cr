@@ -22,6 +22,20 @@ module SystemHealth
       Firing
     end
 
+    # 全規則の状態を 1 行で見せるための件数。
+    #
+    # pending は、条件が成り立っていて通知をまだ出していない規則の数である。
+    # 継続時間を数えている規則と、再通知までの間隔が明けていない規則を合わせる。
+    record Summary, monitoring : Bool, firing : Int32, pending : Int32
+
+    def self.summary(statuses : Array(RuleStatus)) : Summary
+      Summary.new(
+        monitoring: statuses.any? { |status| !status.state.stopped? },
+        firing: statuses.count(&.state.firing?),
+        pending: statuses.count { |status| status.state.pending? || status.state.suppressed? },
+      )
+    end
+
     # 値が取れなかった計測値の表記。
     UNKNOWN_VALUE = "-"
 

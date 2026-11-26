@@ -235,6 +235,10 @@ describe "システムヘルスの辞書" do
   it "規則の状態すべてに、設定ウィンドウの文言がある" do
     keys = SystemHealth::RuleStatus::State.values.map { |state| "settings.health.state.#{state.to_s.downcase}" }
     keys += %w[settings.health.flag.on settings.health.flag.off settings.health.overview settings.health.overview_note]
+    keys += %w[
+      settings.sources.system_health_group settings.sources.system_health_stopped
+      settings.sources.system_health_monitoring settings.sources.system_health_open
+    ]
 
     keys.reject { |key| Runtime::I18n::LOCALES["ja"].has_key?(key) }.should be_empty
   end
