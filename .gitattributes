@@ -1,0 +1,10 @@
+# 集約サーバーのスクリプトは bash で動かすので、LF で取り出す。
+# Windows で core.autocrlf=true のまま clone すると CRLF へ変換され、
+# shebang の解釈が `bash\r` になって実行できなくなる。
+/status-server/**/*.sh text eol=lf
+/.github/scripts/*.sh text eol=lf
+
+# 配信するページの CSP はインライン要素のハッシュで許可する。
+# 改行が CRLF になると、ハッシュがブラウザ側の計算と食い違って script も
+# style も拒まれる。同じ理由で LF に固定する。
+/status-server/**/*.html text eol=lf

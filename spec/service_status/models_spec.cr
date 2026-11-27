@@ -36,6 +36,42 @@ describe ServiceStatus::Settings do
     settings.feed_url.should eq ServiceStatus::Settings::DEFAULT_FEED_URL
   end
 
+  describe "#feed_environment" do
+    it "既定の取得先は prod である" do
+      ServiceStatus::Settings.new.feed_environment.should eq "prod"
+    end
+
+    it "dev の配信を dev と読む" do
+      section = JSON.parse({"feed_url" => ServiceStatus::Settings::DEV_FEED_URL}.to_json)
+      ServiceStatus::Settings.from_section(section).feed_environment.should eq "dev"
+    end
+
+    it "どちらでもない URL は custom と読む" do
+      section = JSON.parse(%({"feed_url": "http://localhost:8000/status.json"}))
+      ServiceStatus::Settings.from_section(section).feed_environment.should eq "custom"
+    end
+  end
+
+  describe "#select_feed_environment" do
+    it "dev を選ぶと dev の配信へ向く" do
+      settings = ServiceStatus::Settings.new
+      settings.select_feed_environment("dev")
+      settings.feed_url.should eq ServiceStatus::Settings::DEV_FEED_URL
+    end
+
+    it "prod を選ぶと既定の配信へ戻る" do
+      settings = ServiceStatus::Settings.from_section(JSON.parse(%({"feed_url": "http://localhost:8000/status.json"})))
+      settings.select_feed_environment("prod")
+      settings.feed_url.should eq ServiceStatus::Settings::DEFAULT_FEED_URL
+    end
+
+    it "custom を選んでも、設定ファイルに書いた URL を変えない" do
+      settings = ServiceStatus::Settings.from_section(JSON.parse(%({"feed_url": "http://localhost:8000/status.json"})))
+      settings.select_feed_environment("custom")
+      settings.feed_url.should eq "http://localhost:8000/status.json"
+    end
+  end
+
   describe ".validate" do
     it "既定の設定は妥当である" do
       ServiceStatus::Settings.validate(JSON.parse(ServiceStatus::Settings.new.to_json)).should be_empty

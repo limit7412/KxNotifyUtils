@@ -1,0 +1,58 @@
+# スタックごとの値の雛形。
+#
+# 使いはじめるときは infra/init-stack.sh が Pulumi.<スタック名>.yaml を作る。
+# ここに並んでいるものを一つずつ聞き、secret 指定のものは暗号文として記録する。
+# 出来上がったファイルは commit する。
+#
+#   # パスフレーズは覚えずに作る。設定ファイルは commit され、このリポジトリは
+#   # public なので、暗号文は誰でも総当たりを試せる状態に置かれる（#24）
+#   #   openssl rand -base64 32
+#   # 値を export の右辺に書かない。シェルの履歴に平文で残る
+#   # read の -p は zsh では別の意味になるので、プロンプトは printf で出す
+#   printf 'PULUMI_CONFIG_PASSPHRASE: '
+#   read -rs PULUMI_CONFIG_PASSPHRASE && echo
+#   export PULUMI_CONFIG_PASSPHRASE
+#   infra/init-stack.sh dev
+#
+# 手で入れる場合は次の形になる。--secret を付けないと平文で記録される。
+#
+# --secrets-provider passphrase を省かないこと。状態は Pulumi Cloud にあり（#23）、
+# そこでの既定はサービス側の鍵管理である。PULUMI_CONFIG_PASSPHRASE を渡しても
+# provider は切り替わらないので、省くと secret の鍵を預けることになる。
+#
+#   pulumi stack init dev --secrets-provider passphrase
+#   pulumi config set cloudflareAccountId <アカウントID>
+#   pulumi config set --secret alertWebhookUrl <URL>
+#
+# Cloudflare の API トークンはここに入れない。CLOUDFLARE_API_TOKEN で渡す（#24）。
+
+config:
+  # デプロイ先。Lambda は東京に置く（仕様書 5.1）
+  aws:region: ap-northeast-1
+
+  # Cloudflare のアカウント ID。R2 のエンドポイントにも使う
+  vrc-service-status-panel:cloudflareAccountId: ""
+
+  # 配信ドメインの属するゾーンの ID と、そのホスト名（仕様書 6）
+  vrc-service-status-panel:deliveryZoneId: ""
+  vrc-service-status-panel:deliveryHost: status.example.com
+
+  # バケット名。省略すると qazx7412-vrc-service-status-panel-<スタック名>-public になる
+  # vrc-service-status-panel:publicBucket: qazx7412-vrc-service-status-panel-dev-public
+  # vrc-service-status-panel:stateBucket: qazx7412-vrc-service-status-panel-dev-state
+  vrc-service-status-panel:bucketLocation: apac
+
+  # 合成監視の対象（仕様書 3.3）。
+  # どちらも作者自身のもので、上流の都合で消えないものを選ぶ
+  vrc-service-status-panel:youtubeProbeVideoId: ""
+  vrc-service-status-panel:boothProbeItemId: ""
+
+  # GitHub Actions からデプロイする場合だけ入れる。
+  # CLI で作った権限境界の名前（docs/aws-oidc.md）。
+  # ARN ではなく名前なのは、ARN にアカウント ID が入るためである（#26）。
+  # 手元からしか出さないなら書かなくてよい
+  # vrc-service-status-panel:workloadBoundaryName: qazx7412-vrc-service-status-panel-workload-boundary
+
+  # secret 指定のもの。pulumi config set --secret で入れる
+  vrc-service-status-panel:alertWebhookUrl:
+    secure: pulumi config set --secret で入れる

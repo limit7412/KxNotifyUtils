@@ -1,0 +1,21 @@
+name: vrc_service_status_panel
+version: 0.0.1
+
+authors:
+  - limit7412 <qazx7412@newgenerations.im>
+
+crystal: ">= 1.20.0"
+
+dependencies:
+  # R2 への読み書き（仕様書 6、11.2）。S3 互換 API しか使わないので、
+  # 同じ実装で S3 にも向けられる。
+  awscr-s3:
+    github: taylorfinnell/awscr-s3
+    version: ~> 0.11.0
+
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: ~> 1.7.0
+
+license: MIT

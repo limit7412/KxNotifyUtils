@@ -71,6 +71,13 @@ pwsh scripts/build.ps1
 必要なものは Visual Studio 2022 以降の C++ ビルドツール（`cmake` と `rc.exe`）と、Crystal の Windows 版（MSVC ツールチェーン）である。
 手順の詳細と、Linux でどこまで検証できるかは [開発ガイド](docs/development.md) にまとめてある。
 
+## 集約サーバー
+
+外部サービスの障害情報は、各サービスのステータスページを本体が直接読むのではなく、集約サーバーが配る JSON から読む。
+その集約サーバーと配信経路の定義は `status-server/` にある。
+本体とは別にビルドとデプロイを行うもので、exe には入らない。
+構成は [status-server/README.md](status-server/README.md) を参照する。
+
 ## ライセンス
 
 本体は MIT License で配布する。

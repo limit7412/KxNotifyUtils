@@ -82,6 +82,11 @@ src/
     usecase.cr                       例外のログ記録とトレイ通知
 ```
 
+`src/` の外に、集約サーバー（`status-server/`）がある。
+`service_status` が読む配信 JSON を作って配る側で、本体とは shard もビルドもデプロイも別である。
+本体との接点は配信 JSON の形だけで、互いのコードは参照しない。
+構成は `status-server/README.md` にある。
+
 ## 依存の向き
 
 依存の向きは次のとおり固定する。

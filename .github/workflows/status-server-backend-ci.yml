@@ -1,0 +1,128 @@
+name: status-server backend ci
+
+# 集約サーバー（status-server/backend/）の format / lint / spec を実行する。
+#
+# ワークフローはリポジトリ直下に置き、Crystal のコマンドは
+# status-server/backend/ を作業ディレクトリにして走らせる。
+# 本体（src/）の検査は ci.yml にあり、こことは shard も Crystal の起動場所も別である。
+#
+# status-server/backend/ に触れていない変更では検査をスキップする。
+# 判定は `on` の `paths` フィルタではなく `changes` ジョブと `if` で行う
+# （理由は .github/actions/changed-paths/action.yml に記述）。
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  # 手で起動できるようにしておく。
+  #
+  # required status check に指定した検査は、チェックランが作られないと
+  # 待ち状態のままになり PR をマージできない。pull_request のイベントから
+  # ワークフローの実行が作られない事象を実際に踏んだ（2026-08-26）。
+  # そのとき push と workflow_dispatch は動いていたので、これがあれば
+  # 対象のブランチを指して手で起動し、必要なチェックランを出せる。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # 変更ファイルの一覧を Pull Requests API から取得するために必要
+  pull-requests: read
+
+env:
+  # ameba のコミット固定と噛み合う版に揃える。
+  # 上げるときは status-server/backend/shard.yml の ameba の指定と合わせて確認すること。
+  CRYSTAL_VERSION: 1.21.0
+
+jobs:
+  # 変更が対象に触れているかを判定する。判定の中身と、`on` の `paths` を
+  # 使わない理由は .github/actions/changed-paths/action.yml に書いてある。
+  changes:
+    name: Check changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.check.outputs.relevant }}
+    steps:
+      # 共有アクションはリポジトリの中にあるので、先に取ってこないと使えない
+      - uses: actions/checkout@v7.0.1
+
+      - id: check
+        uses: ./.github/actions/changed-paths
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          label: backend の検査
+          patterns: |
+            status-server/backend/*
+            .github/workflows/status-server-backend-ci.yml
+            .github/actions/changed-paths/*
+
+  check:
+    name: format / lint / spec
+    needs: changes
+    # 判定そのものが失敗したときは検査を走らせる。
+    # needs が失敗するとこのジョブは skipped になり、required status check では
+    # 成功と同じ扱いになる。飛ばす条件を「対象に触れていない」に限らないと、
+    # 判定が壊れているあいだ、壊れた変更が緑のまま通ってしまう。
+    # !cancelled() を置くのは、これが無いと needs の失敗でジョブごと
+    # 飛ばされ、if を読んでもらえないためである。
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.relevant == 'true') }}
+    # Lambda の実行環境が arm64 なので、CI も同じ命令セットで回す。
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: status-server/backend
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+
+      # crystal: latest だと Crystal の更新でいきなり CI が壊れるため固定する。
+      - name: install crystal
+        uses: crystal-lang/install-crystal@v1.10.0
+        with:
+          crystal: ${{ env.CRYSTAL_VERSION }}
+
+      # awscr-s3 は S3 の応答を読むのに Crystal の XML を使い、それが libxml2 を引く。
+      # ランナーには入っていることが多いが、イメージから外れると spec は
+      # 走る手前のリンクで落ちる。入っていなければそのときだけ入れる。
+      - name: ensure libxml2 headers
+        run: dpkg -s libxml2-dev >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y libxml2-dev)
+
+      - name: install shards
+        run: shards install
+
+      - name: check format
+        run: crystal tool format --check
+
+      # 追従先の ameba（1.7 系）は shard.yml から postinstall が外れており、
+      # shards install だけでは bin/ameba が作られないため明示的にビルドする。
+      - name: build ameba
+        run: |
+          mkdir -p bin
+          crystal build lib/ameba/src/cli.cr -o bin/ameba
+
+      - name: lint with ameba
+        run: ./bin/ameba
+
+      - name: run specs
+        run: crystal spec
+
+  # Lambda へ載せる形で組み立てられるかを見る（仕様書 5.1）。
+  #
+  # spec は動的リンクで走るので、静的リンクだけで出る不足はここでしか出ない。
+  # awscr-s3 を足して libxml2 が依存に入り、その静的ライブラリと liblzma を
+  # 揃える必要ができたため、検査に加えた。
+  #
+  # 出来た zip は使わない。deploy のワークフローが自分で作り直す。
+  # ここで見たいのは、リンクが通ることだけである。
+  build:
+    name: static build
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.relevant == 'true') }}
+    # build.sh は linux/arm64 のイメージを走らせる。
+    # arm のランナーなら、その場の命令セットのまま動く。
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: build bootstrap.zip
+        run: status-server/backend/build.sh

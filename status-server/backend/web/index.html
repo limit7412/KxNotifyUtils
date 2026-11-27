@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- どのスタックのページも検索結果に出さない（仕様書 6.1）。
+         ヘッダ（X-Robots-Tag）で返すには Response Header Transform の Ruleset が
+         要るので、meta で書く。meta ならスタックごとの出し分けも要らない。 -->
+    <meta name="robots" content="noindex" />
+    <!-- 外部からは何も読み込まない。読み込む先が無ければ、閲覧者の情報が第三者へ
+         渡ることも、外部配信元の改竄がこのページへ及ぶこともない（仕様書 6.1）。
+         インラインの script と style はハッシュで許可する。
+         ハッシュは infra/src/page.ts が中身から計算して照合するので、
+         書き換えたまま貼り替え忘れると pulumi up が止まる。 -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; connect-src 'self'; script-src 'sha256-VzsqBMLOOLsAwo10U0yJyL4SheCoZGwKQddgtE7c0qg='; style-src 'sha256-m9MyJAJ6VrOs8IAkTMHWaR7KOAQcuJVFwa1NbpA4/LA='; base-uri 'none'; form-action 'none'"
+    />
+    <title>VRChatの関連サービスの監視状況</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fbfbfa;
+        --fg: #1c1b19;
+        --muted: #6b6862;
+        --line: #e3e1dc;
+        --card: #ffffff;
+        --level-0: #2f855a;
+        --level-1: #b7791f;
+        --level-2: #c53030;
+        --level-3: #8a8781;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #171614;
+          --fg: #eceae5;
+          --muted: #a3a099;
+          --line: #2f2d29;
+          --card: #1f1e1b;
+          --level-0: #68d391;
+          --level-1: #f6cf7a;
+          --level-2: #fc8181;
+          --level-3: #9b988f;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px 16px 48px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans",
+          "Noto Sans JP", sans-serif;
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      .generated {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .notice {
+        margin: 16px 0 0;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--level-1);
+        border-radius: 4px;
+        background: var(--card);
+        font-size: 13px;
+      }
+
+      .services {
+        margin: 20px 0 0;
+        padding: 0;
+        list-style: none;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--card);
+        overflow: hidden;
+      }
+
+      .service {
+        display: grid;
+        grid-template-columns: 10px 1fr auto;
+        gap: 4px 10px;
+        align-items: baseline;
+        padding: 12px 14px;
+        border-top: 1px solid var(--line);
+      }
+
+      .service:first-child {
+        border-top: 0;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--level-3);
+        transform: translateY(-1px);
+      }
+
+      .dot[data-level="0"] {
+        background: var(--level-0);
+      }
+
+      .dot[data-level="1"] {
+        background: var(--level-1);
+      }
+
+      .dot[data-level="2"] {
+        background: var(--level-2);
+      }
+
+      .name {
+        font-weight: 600;
+      }
+
+      .estimated {
+        margin-left: 6px;
+        padding: 1px 5px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 400;
+        vertical-align: 1px;
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 13px;
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .note {
+        grid-column: 2 / 4;
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+
+      .raw {
+        margin: 20px 0 0;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--card);
+        font-size: 12px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .footer {
+        margin: 24px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .footer a {
+        color: inherit;
+      }
+
+      @media (max-width: 420px) {
+        .service {
+          grid-template-columns: 10px 1fr;
+        }
+
+        .label {
+          grid-column: 2;
+          text-align: left;
+        }
+
+        .note {
+          grid-column: 2;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>VRChatの関連サービスの監視状況</h1>
+      <p class="generated" id="generated">取得中</p>
+      <p class="notice" id="notice" hidden></p>
+      <ul class="services" id="services" hidden></ul>
+      <pre class="raw" id="raw" hidden></pre>
+      <p class="footer">
+        <a href="https://github.com/limit7412/VRCServiceStatusPanel">limit7412/VRCServiceStatusPanel</a>
+      </p>
+    </main>
+    <script>
+      (function () {
+        "use strict";
+
+        // このページが整形できるスキーマ（仕様書 4）。
+        // 上流の v がこれでなければ整形をやめ、応答をそのまま出す。
+        // 古い解釈で整形を続けると、スキーマを変えた後に誤った状態を出し続ける。
+        var SCHEMA_VERSION = 1;
+
+        // 更新が止まったと見なす間隔（仕様書 6、8.3）。ワールド側と同じ判定にする。
+        var STALE_SECONDS = 300;
+
+        // 仕様書 3.1 の四段階。level が決まれば label も決まる。
+        // 添字がそのまま level なので、対応の検査にも使う。
+        var LABELS = ["Operational", "Degraded", "Major Outage", "Unknown"];
+
+        // 仕様書 4 の source。
+        var SOURCES = ["official", "synthetic"];
+
+        var FEED_URL = "v1/status.json";
+
+        var generated = document.getElementById("generated");
+        var notice = document.getElementById("notice");
+        var services = document.getElementById("services");
+        var raw = document.getElementById("raw");
+
+        // 上流由来の文字列は textContent でだけ置き、HTML として解釈させない
+        // （仕様書 6.1）。要素を作る経路をここへ一本化する。
+        function element(tag, className, text) {
+          var el = document.createElement(tag);
+          if (className) {
+            el.className = className;
+          }
+          if (text !== undefined && text !== null) {
+            el.textContent = String(text);
+          }
+          return el;
+        }
+
+        function show(el, text) {
+          el.textContent = text;
+          el.hidden = false;
+        }
+
+        // 経過時間。秒より細かくは出さない。
+        function elapsed(seconds) {
+          if (seconds < 60) {
+            return seconds + " 秒前";
+          }
+          var minutes = Math.floor(seconds / 60);
+          if (minutes < 60) {
+            return minutes + " 分前";
+          }
+          var hours = Math.floor(minutes / 60);
+          if (hours < 24) {
+            return hours + " 時間前";
+          }
+          return Math.floor(hours / 24) + " 日前";
+        }
+
+        function renderGenerated(feed) {
+          var age = Math.floor(Date.now() / 1000) - feed.generated_unix;
+          if (age < 0) {
+            age = 0;
+          }
+          generated.textContent = feed.generated_jst + "（" + elapsed(age) + "）";
+          return age;
+        }
+
+        function renderNotice(feed, age) {
+          if (age > STALE_SECONDS) {
+            show(
+              notice,
+              "集約サーバーの更新が止まっています。表示しているのは " +
+                elapsed(age) +
+                "の状態です。",
+            );
+            return;
+          }
+          if (feed.stale) {
+            // stale が立つのは、成功した観測が一件も無いときである
+            // （backend の Status::Usecase）。取得できなかったサービスが
+            // 何を表示するかは source によって違うので、ここでは言わない。
+            // official は前回値を引き継ぎ、synthetic は今回の結果から決め直す。
+            show(notice, "取得に成功した上流が一つもありません。");
+          }
+        }
+
+        function renderService(service) {
+          var row = element("li", "service");
+
+          var dot = element("span", "dot");
+          dot.setAttribute("data-level", String(service.level));
+          row.appendChild(dot);
+
+          var name = element("span", "name", service.name);
+          if (service.source === "synthetic") {
+            // 合成監視は到達の確認からの推定である（仕様書 3.3）。
+            name.appendChild(element("span", "estimated", "推定"));
+          }
+          row.appendChild(name);
+
+          row.appendChild(element("span", "label", service.label));
+
+          if (service.note) {
+            row.appendChild(element("p", "note", service.note));
+          }
+
+          return row;
+        }
+
+        function renderFeed(feed) {
+          var age = renderGenerated(feed);
+          renderNotice(feed, age);
+
+          feed.services.forEach(function (service) {
+            services.appendChild(renderService(service));
+          });
+          services.hidden = false;
+        }
+
+        function reset() {
+          notice.hidden = true;
+          notice.textContent = "";
+          services.hidden = true;
+          services.textContent = "";
+          raw.hidden = true;
+          raw.textContent = "";
+        }
+
+        // 整形できない応答は、判断の材料が残るように本文をそのまま出す。
+        // 途中まで並べた行は消す。読めた分と読めなかった分が混じって見えると、
+        // どこまでが応答の中身なのか分からなくなる。
+        function renderUnformatted(message, body) {
+          reset();
+          generated.textContent = message;
+          raw.textContent = body;
+          raw.hidden = false;
+        }
+
+        // 使う項目だけを見る。型が違っても JavaScript は暗黙に変換して通すので、
+        // 例外に頼ると「null（NaN 日前）」のような表示になり、本文も隠れる。
+        // 表示に使わない項目（id、url、checked_unix）は見ない。
+        //
+        // level と source は型だけでなく値も見る。どちらも表示の分岐に使うので、
+        // 定義の外の値が来ると黙って別の意味に化ける。level 99 は色が引けずに
+        // Unknown と同じ灰色になり、source の綴りが違えば「推定」が消える。
+        //
+        // label は level と組で見る。level 0 に「Major Outage」のような食い違いは、
+        // 緑の点と障害の表示が同じ行に並んで、壊れた配信内容が正常な状態に見える。
+        // 範囲は別に見る。組の一致だけに任せると、level が範囲の外で label も
+        // 欠けた組（どちらも undefined）が通ってしまう。
+        function isService(service) {
+          return (
+            service !== null &&
+            typeof service === "object" &&
+            typeof service.name === "string" &&
+            Number.isInteger(service.level) &&
+            service.level >= 0 &&
+            service.level < LABELS.length &&
+            service.label === LABELS[service.level] &&
+            typeof service.note === "string" &&
+            SOURCES.indexOf(service.source) !== -1
+          );
+        }
+
+        function isFeed(feed) {
+          return (
+            Number.isSafeInteger(feed.generated_unix) &&
+            typeof feed.generated_jst === "string" &&
+            typeof feed.stale === "boolean" &&
+            Array.isArray(feed.services) &&
+            feed.services.every(isService)
+          );
+        }
+
+        function handle(body) {
+          var feed;
+          try {
+            feed = JSON.parse(body);
+          } catch (error) {
+            renderUnformatted("応答を JSON として読めませんでした。", body);
+            return;
+          }
+
+          // JSON として読めても、配信 JSON の形とは限らない。
+          // null も配列も JSON.parse を通るので、ここで弾く。
+          if (feed === null || typeof feed !== "object" || Array.isArray(feed)) {
+            renderUnformatted("配信 JSON の形ではありません。", body);
+            return;
+          }
+
+          if (feed.v !== SCHEMA_VERSION) {
+            renderUnformatted(
+              "このページが知らないスキーマです（v" +
+                String(feed.v) +
+                "）。ページの更新が要ります。",
+              body,
+            );
+            return;
+          }
+
+          if (!isFeed(feed)) {
+            renderUnformatted("v1 の形になっていない項目があります。", body);
+            return;
+          }
+
+          // 形を見た後も、想定していない壊れ方は残りうる。
+          // 整形の途中で落ちたときも本文を残す。壊れた配信内容を見るための
+          // ページで「取得に失敗しました」とだけ出しては、材料が残らない。
+          try {
+            renderFeed(feed);
+          } catch (error) {
+            renderUnformatted("応答を整形できませんでした（" + error.message + "）。", body);
+          }
+        }
+
+        // 取り方は既定のままにする。
+        // 見せたいのはワールドが読むのと同じ URL を同じキャッシュで通した応答で、
+        // 配信 JSON の Cache-Control は 30 秒なので、写しもそれだけで切れる。
+        // no-store を指定すると、ブラウザによっては要求に再検証の指示が付き、
+        // CDN の写しを飛ばして取り直すことになる（仕様書 6.1）。
+        fetch(FEED_URL)
+          .then(function (response) {
+            if (response.status === 404) {
+              // 集約サーバーより先にこのページだけを置いた段階がこれにあたる。
+              generated.textContent = "未配信です。集約サーバーがまだ書き出していません。";
+              return null;
+            }
+            if (!response.ok) {
+              throw new Error("HTTP " + response.status);
+            }
+            return response.text();
+          })
+          .then(function (body) {
+            if (body !== null) {
+              handle(body);
+            }
+          })
+          .catch(function (error) {
+            generated.textContent = "取得に失敗しました（" + error.message + "）。";
+          });
+      })();
+    </script>
+  </body>
+</html>
