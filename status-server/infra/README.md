@@ -762,10 +762,10 @@ Subject 違いで四つ要る。
 | Token type | Personal |
 | Scope | `user:limit7412` |
 | Audience | `urn:pulumi:org:limit7412` |
-| Subject（`dev`、新しい形） | `repo:limit7412@19320218/VRCServiceStatusPanel@1346007387:environment:dev` |
-| Subject（`dev`、古い形） | `repo:limit7412/VRCServiceStatusPanel:environment:dev` |
-| Subject（`prod`、新しい形） | `repo:limit7412@19320218/VRCServiceStatusPanel@1346007387:environment:prod` |
-| Subject（`prod`、古い形） | `repo:limit7412/VRCServiceStatusPanel:environment:prod` |
+| Subject（`dev`、新しい形） | `repo:limit7412@19320218/KxNotifyUtils@1345671851:environment:dev` |
+| Subject（`dev`、古い形） | `repo:limit7412/KxNotifyUtils:environment:dev` |
+| Subject（`prod`、新しい形） | `repo:limit7412@19320218/KxNotifyUtils@1345671851:environment:prod` |
+| Subject（`prod`、古い形） | `repo:limit7412/KxNotifyUtils:environment:prod` |
 
 **形が二つあるのは、GitHub がこの claim の形を移しているためである。**
 いま届くトークンは、所有者とリポジトリの数値 ID を含む新しい形である。
@@ -822,7 +822,7 @@ PATCH /api/orgs/<orgName>/auth/policies/<policyId>
   "authorizedPermissions": null,
   "rules": {
     "aud": "urn:pulumi:org:limit7412",
-    "sub": "repo:limit7412@19320218/VRCServiceStatusPanel@1346007387:environment:dev"
+    "sub": "repo:limit7412@19320218/KxNotifyUtils@1345671851:environment:dev"
   }
 }
 ```
@@ -836,7 +836,7 @@ PATCH /api/orgs/<orgName>/auth/policies/<policyId>
 差し替えるときは Allow だけを並べる。
 並べなかった交換は、どのみち通らない。
 
-fork するなら、この表の `limit7412` と `limit7412/VRCServiceStatusPanel` を自分のものに書き換える。
+fork するなら、この表の `limit7412` と `limit7412/KxNotifyUtils` を自分のものに書き換える。
 ワークフロー側の `organization` と `scope` も同じ値にする。
 
 **カスタムドメインの接続。**

@@ -7,10 +7,10 @@ require "uri"
 # VR プレイ中に「VRChat 側の障害なのか自環境の問題なのか」を切り分けるのが目的であり、
 # 稼働状態が変わったときだけ通知を出す。
 #
-# 取得元は各サービスのステータスページではなく、VRCServiceStatusPanel の配信 JSON である。
+# 取得元は各サービスのステータスページではなく、集約サーバー（status-server/）の配信 JSON である。
 # あちらが 1 分ごとに各サービスを見て 4 段階のレベルへ判定済みで配っており、
 # 本体側に Statuspage の読み方や合成監視の判定を持ち込まずに済む。
-# この JSON の形は VRCServiceStatusPanel の仕様書 4 章にある。
+# この JSON の形は、移設前のリポジトリ（VRCServiceStatusPanel）の仕様書 4 章にある。
 module ServiceStatus
   SOURCE_ID = "service_status"
 
@@ -77,7 +77,7 @@ module ServiceStatus
 
   # 配信に含まれるサービス。設定画面に並べる順序と、設定ファイルの既定に使う。
   #
-  # 配信側の並び（VRCServiceStatusPanel の main.cr）に合わせてある。
+  # 配信側の並び（status-server/backend の main.cr）に合わせてある。
   # 表示名は配信の name を使うが、画面は取得の前に組み立てるためここにも持つ。
   KNOWN_SERVICES = {
     "vrchat"     => "VRChat",
@@ -89,10 +89,10 @@ module ServiceStatus
     "twitch"     => "Twitch",
   }
 
-  # 取得元の VRCServiceStatusPanel。設定画面から開けるようにする。
-  # 今の状態を見るページと、配信の中身を説明したリポジトリである。
+  # 取得元の集約サーバー（status-server/）。設定画面から開けるようにする。
+  # 今の状態を見るページと、配信の中身を説明した文書の置き場所である。
   PAGE_URL       = "https://vrc-status.oxymoron.link/index.html"
-  REPOSITORY_URL = "https://github.com/limit7412/VRCServiceStatusPanel"
+  REPOSITORY_URL = "https://github.com/limit7412/KxNotifyUtils/tree/master/status-server"
 
   # 既定で知らせるサービス。issue #5 のコメントで決めた 3 つである。
   DEFAULT_ENABLED_SERVICES = %w[vrchat youtube steam]
