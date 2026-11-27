@@ -1,4 +1,4 @@
-encryptionsalt: v1:1pJ/3O/WvGY=:v1:oqJlz7qaUZ677PLv:5k4WXzQQrbjXhRYPzjrMzR6M8B272g==
+encryptionsalt: v1:00g38wni2BU=:v1:Iq9wNQ9KM4gkKMZu:O/EMX68w62TLUx7Wq2yJCiV0N+9iOA==
 config:
   aws:region: ap-northeast-1
   vrc-service-status-panel:cloudflareAccountId: 32cd31ff8a5c721c0583f57a83cb731e
@@ -8,5 +8,5 @@ config:
   vrc-service-status-panel:youtubeProbeVideoId: "-3opIii0LBU"
   vrc-service-status-panel:boothProbeItemId: "8763171"
   vrc-service-status-panel:alertWebhookUrl:
-    secure: v1:pHmgTdBtNokpCuxS:T8gNTUyTlxDFFAMUrx/lPBHgPSTfUNZIJG38VlgcxBy4sugVzs4U6ximaIdTg4/Pt6uBRDyBPrbEgTakouPH58E07dOiQW/tYLL2iD486oSPz1F3VzvmIcpZWj4fzTxd6O6VG4XS6UI/zx8QMwidja9/z07ODZz4cfBpsZX1Ks8l0Zmu5qSCfQ2DmIiioWA7ylBplX4BmSClxXHR6hL83BoJCD0TgcCeCagM/TI5lrhYDMz3B8GaNt5ocP7dA1Rkh4g8rDGokrasf0i2RLJUbsyUDCQ7WZvIqm6J5MpOs1S0d1KjPV9Cc3V7nMX4eormetBh9V9C9XJJ0mwLjGNqBC8U
+    secure: v1:fr6zHFXKqdnOBUzL:oR/+1pzpUPA4oo4/rjKiLQh3o6/iYBRLykhrDOiVfAQSRnpAaKbptK60Qmodgyy07ZgdSCB0X6t4qzbIKXh8G1GicRBdRgONkejVan0kKtLz5VXyfMhSl/vniOxL/FBAre9Sm4TmNLg53hkfwdPi+gK0y5W2Z5EhPvhP5lqaP7POsW7C2FyNSpfKf/QxyXHWVJW2VNFPdf733p5p4GD38xmkMuqFIUDVD0DJRHeahrKr9bF+QlZLd9bF1L3UyaxTILDY2OIiUb4uie8p4CUo0EF1AazRIBSVah4lczMgPDh65ju6CQC04PV4/wzysPKEEtyrpJFpZPdqrNhQTNb3354f
   vrc-service-status-panel:workloadBoundaryName: qazx7412-vrc-service-status-panel-workload-boundary
