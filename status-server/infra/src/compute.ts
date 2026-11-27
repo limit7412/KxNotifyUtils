@@ -79,6 +79,31 @@ export function createFunctions(environment: Environment): Compute {
         );
         functions.push(fn);
 
+        // Lambda 側の非同期実行でも再試行しない（仕様書 5.3、#76）。
+        //
+        // Scheduler は Lambda を非同期で呼ぶ。下の retryPolicy が止めるのは
+        // Scheduler から Lambda へ渡すところの再試行だけで、渡したあとの再試行は
+        // Lambda の非同期実行の設定が決める。既定では、関数がエラーやタイムアウトで
+        // 終わると、Lambda が 1 分、2 分と間を置いてあと 2 回動かす。
+        // https://docs.aws.amazon.com/lambda/latest/dg/invocation-async-error-handling.html
+        //
+        // refresh の再試行は毎分の通常の起動と重なり、同じ state.json を読み書きする。
+        // 履歴が競合し、「直近 3 回」の判定が毎分 1 回の観測ではなくなる。
+        //
+        // 待ち行列に残す時間も下限の 60 秒にする。
+        // スロットリングやサービス側のエラーでは、既定だと最大 6 時間まで
+        // 間隔を空けながら動かし直す。60 秒を過ぎたものは次の起動が引き継ぐので、
+        // それより古い起動を後から動かす理由が無い。
+        new aws.lambda.FunctionEventInvokeConfig(
+            spec.handler,
+            {
+                functionName: fn.name,
+                maximumRetryAttempts: 0,
+                maximumEventAgeInSeconds: 60,
+            },
+            onAws,
+        );
+
         if (spec.schedule === undefined) {
             continue;
         }
