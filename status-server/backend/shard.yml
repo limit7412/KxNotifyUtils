@@ -11,7 +11,7 @@ dependencies:
   # 同じ実装で S3 にも向けられる。
   awscr-s3:
     github: taylorfinnell/awscr-s3
-    version: ~> 0.11.0
+    version: ~> 0.12.0
 
 development_dependencies:
   ameba:
