@@ -202,7 +202,7 @@ Pulumi が組み立てていたころは `aws:region` から取っていたが�
 | Sid | 何を許すか |
 | --- | --- |
 | `FunctionsRead` | 関数の読み取り |
-| `FunctionsWrite` | 関数の作成、削除、コードと設定の更新 |
+| `FunctionsWrite` | 関数の作成、削除、コードと設定の更新、非同期実行の設定 |
 | `Layers` | Layer の発行、読み取り、削除 |
 | `ReadRoles` | ロールの読み取りと受け渡し |
 | `CreateBoundedRoles` | 権限境界の付いたロールだけを作る |
@@ -221,6 +221,10 @@ Pulumi が組み立てていたころは `aws:region` から取っていたが�
 読み取りを `lambda:Get*` と `lambda:List*` でまとめてあるのは、Pulumi が指定していない
 項目もドリフト検出のために読みに行くためである。
 一つずつ並べると、足りない一つが見つかるたびに CI が止まる。
+
+`FunctionsWrite` の `*FunctionEventInvokeConfig` は、非同期実行の再試行を止める設定のためにある（#76）。
+読み取りの `GetFunctionEventInvokeConfig` は `lambda:Get*` に含まれる。
+#76 で足した。足す前のロールで `pulumi up` を流すと、この設定を作るところで `AccessDenied` になる。
 
 `CreateBoundedRoles` と `WriteBoundedRolePolicies` の条件は、境界の無いロールを作らせない
 ためのものである。
@@ -272,10 +276,13 @@ CloudWatch のアラームアクションには
       "Action": [
         "lambda:CreateFunction",
         "lambda:DeleteFunction",
+        "lambda:DeleteFunctionEventInvokeConfig",
+        "lambda:PutFunctionEventInvokeConfig",
         "lambda:TagResource",
         "lambda:UntagResource",
         "lambda:UpdateFunctionCode",
-        "lambda:UpdateFunctionConfiguration"
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:UpdateFunctionEventInvokeConfig"
       ],
       "Resource": "arn:aws:lambda:ap-northeast-1:<アカウントID>:function:qazx7412-vrc-service-status-panel-*"
     },

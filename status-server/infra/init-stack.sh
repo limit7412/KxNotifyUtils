@@ -264,6 +264,21 @@ current_config() {
     pulumi -C "$dir" config get --stack "$stack" "$key" 2> /dev/null || true
 }
 
+# 値を設定へ書く。
+#
+# 値の前には -- を置く。
+# 置かないと、ハイフンで始まる値を pulumi がオプションとして読み、
+# unknown shorthand flag で止まる（#77）。
+# YouTube の動画 ID は先頭が - になりうるので、youtubeProbeVideoId で実際に当たる。
+# Pulumi CLI 3.259.0 で、-3opIii0LBU が -- 無しでは落ち、-- を置けば通ることを確かめた。
+#
+# 秘密の値はここを通さない。set_secret が標準入力から渡す。
+config_set() {
+    local dir="$1" key="$2" value="$3"
+
+    pulumi -C "$dir" config set --stack "$stack" "$key" -- "$value"
+}
+
 # 省略できない値。空で返ってきたら聞き直す。
 set_required() {
     local dir="$1" key="$2" label="$3" default="${4:-}" existing=""
@@ -277,7 +292,7 @@ set_required() {
         echo "  ここは省略できない" >&2
     done
 
-    pulumi -C "$dir" config set --stack "$stack" "$key" "$ANSWER"
+    config_set "$dir" "$key" "$ANSWER"
 }
 
 # 省略できる値。空なら設定へ書かない。
@@ -292,7 +307,7 @@ set_optional() {
         return 0
     fi
 
-    pulumi -C "$dir" config set --stack "$stack" "$key" "$ANSWER"
+    config_set "$dir" "$key" "$ANSWER"
 }
 
 # aws を呼ぶ。出力は標準出力へ、雑音は捨てる。
@@ -367,7 +382,7 @@ rename_config() {
     has_config "$dir" "$old" || return 0
 
     if ! has_config "$dir" "$new"; then
-        pulumi -C "$dir" config set --stack "$stack" "$new" "$(current_config "$dir" "$old")"
+        config_set "$dir" "$new" "$(current_config "$dir" "$old")"
         echo "  $old を $new へ引き継いだ"
     fi
 
@@ -421,7 +436,7 @@ if has_config "$here" workloadBoundaryArn; then
     boundary_now="${boundary_was#arn:*:iam::*:policy/}"
 
     if [ -n "$boundary_now" ] && [ -z "$(current_config "$here" workloadBoundaryName)" ]; then
-        pulumi -C "$here" config set --stack "$stack" workloadBoundaryName "$boundary_now"
+        config_set "$here" workloadBoundaryName "$boundary_now"
         echo "  workloadBoundaryArn を workloadBoundaryName へ移した（$boundary_now）"
     fi
 
@@ -436,7 +451,7 @@ region_default=$(current_config "$here" aws:region)
 # 全スタックで同じにする。デプロイロールと権限境界をスタック間で共有しており、
 # その ARN にはリージョンが一つしか書けない（docs/aws-oidc.md）。
 ask "AWS のリージョン（仕様書 5.1。全スタックで同じにする）" "$region_default" || abort_on_eof
-pulumi -C "$here" config set --stack "$stack" aws:region "$ANSWER"
+config_set "$here" aws:region "$ANSWER"
 
 echo
 echo "--- Cloudflare（仕様書 6） ---"
