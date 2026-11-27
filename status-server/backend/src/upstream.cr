@@ -12,7 +12,7 @@ module Upstream
   VERSION = {{ read_file("#{__DIR__}/../shard.yml").lines.find(&.starts_with?("version:")).split(": ").last.strip }}
 
   # 名乗り（仕様書 5.4）。VRChat API を含むすべての上流に同じ値を送る。
-  USER_AGENT = "VRCServiceStatusPanel/#{VERSION} (+https://github.com/limit7412/VRCServiceStatusPanel)"
+  USER_AGENT = "VRCServiceStatusPanel/#{VERSION} (+https://github.com/limit7412/KxNotifyUtils)"
 
   # 接続と応答待ちの上限（仕様書 3.3、5.2）。
   # 中核が持つ値をそのまま使い、秒数を二箇所に置かない。

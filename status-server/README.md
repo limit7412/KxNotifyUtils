@@ -16,7 +16,6 @@
 | `infra/` | デプロイ定義。Pulumi で AWS（Lambda、Scheduler、アラーム）と Cloudflare（R2）を作る。詳細は `infra/README.md` |
 | `docs/aws-oidc.md` | GitHub Actions が AWS へ入るための OIDC とロールの記録 |
 | `docs/release.md` | どの契機でどこへ出すか |
-| `docs/migration.md` | デプロイ元をこのリポジトリへ切り替える手順 |
 
 本体とは shard も依存も別である。
 `backend/` は独自の `shard.yml` を持ち、Crystal のコマンドは `status-server/backend/` を作業ディレクトリにして走らせる。
@@ -56,10 +55,6 @@ Lambda へ載せる zip は `status-server/backend/build.sh` が作る。docker 
 | `infra-ci.yml` | `status-server-infra-ci.yml` |
 | `deploy-dev.yml` | `status-server-deploy-prod.yml`（出す先も `dev` から `prod` に変えた） |
 | `deploy.yml` | `status-server-deploy.yml` |
-
-`docs/aws-oidc.md` と `infra/README.md` の信頼設定の節は、元のリポジトリの名前（`limit7412/VRCServiceStatusPanel`）で書いてある。
-デプロイ元の切り替え（`docs/migration.md`）が済むまでは、それが AWS と Pulumi Cloud にある現物と一致する。
-切り替えが済んだら、この二つの文書をこのリポジトリの名前へ書き換える。
 
 AWS と Cloudflare に作ったものの名前（`qazx7412-vrc-service-status-panel-…`）と、配信の URL は移設の後も変えない。
 名前は置き換えでしか変えられず、変えるとバケットも関数も作り直しになる（`infra/README.md` の「名前の付け方」）。

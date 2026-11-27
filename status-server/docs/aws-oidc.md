@@ -20,7 +20,7 @@ ARN は `infra/src/roles.ts` がその場のアカウントから組む（#26）
 `Pulumi.<スタック名>.yaml` は commit するので、ここに ARN を置くと
 アカウント ID がそのまま載ることになる。
 
-`arn:aws:` の `aws`、`ap-northeast-1`、`limit7412/VRCServiceStatusPanel` は
+`arn:aws:` の `aws`、`ap-northeast-1`、`limit7412/KxNotifyUtils` は
 伏せ字ではなく、いま動いているものの実際の値である。
 **fork したり、別のリージョンやパーティションへ出したりするなら、この三つも書き換える。**
 リージョンは Lambda、Logs、Scheduler の ARN に入っており、スタックの `aws:region` と
@@ -85,10 +85,10 @@ GitHub を含むいくつかの発行者について、AWS は自前の信頼さ
         },
         "StringLike": {
           "token.actions.githubusercontent.com:sub": [
-            "repo:limit7412/VRCServiceStatusPanel:environment:dev",
-            "repo:limit7412@19320218/VRCServiceStatusPanel@1346007387:environment:dev",
-            "repo:limit7412/VRCServiceStatusPanel:environment:prod",
-            "repo:limit7412@19320218/VRCServiceStatusPanel@1346007387:environment:prod"
+            "repo:limit7412/KxNotifyUtils:environment:dev",
+            "repo:limit7412@19320218/KxNotifyUtils@1345671851:environment:dev",
+            "repo:limit7412/KxNotifyUtils:environment:prod",
+            "repo:limit7412@19320218/KxNotifyUtils@1345671851:environment:prod"
           ]
         }
       }
@@ -107,12 +107,12 @@ GitHub を含むいくつかの発行者について、AWS は自前の信頼さ
 ワークフローが environment を参照する前に届いていたのは次で、`ref:` の部分が `environment:dev` に変わる。
 
 ```
-sub=repo:limit7412@19320218/VRCServiceStatusPanel@1346007387:ref:refs/heads/master
+sub=repo:limit7412@19320218/KxNotifyUtils@1345671851:ref:refs/heads/master
 ```
 
 古い形だけを書いていたころ、`configure-aws-credentials` は
 `Not authorized to perform sts:AssumeRoleWithWebIdentity` で止まっていた（#41）。
-`gh api /repos/limit7412/VRCServiceStatusPanel/actions/oidc/customization/sub` は
+`gh api /repos/limit7412/KxNotifyUtils/actions/oidc/customization/sub` は
 `use_immutable_subject` に `false` を返すが、実際に届くトークンはこの形だった。
 設定の返り値ではなく、届いたトークンの `sub` が正である。
 
@@ -517,7 +517,7 @@ CloudWatch のアラームアクションには
 
 - `<アカウントID>` を自分の AWS アカウント ID にする
 - `ap-northeast-1` を、そのスタックの `aws:region` と同じリージョンにする
-- 信頼ポリシーの `repo:limit7412/VRCServiceStatusPanel` と `repo:limit7412@19320218/VRCServiceStatusPanel@1346007387` を、自分の `owner/repo` と数値 ID にする
+- 信頼ポリシーの `repo:limit7412/KxNotifyUtils` と `repo:limit7412@19320218/KxNotifyUtils@1345671851` を、自分の `owner/repo` と数値 ID にする
 - `arn:aws:` を、出す先のパーティションにする（`aws-cn`、`aws-us-gov`）
 
 パーティションは商用の `aws` のままでよいことがほとんどである。
@@ -566,7 +566,7 @@ aws iam create-policy \
 ```
 aws iam create-role \
   --role-name qazx7412-vrc-service-status-panel-github-deploy \
-  --description "Deploy role for GitHub Actions in limit7412/VRCServiceStatusPanel" \
+  --description "Deploy role for GitHub Actions in limit7412/KxNotifyUtils" \
   --assume-role-policy-document file://trust.json
 ```
 

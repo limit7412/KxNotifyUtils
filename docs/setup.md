@@ -76,7 +76,7 @@ Discord や Twitch など、既定で無効になっているサービスもこ�
 
 通知が出るのは状態が変わったときだけである。
 起動したときに既に障害が起きていても通知は出ないので、今の状態を見たいときは
-[VRCServiceStatusPanel](https://github.com/limit7412/VRCServiceStatusPanel) の配信ページを見る。
+配信ページ（<https://vrc-status.oxymoron.link/index.html>）を見る。
 
 ## 7. OyasumiVR と連携する
 
