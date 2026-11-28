@@ -202,8 +202,55 @@ module ServiceStatus
     end
   end
 
+  # サービスごとに覚えておく、通知の判断の材料。
+  #
+  # 時刻は配信の生成時刻（UNIX 秒）である。本体の時計ではなく配信の時刻で測るのは、
+  # 続いた長さを決めるのが集約サーバーの観測だからである。本体が配信を取りに行く
+  # 間隔が揺れても、続いた長さは変わらない。
+  private class Track
+    # 直近に見た既知の段階。ログに変化を残すために持つ。
+    property observed : Level
+    # 利用者が知っている段階。通知を出したときだけ動く。
+    property notified : Level
+    # 正常でない状態が始まった時刻。正常なら nil である。
+    property abnormal_since : Int64?
+    # 大規模障害が始まった時刻。大規模障害でなければ nil である。
+    property major_since : Int64?
+    # 正常な状態が始まった時刻。正常でなければ nil である。
+    property operational_since : Int64?
+
+    def initialize(level : Level, at : Int64)
+      @observed = level
+      @notified = level
+      observe(level, at)
+    end
+
+    # 今回の段階を取り込み、それぞれの状態が始まった時刻を更新する。
+    def observe(level : Level, at : Int64) : Nil
+      @observed = level
+      if level.operational?
+        @abnormal_since = nil
+        @major_since = nil
+        @operational_since ||= at
+      else
+        @operational_since = nil
+        @abnormal_since ||= at
+        @major_since = level.major_outage? ? (@major_since || at) : nil
+      end
+    end
+  end
+
   # 外部サービスの障害検知の SourceRepository 実装。
   # 前回のレベルとの比較という、このソースに固有の差分検出をここに閉じる（仕様書 4.2 節）。
+  #
+  # 段階が変わっても、すぐには知らせない。変わった先の状態が設定の長さだけ続いてから
+  # 知らせる（Settings の degraded_for_s、major_outage_for_s、recovered_for_s）。
+  # 集約サーバーの合成監視は一回の取得失敗で一部障害へ下げ、三回ぶんの配信のあいだ
+  # 戻さない。待たずに知らせると、単発のタイムアウトのたびに障害と復旧の二通が出る。
+  #
+  # 知らせるのは、利用者が知っている段階より悪くなったときと、正常へ戻ったときである。
+  # 大規模障害から一部障害へ軽くなったことは知らせない。使えない状態が続いていることに
+  # 変わりは無く、利用者が次に知りたいのは復旧だからである。
   class Repository < Notify::SourceRepository
     Log = ::Log.for("service_status")
 
@@ -220,8 +267,8 @@ module ServiceStatus
     property texts : Texts
 
     def initialize(@client : FeedClient, @settings : Settings, @texts : Texts)
-      # サービスごとの前回の既知のレベル。無いものは比較の対象にしない。
-      @levels = {} of String => Level
+      # サービスごとの判断の材料。無いものは初めて見たサービスとして扱う。
+      @tracks = {} of String => Track
       # 直近に読んだ配信の生成時刻。同じなら未更新である。
       @last_generated = 0_i64
       # 直近に取りに行った時刻。間隔を変えたときに次の時刻を引き直すために持つ。
@@ -257,7 +304,7 @@ module ServiceStatus
         reset_diff_state
         @client.reset
       else
-        @levels.reject! { |id, _| !settings.service_enabled?(id) }
+        @tracks.reject! { |id, _| !settings.service_enabled?(id) }
         if settings.polling_interval_s != @settings.polling_interval_s
           if last = @last_fetch_at
             @next_fetch = last + settings.polling_interval_s.seconds
@@ -302,7 +349,7 @@ module ServiceStatus
     end
 
     private def reset_diff_state : Nil
-      @levels.clear
+      @tracks.clear
       @last_generated = 0_i64
       @waiting = false
       @last_fetch_at = nil
@@ -376,29 +423,67 @@ module ServiceStatus
         return [] of Notify::Incoming
       end
 
+      # 生成時刻を持たない配信は、読んだ時刻で代える。
+      at = feed.generated_unix > 0 ? feed.generated_unix : Time.utc.to_unix
+
       fresh = [] of Notify::Incoming
       feed.services.each do |service|
         next unless @settings.service_enabled?(service.id)
 
         level = service.level_enum
-        # 判定不能は比較の材料にしない。前回の既知のレベルをそのまま保つ。
+        # 判定不能は判断の材料にしない。覚えている状態と、それが始まった時刻をそのまま保つ。
         next unless level.known?
 
-        previous = @levels[service.id]?
-        @levels[service.id] = level
+        track = @tracks[service.id]?
 
         # 初めて見たサービスは覚えるだけにする。
         # 起動時に進行中の障害を知らせると、VR を始めるたびに同じ通知が出る。
-        if previous.nil?
+        # 進行中の障害は利用者が知っているものとして扱い、復旧だけを知らせる。
+        if track.nil?
+          @tracks[service.id] = Track.new(level, at)
           Log.info { "#{service.id} の状態: #{level}" } unless level.operational?
           next
         end
-        next if previous == level
 
-        Log.info { "#{service.id} の状態が変わった: #{previous} -> #{level}" }
-        fresh << to_incoming(service, level, feed)
+        previous = track.observed
+        track.observe(level, at)
+        Log.info { "#{service.id} の状態が変わった: #{previous} -> #{level}" } if previous != level
+
+        if announced = announce(track, level, at)
+          track.notified = announced
+          Log.info { "#{service.id} を知らせる: #{announced}" }
+          fresh << to_incoming(service, announced, feed)
+        end
       end
       fresh
+    end
+
+    # 今回知らせる段階を返す。知らせないなら nil を返す。
+    #
+    # 一部障害として知らせる条件は「正常でない状態」の長さで見る。一部障害と大規模障害を
+    # 行き来していても、使えない状態は続いているためである。段階ごとに測り直すと、
+    # 行き来するたびに待ち時間が延び、障害が続いているのに何も知らされない。
+    private def announce(track : Track, level : Level, at : Int64) : Level?
+      notified = track.notified
+
+      if level.operational?
+        return nil if notified.operational?
+        return Level::Operational if lasted?(track.operational_since, at, @settings.recovered_for_s)
+        return nil
+      end
+
+      if level.major_outage? && !notified.major_outage?
+        return Level::MajorOutage if lasted?(track.major_since, at, @settings.major_outage_for_s)
+      end
+
+      if notified.operational? && lasted?(track.abnormal_since, at, @settings.degraded_for_s)
+        return Level::Degraded
+      end
+      nil
+    end
+
+    private def lasted?(since : Int64?, at : Int64, for_s : Int32) : Bool
+      !since.nil? && at - since >= for_s
     end
 
     private def to_incoming(service : Service, level : Level, feed : Feed) : Notify::Incoming
