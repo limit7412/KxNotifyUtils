@@ -5,7 +5,7 @@ require "uri"
 #
 # VRChat や YouTube の障害を VR の中で知るためのソースである。
 # VR プレイ中に「VRChat 側の障害なのか自環境の問題なのか」を切り分けるのが目的であり、
-# 稼働状態が変わったときだけ通知を出す。
+# 稼働状態が変わり、その状態が続いたときだけ通知を出す。
 #
 # 取得元は各サービスのステータスページではなく、集約サーバー（status-server/）の配信 JSON である。
 # あちらが 1 分ごとに各サービスを見て 4 段階のレベルへ判定済みで配っており、
@@ -114,8 +114,28 @@ module ServiceStatus
     DEFAULT_POLLING_INTERVAL_S = 60
     POLLING_INTERVAL_RANGE     = 30..3600
 
+    # 段階が変わってから知らせるまでに、その状態が続くべき長さ（秒）。
+    #
+    # 配信はおよそ 60 秒ごとに作られるが、生成時刻は取得元の応答待ちで数秒揺れる。
+    # 60 の倍数を既定にすると、同じ回数の配信でも揺れ次第で届いたり届かなかったりする。
+    # 既定は倍数の中間に置き、「何回続いたら知らせるか」が揺れで変わらないようにする。
+    #
+    # 150 秒は、正常でない配信が 4 回続いたときに届く。集約サーバーの合成監視は
+    # 直近 3 回の観測で判定するため、単発の取得失敗でも一部障害が 3 回（約 120 秒）続く。
+    # 4 回目を待てば、単発の失敗は知らせずに済む。
+    DEFAULT_DEGRADED_FOR_S = 150
+    # 30 秒は、大規模障害の配信が 2 回続いたときに届く。
+    DEFAULT_MAJOR_OUTAGE_FOR_S = 30
+    # 90 秒は、正常な配信が 3 回続いたときに届く。
+    DEFAULT_RECOVERED_FOR_S = 90
+    # 0 は、変わった回にそのまま知らせることを表す。
+    FOR_RANGE = 0..3600
+
     property enabled : Bool = true
     property polling_interval_s : Int32 = DEFAULT_POLLING_INTERVAL_S
+    property degraded_for_s : Int32 = DEFAULT_DEGRADED_FOR_S
+    property major_outage_for_s : Int32 = DEFAULT_MAJOR_OUTAGE_FOR_S
+    property recovered_for_s : Int32 = DEFAULT_RECOVERED_FOR_S
     # サービスごとの有効と無効。書かれていない id は無効として扱う。
     # 配信側にサービスが増えても、黙って通知が増えないためである。
     property services : Hash(String, Bool) = Settings.default_services
@@ -172,6 +192,15 @@ module ServiceStatus
       unless POLLING_INTERVAL_RANGE.includes?(settings.polling_interval_s)
         errors << "sources.service_status.polling_interval_s は " \
                   "#{POLLING_INTERVAL_RANGE.begin} から #{POLLING_INTERVAL_RANGE.end} の範囲で指定する"
+      end
+
+      {
+        "degraded_for_s"     => settings.degraded_for_s,
+        "major_outage_for_s" => settings.major_outage_for_s,
+        "recovered_for_s"    => settings.recovered_for_s,
+      }.each do |key, value|
+        next if FOR_RANGE.includes?(value)
+        errors << "sources.service_status.#{key} は #{FOR_RANGE.begin} から #{FOR_RANGE.end} の範囲で指定する"
       end
 
       uri = URI.parse(settings.feed_url) rescue nil

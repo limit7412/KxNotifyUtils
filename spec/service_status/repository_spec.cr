@@ -13,8 +13,26 @@ private def feed_json(services : Hash(String, Int32), generated : Int64 = 1_i64,
   %({"v": #{version}, "generated_unix": #{generated}, "stale": #{stale}, "services": [#{entries.join(",")}]})
 end
 
-private def repository(client = Fakes::FeedClient.new, settings = ServiceStatus::Settings.new) : ServiceStatus::Repository
+# 待たずに知らせる設定。差分検出そのものを確かめる例で使う。
+# 続いた長さを待つ動きは「続いた長さ」の例で、既定の設定のまま確かめる。
+private def immediate(json : String = "{}") : ServiceStatus::Settings
+  settings = ServiceStatus::Settings.from_json(json)
+  settings.degraded_for_s = 0
+  settings.major_outage_for_s = 0
+  settings.recovered_for_s = 0
+  settings
+end
+
+private def repository(client = Fakes::FeedClient.new, settings = immediate) : ServiceStatus::Repository
   ServiceStatus::Repository.new(client, settings, TEXTS)
+end
+
+# 配信の並びを順に読ませ、回ごとに知らせた件名を返す。知らせなかった回は nil である。
+# 配信は 60 秒おきに作られたものとして時刻を振る。
+private def titles(target : ServiceStatus::Repository, levels : Array(Int32), start : Int64 = 1000_i64) : Array(String?)
+  levels.map_with_index do |level, index|
+    target.ingest(feed_json({"vrchat" => level}, generated: start + index * 60)).first?.try(&.title)
+  end
 end
 
 describe ServiceStatus::Repository do
@@ -134,16 +152,110 @@ describe ServiceStatus::Repository do
     end
   end
 
+  # 既定の設定で確かめる。配信は 60 秒おきで、既定の長さはそれぞれ
+  # 正常でない配信の 4 回目、大規模障害の 2 回目、正常な配信の 3 回目で届く。
+  describe "#ingest（続いた長さ）" do
+    # 集約サーバーの合成監視は、一回の取得失敗で一部障害を 3 回ぶん配る。
+    it "単発の取得失敗にあたる 3 回の一部障害は、障害も復旧も知らせない" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 1, 1, 1, 0, 0, 0, 0]).compact.should be_empty
+    end
+
+    it "一部障害は 4 回続いたところで知らせる" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 1, 1, 1, 1, 1]).should eq [nil, nil, nil, nil, "一部で障害が発生", nil]
+    end
+
+    it "大規模障害は 2 回続いたところで知らせる" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 2, 2, 2]).should eq [nil, nil, "大規模な障害が発生", nil]
+    end
+
+    it "一回だけの大規模障害は知らせず、正常でない状態の長さで一部障害として知らせる" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 1, 2, 1, 1]).should eq [nil, nil, nil, nil, "一部で障害が発生"]
+    end
+
+    it "一部障害を知らせたあとで大規模障害へ悪化したら、もう一度知らせる" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 1, 1, 1, 1, 2, 2]).compact.should eq ["一部で障害が発生", "大規模な障害が発生"]
+    end
+
+    it "大規模障害から一部障害へ軽くなったことは知らせず、行き来しても繰り返さない" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 2, 2, 1, 1, 2, 2, 1]).compact.should eq ["大規模な障害が発生"]
+    end
+
+    it "復旧は正常が 3 回続いたところで知らせる" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 2, 2, 0, 0, 0, 0]).should eq [nil, nil, "大規模な障害が発生", nil, nil, "復旧", nil]
+    end
+
+    it "復旧を待つあいだに障害へ戻ったら、復旧を知らせない" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 2, 2, 0, 0, 2, 0, 0, 2, 2]).compact.should eq ["大規模な障害が発生"]
+    end
+
+    it "知らせていない障害の復旧は知らせない" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 1, 1, 0, 0, 0, 0]).compact.should be_empty
+    end
+
+    it "起動したときに進行中だった障害は、復旧だけを知らせる" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [1, 1, 1, 1, 1, 0, 0, 0]).compact.should eq ["復旧"]
+    end
+
+    it "起動したときに一部障害で、あとから大規模障害へ悪化したら知らせる" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [1, 2, 2]).compact.should eq ["大規模な障害が発生"]
+    end
+
+    it "判定不能の回は長さを測り直さない" do
+      target = repository(settings: ServiceStatus::Settings.new)
+
+      titles(target, [0, 1, 3, 3, 1]).should eq [nil, nil, nil, nil, "一部で障害が発生"]
+    end
+
+    # 生成時刻は取得元の応答待ちで数秒揺れる。回数で決まる結果が、揺れで変わってはならない。
+    it "配信の生成時刻が数秒揺れても、知らせる回は変わらない" do
+      early = repository(settings: ServiceStatus::Settings.new)
+      late = repository(settings: ServiceStatus::Settings.new)
+      offsets = {early => [0, 68, 120, 172, 232], late => [0, 52, 120, 188, 248]}
+
+      offsets.each do |target, times|
+        fresh = times.zip([0, 1, 1, 1, 1]).map do |time, level|
+          target.ingest(feed_json({"vrchat" => level}, generated: 1000_i64 + time)).size
+        end
+        fresh.should eq [0, 0, 0, 0, 1]
+      end
+    end
+
+    it "長さを 0 にすると、変わった回にそのまま知らせる" do
+      titles(repository, [0, 1, 2, 0]).should eq [nil, "一部で障害が発生", "大規模な障害が発生", "復旧"]
+    end
+  end
+
   describe "#settings=" do
     it "無効にしたサービスの記録を捨て、有効に戻したときは初回として覚え直す" do
       target = repository
       target.ingest(feed_json({"vrchat" => 0}, generated: 1))
 
-      disabled = ServiceStatus::Settings.from_json(%({"services": {"vrchat": false}}))
-      target.settings = disabled
+      target.settings = immediate(%({"services": {"vrchat": false}}))
       target.ingest(feed_json({"vrchat" => 2}, generated: 2)).should be_empty
 
-      target.settings = ServiceStatus::Settings.new
+      target.settings = immediate
       # 無効にしていた間の変化は知らせない。
       target.ingest(feed_json({"vrchat" => 2}, generated: 3)).should be_empty
       target.ingest(feed_json({"vrchat" => 0}, generated: 4)).size.should eq 1
@@ -154,7 +266,7 @@ describe ServiceStatus::Repository do
       target = repository(client)
       target.ingest(feed_json({"vrchat" => 0}, generated: 1))
 
-      target.settings = ServiceStatus::Settings.from_json(%({"feed_url": "http://localhost:8000/status.json"}))
+      target.settings = immediate(%({"feed_url": "http://localhost:8000/status.json"}))
 
       client.reset_count.should eq 1
       target.ingest(feed_json({"vrchat" => 2}, generated: 1)).should be_empty
@@ -205,7 +317,7 @@ describe ServiceStatus::Repository do
         ServiceStatus::Response.body(feed_json({"vrchat" => 0}, generated: 1)),
         ServiceStatus::Response.body(feed_json({"vrchat" => 2}, generated: 2)),
       ])
-      target = repository(client, ServiceStatus::Settings.from_json(%({"polling_interval_s": 3600})))
+      target = repository(client, immediate(%({"polling_interval_s": 3600})))
       target.start
 
       now = Time.monotonic
@@ -213,7 +325,7 @@ describe ServiceStatus::Repository do
       target.poll_new(now + 100.seconds).should be_empty
       client.urls.size.should eq 1
 
-      target.settings = ServiceStatus::Settings.from_json(%({"polling_interval_s": 30}))
+      target.settings = immediate(%({"polling_interval_s": 30}))
 
       target.poll_new(now + 100.seconds).size.should eq 1
       client.urls.size.should eq 2

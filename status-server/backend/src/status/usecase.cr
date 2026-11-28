@@ -56,6 +56,8 @@ module Status
         services << status_for(source, observation, history, previous, generated_at)
       end
 
+      report_changes(previous, services)
+
       feed = Feed.new(
         generated_at: generated_at,
         stale: observations.none?(&.success?),
@@ -125,6 +127,29 @@ module Status
       Log.warn do
         details = failed.map { |observation| "#{observation.service_id}=#{observation.note}" }
         "取れなかった #{details.join(" ")}"
+      end
+    end
+
+    # level が前回の配信から変わったサービスを、一件ずつ一行に残す。
+    #
+    # 配信 JSON と state.json は上書きされるので、過ぎた level はどこにも残らない。
+    # 合成監視の level は取得の失敗の記録から組み立て直せるが、公式ステータスページの
+    # level は上流の値の写しであり、ここで残さなければ後から知る手立てが無い。
+    # 通知の頻度を見直したとき、VRChat だけは何回変わったかを数えられなかった。
+    #
+    # 前回値の無いサービスは残さない。初回の実行と、取得元を足した直後がこれにあたり、
+    # 変わったのではなく初めて決まっただけである。
+    #
+    # note は上流の文面を含むが、ServiceStatus が改行を除いて一行に整えてある。
+    # CloudWatch は改行で記録を割るので、整える前の文面をここへ出してはならない。
+    private def report_changes(previous : State, services : Array(ServiceStatus)) : Nil
+      services.each do |service|
+        last = previous.service_of(service.id)
+        next if last.nil? || last.level == service.level
+
+        Log.info do
+          "level が変わった service_id=#{service.id} from=#{last.level} to=#{service.level} note=#{service.note}"
+        end
       end
     end
 

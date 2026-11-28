@@ -431,6 +431,51 @@ describe Status::Usecase do
       end
     end
 
+    # 配信と state.json は上書きされる。過ぎた level が残るのは記録だけである。
+    it "level が前回の配信から変わったサービスを記録に残す" do
+      sources = [
+        FakeSource.new(
+          service_id: "vrchat",
+          observation: success("vrchat", Status::Level::Degraded, note: "Login\nPartial Outage"),
+        ),
+        FakeSource.new(
+          service_id: "discord",
+          observation: success("discord", Status::Level::Operational),
+        ),
+      ] of Status::SourceRepository
+      state = Status::State.new(services: {
+        "vrchat"  => previous_status("vrchat", Status::Level::Operational, "", NOW - 1.minute),
+        "discord" => previous_status("discord", Status::Level::Operational, "", NOW - 1.minute),
+      })
+
+      Log.capture("status") do |logs|
+        refresh(sources, FakeFeeds.new(state))
+
+        logs.check(:info, /level が変わった/)
+        message = logs.entry.message
+        message.should contain("service_id=vrchat from=0 to=1")
+        # CloudWatch は改行で記録を割る。一件を一行に収める。
+        message.should contain("note=LoginPartial Outage")
+        message.should_not contain("\n")
+        message.should_not contain("discord")
+      end
+    end
+
+    it "前回値の無いサービスは、level が変わったものとして残さない" do
+      source = FakeSource.new(
+        service_id: "vrchat",
+        observation: success("vrchat", Status::Level::MajorOutage),
+      )
+
+      Log.capture("status") do |logs|
+        refresh([source] of Status::SourceRepository, FakeFeeds.new)
+
+        # check は先頭の一件を見る。変化を残していれば、所要の行より前に来る。
+        logs.check(:info, /所要/)
+        logs.empty
+      end
+    end
+
     it "すべて取れたときは警告を残さない" do
       source = FakeSource.new(
         service_id: "vrchat",
