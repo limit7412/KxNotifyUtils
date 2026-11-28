@@ -6,6 +6,9 @@ describe ServiceStatus::Settings do
 
     settings.enabled.should be_true
     settings.polling_interval_s.should eq 60
+    settings.degraded_for_s.should eq 150
+    settings.major_outage_for_s.should eq 30
+    settings.recovered_for_s.should eq 90
     settings.service_enabled?("vrchat").should be_true
     settings.service_enabled?("youtube").should be_true
     settings.service_enabled?("steam").should be_true
@@ -81,6 +84,17 @@ describe ServiceStatus::Settings do
       errors = ServiceStatus::Settings.validate(JSON.parse(%({"polling_interval_s": 5})))
       errors.size.should eq 1
       errors.first.should contain "polling_interval_s"
+    end
+
+    it "続いた長さの範囲外を弾く" do
+      %w[degraded_for_s major_outage_for_s recovered_for_s].each do |key|
+        errors = ServiceStatus::Settings.validate(JSON.parse(%({"#{key}": -1})))
+        errors.size.should eq 1
+        errors.first.should contain key
+
+        ServiceStatus::Settings.validate(JSON.parse(%({"#{key}": 3601}))).should_not be_empty
+        ServiceStatus::Settings.validate(JSON.parse(%({"#{key}": 0}))).should be_empty
+      end
     end
 
     it "URL でない feed_url を弾く" do

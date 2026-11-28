@@ -406,6 +406,9 @@ module Config
           {
             "enabled": true,
             "polling_interval_s": 60,
+            "degraded_for_s": 150,
+            "major_outage_for_s": 30,
+            "recovered_for_s": 90,
             "services": {
               "vrchat": true, "youtube": true, "steam": true,
               "booth": false, "discord": false, "cloudflare": false, "twitch": false
