@@ -8,5 +8,5 @@ config:
   vrc-service-status-panel:youtubeProbeVideoId: "-3opIii0LBU"
   vrc-service-status-panel:boothProbeItemId: "8763171"
   vrc-service-status-panel:alertWebhookUrl:
-    secure: v1:oiXf3JXPQjbwtjUz:Z7oool/oArylZ5b9dG2/3pmlMs16w6w2Sxcr+OMlKRU8wmORyu1H7MNE3lOsWgYlfKMfQpOqSuceO5w6mSi5OpDCwJG0uNl+8e/vs7w/ouiup/8l0sJYVdGQV7+ZEATUQBkvwupgDF2A5U0pWLsoFacGej5pu/vDqQ5znbap36OzCQyABDLP0zm5M1VbGp8hRKlniaNRLTa09ODpi4wx34+mVuj7gXUl0EWKPjwHdmdnArFGa9YCacki/209rt/0w17jBZN7fIPbG74A+tcNN5fRi9zrkIXgnXZb+p7pLYKoPU+2wfe1W+WC8uJSv3utdGOMmvtIKP+MVdlmtGnrByw0
+    secure: v1:XO8yBXMU6B6m3Yt9:pITBMYvbzGsMYnk8sGLmSEzap02Be/6TBzNgpSd1yIK9wD0h1nDgFDqUn6LVYzCXUnFm+Xp6n5lt42FEWFWXxMarsHV0plvr4ZBVMtOSkLn1SqO3qCJYnUPtI++lWqaaEtf3cVLMuBFQMFcL6+n/Awm0lPm37EsATv3PqfgYIPjTW7y3XhiRp4E=
   vrc-service-status-panel:workloadBoundaryName: qazx7412-vrc-service-status-panel-workload-boundary
