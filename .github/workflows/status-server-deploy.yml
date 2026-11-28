@@ -311,3 +311,15 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
           # Cloudflare は OIDC に対応していないので、ここだけ Secrets から渡す
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # 失敗の通知の送信先が今も受け取れるかを、出したあとで確かめる（#83）。
+      # 送信先が消えていても pulumi up は通る。URL は関数の環境変数へ渡るだけで、
+      # 誰も送ってみないためである。消えていればここで実行を失敗にし、
+      # 次に refresh が落ちるより前に気付けるようにする。
+      # 出す前には置かない。通知の不備で、直すための変更まで出せなくなる
+      - name: check the alert webhook
+        run: ./check-alert-webhook.sh "$ORG/$STACK"
+        working-directory: status-server/infra
+        env:
+          STACK: ${{ inputs.stack }}
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
